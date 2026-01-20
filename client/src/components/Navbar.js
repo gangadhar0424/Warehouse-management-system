@@ -46,6 +46,7 @@ const Navbar = () => {
   const [anchorEl, setAnchorEl] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
+  const [currentDateTime, setCurrentDateTime] = useState(new Date());
   const [occupancyData, setOccupancyData] = useState({
     totalSections: 0,
     occupiedSections: 0,
@@ -72,6 +73,36 @@ const Navbar = () => {
         console.error('Error fetching occupancy data:', error);
       }
     }
+  }, []);
+
+  // Format date and time
+  const formatDateTime = (date) => {
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    
+    let hours = date.getHours();
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    
+    hours = hours % 12;
+    hours = hours ? hours : 12; // 0 should be 12
+    const formattedHours = String(hours).padStart(2, '0');
+    
+    return {
+      date: `${day}/${month}/${year}`,
+      time: `${formattedHours}:${minutes}:${seconds} ${ampm}`
+    };
+  };
+
+  useEffect(() => {
+    // Update time every second
+    const timer = setInterval(() => {
+      setCurrentDateTime(new Date());
+    }, 1000);
+
+    return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -161,27 +192,33 @@ const Navbar = () => {
             Warehouse Management System
           </Typography>
 
+          {/* Real-time Date and Time Display */}
+          {!isMobile && (
+            <Box sx={{ display: 'flex', alignItems: 'center', mr: 3 }}>
+              <Box sx={{ 
+                display: 'flex', 
+                flexDirection: 'column',
+                alignItems: 'center', 
+                bgcolor: 'rgba(255,255,255,0.1)', 
+                px: 2, 
+                py: 0.5, 
+                borderRadius: 1 
+              }}>
+                <Typography variant="body2" fontWeight="bold" sx={{ letterSpacing: 0.5 }}>
+                  {formatDateTime(currentDateTime).date}
+                </Typography>
+                <Typography variant="caption" sx={{ letterSpacing: 1 }}>
+                  {formatDateTime(currentDateTime).time}
+                </Typography>
+              </Box>
+            </Box>
+          )}
+
           {/* Warehouse Occupancy Display */}
           {user?.role === 'owner' && !isMobile && (
             <Box sx={{ display: 'flex', alignItems: 'center', mr: 2 }}>
-              <Tooltip title="Warehouse Occupancy">
-                <Box sx={{ display: 'flex', alignItems: 'center', bgcolor: 'rgba(255,255,255,0.1)', px: 2, py: 0.5, borderRadius: 1 }}>
-                  <Warehouse fontSize="small" sx={{ mr: 1 }} />
-                  <Box sx={{ textAlign: 'center', minWidth: 60 }}>
-                    <Typography variant="caption" display="block">
-                      {occupancyData.occupiedSections}/{occupancyData.totalSections} Sections
-                    </Typography>
-                    <LinearProgress 
-                      variant="determinate" 
-                      value={occupancyData.occupancyPercentage} 
-                      sx={{ height: 4, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.2)' }}
-                    />
-                  </Box>
-                </Box>
-              </Tooltip>
-              
               <Tooltip title="Total Grain Storage">
-                <Box sx={{ display: 'flex', alignItems: 'center', bgcolor: 'rgba(255,255,255,0.1)', px: 2, py: 0.5, borderRadius: 1, ml: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', bgcolor: 'rgba(255,255,255,0.1)', px: 2, py: 0.5, borderRadius: 1 }}>
                   <Grain fontSize="small" sx={{ mr: 1 }} />
                   <Box sx={{ textAlign: 'center' }}>
                     <Typography variant="caption" display="block">

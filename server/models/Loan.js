@@ -34,7 +34,7 @@ const loanSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['pending', 'approved', 'active', 'completed', 'defaulted'],
+    enum: ['pending', 'approved', 'active', 'completed', 'defaulted', 'rejected'],
     default: 'pending'
   },
   disbursementDate: Date,
@@ -91,7 +91,13 @@ const loanSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
   },
-  approvedDate: Date
+  approvedDate: Date,
+  rejectedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  rejectedDate: Date,
+  rejectionReason: String
 }, {
   timestamps: true
 });

@@ -11,12 +11,13 @@ router.get('/', auth, async (req, res) => {
       return res.status(403).json({ message: 'Access denied' });
     }
 
-    const { page = 1, limit = 10, status, customerId, startDate, endDate } = req.query;
+    const { page = 1, limit = 10, status, customerId, startDate, endDate, type } = req.query;
 
     // Build filter query
     const filter = {};
     if (status) filter.status = status;
     if (customerId) filter.customerId = customerId;
+    if (type) filter.type = type;
     if (startDate && endDate) {
       filter.createdAt = {
         $gte: new Date(startDate),
@@ -25,8 +26,8 @@ router.get('/', auth, async (req, res) => {
     }
 
     const transactions = await Transaction.find(filter)
-      .populate('customerId', 'username email profile')
-      .populate('vehicleId', 'vehicleNumber type')
+      .populate('customer', 'username email profile')
+      .populate('vehicle', 'vehicleNumber type')
       .sort({ createdAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit);

@@ -560,4 +560,55 @@ router.post('/razorpay-webhook', require('express').json(), (req, res) => {
   res.json({ received: true });
 });
 
+// @route   POST /api/payments/storage-rent
+// @desc    Create storage rent payment transaction
+// @access  Private
+router.post('/storage-rent', auth, [
+  body('allocationId').notEmpty().withMessage('Allocation ID is required'),
+  body('amount').isNumeric().withMessage('Amount must be a number'),
+  body('method').isIn(['cash', 'upi', 'bank_transfer', 'razorpay']).withMessage('Invalid payment method')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { allocationId, amount, method, reference, notes } = req.body;
+
+    // Create transaction record for storage rent
+    const transaction = new Transaction({
+      transactionId: `RENT-${allocationId}-${Date.now()}`,
+      type: 'grain_storage_rent',
+      customer: req.user.id,
+      amount: {
+        baseAmount: parseFloat(amount),
+        totalAmount: parseFloat(amount)
+      },
+      payment: {
+        method,
+        status: 'completed',
+        reference: reference || '',
+        date: new Date()
+      },
+      metadata: {
+        allocationId,
+        notes: notes || `Storage rent payment - ₹${parseFloat(amount)}`
+      }
+    });
+
+    await transaction.save();
+
+    res.json({
+      success: true,
+      message: 'Storage rent payment recorded successfully',
+      transaction
+    });
+
+  } catch (error) {
+    console.error('Error recording storage rent payment:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
 module.exports = router;

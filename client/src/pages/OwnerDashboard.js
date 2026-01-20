@@ -57,10 +57,9 @@ import { useSocket } from '../contexts/SocketContext';
 import axios from 'axios';
 
 // Import new dashboard components
-import OwnerAnalyticsDashboard from '../components/OwnerAnalyticsDashboard';
+import CombinedAnalytics from '../components/CombinedAnalytics';
 import LoanPortfolioManager from '../components/LoanPortfolioManager';
 import AlertsCenter from '../components/AlertsCenter';
-import FinancialReports from '../components/FinancialReports';
 import DynamicWarehouseLayoutManager from '../components/DynamicWarehouseLayoutManager';
 import UserManagementPanel from '../components/UserManagementPanel';
 
@@ -393,17 +392,37 @@ const OwnerDashboard = () => {
 
 
 
-  const CustomerManagement = () => (
-    null
-  );
+
 
   const WarehouseTransactions = () => {
     const [transactions, setTransactions] = useState([]);
     const [transactionFilter, setTransactionFilter] = useState('all');
+    const [viewDialogOpen, setViewDialogOpen] = useState(false);
+    const [selectedTransaction, setSelectedTransaction] = useState(null);
 
     useEffect(() => {
       fetchTransactions();
     }, [transactionFilter]);
+
+    const handleViewTransaction = (transaction) => {
+      setSelectedTransaction(transaction);
+      setViewDialogOpen(true);
+    };
+
+    const handleCloseDialog = () => {
+      setViewDialogOpen(false);
+      setSelectedTransaction(null);
+    };
+
+    const formatDateTime = (date) => {
+      const d = new Date(date);
+      const day = String(d.getDate()).padStart(2, '0');
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const year = d.getFullYear();
+      const hours = String(d.getHours()).padStart(2, '0');
+      const minutes = String(d.getMinutes()).padStart(2, '0');
+      return `${day}/${month}/${year} ${hours}:${minutes}`;
+    };
 
     const fetchTransactions = async () => {
       try {
@@ -420,20 +439,22 @@ const OwnerDashboard = () => {
 
     const getTransactionIcon = (type) => {
       switch (type) {
-        case 'weighbridge': return <Scale />;
+        case 'weighbridge_fee': return <Scale />;
         case 'loan_repayment': return <MonetizationOn />;
-        case 'rent_payment': return <Home />;
-        case 'storage_fee': return <Inventory />;
+        case 'grain_storage_rent': return <Home />;
+        case 'grain_loan': return <MonetizationOn />;
+        case 'grain_release': return <Inventory />;
         default: return <AttachMoney />;
       }
     };
 
     const getTransactionColor = (type) => {
       switch (type) {
-        case 'weighbridge': return 'primary';
+        case 'weighbridge_fee': return 'primary';
         case 'loan_repayment': return 'success';
-        case 'rent_payment': return 'warning';
-        case 'storage_fee': return 'info';
+        case 'grain_storage_rent': return 'warning';
+        case 'grain_loan': return 'info';
+        case 'grain_release': return 'secondary';
         default: return 'default';
       }
     };
@@ -454,10 +475,11 @@ const OwnerDashboard = () => {
                 label="Filter"
               >
                 <MenuItem value="all">All Transactions</MenuItem>
-                <MenuItem value="weighbridge">Weighbridge</MenuItem>
+                <MenuItem value="weighbridge_fee">Weighbridge Fees</MenuItem>
                 <MenuItem value="loan_repayment">Loan Repayments</MenuItem>
-                <MenuItem value="rent_payment">Rent Payments</MenuItem>
-                <MenuItem value="storage_fee">Storage Fees</MenuItem>
+                <MenuItem value="grain_storage_rent">Storage Rent</MenuItem>
+                <MenuItem value="grain_loan">Grain Loans</MenuItem>
+                <MenuItem value="grain_release">Grain Release</MenuItem>
               </Select>
             </FormControl>
             <Button
@@ -475,7 +497,7 @@ const OwnerDashboard = () => {
             <Card>
               <CardContent>
                 <Typography variant="h6" color="primary">
-                  ₹{transactions.reduce((sum, t) => sum + (t.amount || 0), 0).toLocaleString()}
+                  ₹{transactions.reduce((sum, t) => sum + (t.amount?.totalAmount || t.amount?.baseAmount || t.amount || 0), 0).toLocaleString()}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
                   Total Revenue Today
@@ -487,7 +509,7 @@ const OwnerDashboard = () => {
             <Card>
               <CardContent>
                 <Typography variant="h6" color="success.main">
-                  {transactions.filter(t => t.type === 'weighbridge').length}
+                  {transactions.filter(t => t.type === 'weighbridge_fee').length}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
                   Weighbridge Transactions
@@ -511,10 +533,10 @@ const OwnerDashboard = () => {
             <Card>
               <CardContent>
                 <Typography variant="h6" color="info.main">
-                  {transactions.filter(t => t.type === 'rent_payment').length}
+                  {transactions.filter(t => t.type === 'grain_storage_rent').length}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Rent Payments
+                  Storage Rent Payments
                 </Typography>
               </CardContent>
             </Card>
@@ -556,21 +578,28 @@ const OwnerDashboard = () => {
                   </TableCell>
                   <TableCell>
                     <Typography variant="body2" fontWeight="bold" color="success.main">
-                      ₹{transaction.amount?.toLocaleString()}
+                      ₹{(transaction.amount?.totalAmount || transaction.amount?.baseAmount || transaction.amount || 0).toLocaleString()}
                     </Typography>
                   </TableCell>
                   <TableCell>
-                    {new Date(transaction.createdAt).toLocaleDateString()}
+                    <Typography variant="body2">
+                      {formatDateTime(transaction.createdAt || transaction.payment?.date)}
+                    </Typography>
                   </TableCell>
                   <TableCell>
                     <Chip
-                      label={transaction.status || 'completed'}
-                      color={transaction.status === 'completed' ? 'success' : 'warning'}
+                      label={(transaction.payment?.status || transaction.status || 'pending').toUpperCase()}
+                      color={(transaction.payment?.status || transaction.status) === 'completed' ? 'success' : 'warning'}
                       size="small"
                     />
                   </TableCell>
                   <TableCell>
-                    <Button size="small" startIcon={<Visibility />}>
+                    <Button 
+                      size="small" 
+                      startIcon={<Visibility />}
+                      onClick={() => handleViewTransaction(transaction)}
+                      variant="outlined"
+                    >
                       View
                     </Button>
                   </TableCell>
@@ -591,6 +620,116 @@ const OwnerDashboard = () => {
             </Typography>
           </Box>
         )}
+
+        {/* Transaction Details Dialog */}
+        <Dialog open={viewDialogOpen} onClose={handleCloseDialog} maxWidth="md" fullWidth>
+          <DialogTitle>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Typography variant="h6">Transaction Details</Typography>
+              {selectedTransaction && selectedTransaction.type && (
+                <Chip
+                  icon={getTransactionIcon(selectedTransaction.type)}
+                  label={selectedTransaction.type.replace(/_/g, ' ').toUpperCase()}
+                  color={getTransactionColor(selectedTransaction.type)}
+                />
+              )}
+            </Box>
+          </DialogTitle>
+          <DialogContent dividers>
+            {selectedTransaction && (
+              <Grid container spacing={2}>
+                <Grid item xs={12} md={6}>
+                  <Paper sx={{ p: 2, backgroundColor: 'grey.50' }}>
+                    <Typography variant="caption" color="text.secondary">Transaction ID</Typography>
+                    <Typography variant="body1" fontWeight="bold">
+                      {selectedTransaction.transactionId || selectedTransaction._id}
+                    </Typography>
+                  </Paper>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Paper sx={{ p: 2, backgroundColor: 'grey.50' }}>
+                    <Typography variant="caption" color="text.secondary">Date & Time</Typography>
+                    <Typography variant="body1" fontWeight="bold">
+                      {formatDateTime(selectedTransaction.createdAt || selectedTransaction.payment?.date)}
+                    </Typography>
+                  </Paper>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Paper sx={{ p: 2, backgroundColor: 'grey.50' }}>
+                    <Typography variant="caption" color="text.secondary">Customer</Typography>
+                    <Typography variant="body1" fontWeight="bold">
+                      {selectedTransaction.customer?.profile?.firstName} {selectedTransaction.customer?.profile?.lastName}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {selectedTransaction.customer?.email}
+                    </Typography>
+                  </Paper>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Paper sx={{ p: 2, backgroundColor: 'grey.50' }}>
+                    <Typography variant="caption" color="text.secondary">Status</Typography>
+                    <Box sx={{ mt: 0.5 }}>
+                      <Chip
+                        label={(selectedTransaction.payment?.status || selectedTransaction.status || 'pending').toUpperCase()}
+                        color={(selectedTransaction.payment?.status || selectedTransaction.status) === 'completed' ? 'success' : 'warning'}
+                        size="small"
+                      />
+                    </Box>
+                  </Paper>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Paper sx={{ p: 2, backgroundColor: 'success.50' }}>
+                    <Typography variant="caption" color="text.secondary">Base Amount</Typography>
+                    <Typography variant="h6" color="success.main" fontWeight="bold">
+                      ₹{(selectedTransaction.amount?.baseAmount || selectedTransaction.amount || 0).toLocaleString()}
+                    </Typography>
+                  </Paper>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Paper sx={{ p: 2, backgroundColor: 'primary.50' }}>
+                    <Typography variant="caption" color="text.secondary">Total Amount</Typography>
+                    <Typography variant="h6" color="primary.main" fontWeight="bold">
+                      ₹{(selectedTransaction.amount?.totalAmount || selectedTransaction.amount?.baseAmount || selectedTransaction.amount || 0).toLocaleString()}
+                    </Typography>
+                  </Paper>
+                </Grid>
+                {selectedTransaction.payment?.method && (
+                  <Grid item xs={12} md={6}>
+                    <Paper sx={{ p: 2, backgroundColor: 'grey.50' }}>
+                      <Typography variant="caption" color="text.secondary">Payment Method</Typography>
+                      <Typography variant="body1" fontWeight="bold">
+                        {selectedTransaction.payment.method.toUpperCase()}
+                      </Typography>
+                    </Paper>
+                  </Grid>
+                )}
+                {selectedTransaction.payment?.reference && (
+                  <Grid item xs={12} md={6}>
+                    <Paper sx={{ p: 2, backgroundColor: 'grey.50' }}>
+                      <Typography variant="caption" color="text.secondary">Payment Reference</Typography>
+                      <Typography variant="body1" fontWeight="bold">
+                        {selectedTransaction.payment.reference}
+                      </Typography>
+                    </Paper>
+                  </Grid>
+                )}
+                {selectedTransaction.metadata?.notes && (
+                  <Grid item xs={12}>
+                    <Paper sx={{ p: 2, backgroundColor: 'grey.50' }}>
+                      <Typography variant="caption" color="text.secondary">Notes</Typography>
+                      <Typography variant="body2">
+                        {selectedTransaction.metadata.notes}
+                      </Typography>
+                    </Paper>
+                  </Grid>
+                )}
+              </Grid>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleCloseDialog}>Close</Button>
+          </DialogActions>
+        </Dialog>
       </Paper>
     );
   };
@@ -811,25 +950,19 @@ const OwnerDashboard = () => {
         <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)} variant="scrollable" scrollButtons="auto">
           <Tab label="Warehouse Layout Manager" />
           <Tab label="User Management" />
-          <Tab label="Customer Management" />
           <Tab label="Transactions" />
-          <Tab label="Reports & Analytics" />
-          <Tab label="Analytics Dashboard" />
+          <Tab label="Analytics" />
           <Tab label="Loan Portfolio" />
           <Tab label="Alerts Center" />
-          <Tab label="Financial Reports" />
         </Tabs>
       </Box>
 
       {activeTab === 0 && <DynamicWarehouseLayoutManager />}
       {activeTab === 1 && <UserManagementPanel />}
-      {activeTab === 2 && <CustomerManagement />}
-      {activeTab === 3 && <WarehouseTransactions />}
-      {activeTab === 4 && <ReportsAnalytics />}
-      {activeTab === 5 && <OwnerAnalyticsDashboard />}
-      {activeTab === 6 && <LoanPortfolioManager />}
-      {activeTab === 7 && <AlertsCenter />}
-      {activeTab === 8 && <FinancialReports />}
+      {activeTab === 2 && <WarehouseTransactions />}
+      {activeTab === 3 && <CombinedAnalytics />}
+      {activeTab === 4 && <LoanPortfolioManager />}
+      {activeTab === 5 && <AlertsCenter />}
 
       {/* Worker Addition Dialog */}
       <Dialog open={workerDialog} onClose={() => setWorkerDialog(false)} maxWidth="sm" fullWidth>

@@ -6,6 +6,7 @@ const StorageAllocation = require('../models/StorageAllocation');
 const Loan = require('../models/Loan');
 const Vehicle = require('../models/Vehicle');
 const User = require('../models/User');
+const { sendAlertSMS, sendBulkSMS } = require('../utils/smsService');
 
 const router = express.Router();
 
@@ -395,6 +396,268 @@ router.get('/owner/alerts', auth, authorize('owner'), async (req, res) => {
 
   } catch (error) {
     console.error('Error fetching alerts:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   GET /api/analytics/owner/loan-portfolio
+// @desc    Get loan portfolio analytics
+// @access  Private (Owner only)
+router.get('/owner/loan-portfolio', auth, authorize('owner'), async (req, res) => {
+  try {
+    const loans = await Loan.find();
+    
+    const totalIssued = loans.length;
+    const activeLoans = loans.filter(l => l.status === 'active').length;
+    const completedLoans = loans.filter(l => l.status === 'completed').length;
+    const defaultedLoans = loans.filter(l => l.status === 'defaulted').length;
+    
+    const totalAmount = loans.reduce((sum, l) => sum + l.amount, 0);
+    const activeAmount = loans
+      .filter(l => l.status === 'active')
+      .reduce((sum, l) => sum + l.remainingAmount, 0);
+    
+    const interestEarned = loans.reduce((sum, l) => sum + (l.totalInterest || 0), 0);
+    
+    // Calculate loan-to-value ratio
+    const activeLoansWithValue = await Promise.all(
+      loans.filter(l => l.status === 'active').map(async (loan) => {
+        const allocations = await StorageAllocation.find({
+          customer: loan.customer,
+          status: 'active'
+        });
+        const grainValue = allocations.reduce((sum, a) => sum + (a.storageDetails.totalValue || 0), 0);
+        return { loanAmount: loan.amount, grainValue };
+      })
+    );
+    
+    const avgLoanToValue = activeLoansWithValue.length > 0
+      ? activeLoansWithValue.reduce((sum, l) => sum + (l.grainValue > 0 ? l.loanAmount / l.grainValue : 0), 0) / activeLoansWithValue.length
+      : 0;
+    
+    // Check for at-risk loans (overdue)
+    const atRiskLoans = loans.filter(l => {
+      if (l.status !== 'active') return false;
+      try {
+        return l.isOverdue && l.isOverdue();
+      } catch {
+        // If isOverdue method doesn't exist, check dueDate manually
+        return l.dueDate && new Date(l.dueDate) < new Date();
+      }
+    }).length;
+    
+    const healthyLoans = activeLoans - atRiskLoans;
+
+    res.json({
+      totalIssued,
+      activeLoans,
+      completedLoans,
+      defaultedLoans,
+      totalAmount,
+      activeAmount,
+      interestEarned,
+      loanToValueRatio: avgLoanToValue,
+      atRiskLoans,
+      healthyLoans
+    });
+
+  } catch (error) {
+    console.error('Error fetching loan portfolio:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   POST /api/analytics/owner/send-alert-sms
+// @desc    Send SMS alert to customer(s)
+// @access  Private (Owner only)
+router.post('/owner/send-alert-sms', auth, authorize('owner'), async (req, res) => {
+  try {
+    const { customerId, customerIds, alertType, message } = req.body;
+
+    // Validate required fields
+    if (!message) {
+      return res.status(400).json({ message: 'Alert message is required' });
+    }
+
+    if (!alertType || !['critical', 'warning', 'info'].includes(alertType)) {
+      return res.status(400).json({ message: 'Valid alert type is required (critical/warning/info)' });
+    }
+
+    let results = {
+      total: 0,
+      successful: 0,
+      failed: 0,
+      details: []
+    };
+
+    // Send to single customer
+    if (customerId) {
+      const customer = await User.findById(customerId);
+      
+      if (!customer) {
+        return res.status(404).json({ message: 'Customer not found' });
+      }
+
+      if (!customer.profile?.phone) {
+        return res.status(400).json({ message: 'Customer phone number not available' });
+      }
+
+      const result = await sendAlertSMS(customer, alertType, message);
+      
+      results.total = 1;
+      results.successful = result.success ? 1 : 0;
+      results.failed = result.success ? 0 : 1;
+      results.details.push({
+        customerId: customer._id,
+        customerName: `${customer.profile?.firstName} ${customer.profile?.lastName}`,
+        phone: customer.profile?.phone,
+        success: result.success,
+        message: result.message
+      });
+    }
+    // Send to multiple customers
+    else if (customerIds && Array.isArray(customerIds) && customerIds.length > 0) {
+      const customers = await User.find({ _id: { $in: customerIds } });
+      
+      if (customers.length === 0) {
+        return res.status(404).json({ message: 'No customers found' });
+      }
+
+      results.total = customers.length;
+
+      for (const customer of customers) {
+        if (!customer.profile?.phone) {
+          results.failed++;
+          results.details.push({
+            customerId: customer._id,
+            customerName: `${customer.profile?.firstName} ${customer.profile?.lastName}`,
+            phone: 'N/A',
+            success: false,
+            message: 'Phone number not available'
+          });
+          continue;
+        }
+
+        try {
+          const result = await sendAlertSMS(customer, alertType, message);
+          
+          if (result.success) {
+            results.successful++;
+          } else {
+            results.failed++;
+          }
+
+          results.details.push({
+            customerId: customer._id,
+            customerName: `${customer.profile?.firstName} ${customer.profile?.lastName}`,
+            phone: customer.profile?.phone,
+            success: result.success,
+            message: result.message
+          });
+        } catch (error) {
+          results.failed++;
+          results.details.push({
+            customerId: customer._id,
+            customerName: `${customer.profile?.firstName} ${customer.profile?.lastName}`,
+            phone: customer.profile?.phone,
+            success: false,
+            message: error.message
+          });
+        }
+      }
+    }
+    // Send to all customers
+    else {
+      const allCustomers = await User.find({ 
+        role: 'customer',
+        isActive: true 
+      });
+
+      if (allCustomers.length === 0) {
+        return res.status(404).json({ message: 'No active customers found' });
+      }
+
+      results.total = allCustomers.length;
+
+      for (const customer of allCustomers) {
+        if (!customer.profile?.phone) {
+          results.failed++;
+          results.details.push({
+            customerId: customer._id,
+            customerName: `${customer.profile?.firstName} ${customer.profile?.lastName}`,
+            phone: 'N/A',
+            success: false,
+            message: 'Phone number not available'
+          });
+          continue;
+        }
+
+        try {
+          const result = await sendAlertSMS(customer, alertType, message);
+          
+          if (result.success) {
+            results.successful++;
+          } else {
+            results.failed++;
+          }
+
+          results.details.push({
+            customerId: customer._id,
+            customerName: `${customer.profile?.firstName} ${customer.profile?.lastName}`,
+            phone: customer.profile?.phone,
+            success: result.success,
+            message: result.message
+          });
+        } catch (error) {
+          results.failed++;
+          results.details.push({
+            customerId: customer._id,
+            customerName: `${customer.profile?.firstName} ${customer.profile?.lastName}`,
+            phone: customer.profile?.phone,
+            success: false,
+            message: error.message
+          });
+        }
+      }
+    }
+
+    res.json({
+      message: `SMS sent to ${results.successful} of ${results.total} customer(s)`,
+      results
+    });
+
+  } catch (error) {
+    console.error('Error sending alert SMS:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   GET /api/analytics/owner/customers-list
+// @desc    Get list of all customers with contact info (for SMS sending)
+// @access  Private (Owner only)
+router.get('/owner/customers-list', auth, authorize('owner'), async (req, res) => {
+  try {
+    const customers = await User.find({ 
+      role: 'customer',
+      isActive: true 
+    }).select('_id username email profile');
+
+    const customerList = customers.map(customer => ({
+      id: customer._id,
+      username: customer.username,
+      email: customer.email,
+      name: `${customer.profile?.firstName || ''} ${customer.profile?.lastName || ''}`.trim(),
+      phone: customer.profile?.phone || 'N/A',
+      hasPhone: !!customer.profile?.phone
+    }));
+
+    res.json({
+      total: customerList.length,
+      customers: customerList
+    });
+
+  } catch (error) {
+    console.error('Error fetching customers list:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });

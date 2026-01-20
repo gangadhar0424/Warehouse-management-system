@@ -36,7 +36,8 @@ import {
   Warning,
   Visibility,
   TrendingUp,
-  AttachMoney
+  AttachMoney,
+  Calculate
 } from '@mui/icons-material';
 import {
   PieChart,
@@ -47,6 +48,7 @@ import {
   Legend
 } from 'recharts';
 import axios from 'axios';
+import LoanCalculator from './LoanCalculator';
 
 const COLORS = ['#4caf50', '#ff9800', '#f44336', '#2196f3'];
 
@@ -59,6 +61,7 @@ const LoanPortfolioManager = () => {
   const [approvalDialogOpen, setApprovalDialogOpen] = useState(false);
   const [selectedLoan, setSelectedLoan] = useState(null);
   const [approvalNotes, setApprovalNotes] = useState('');
+  const [customerLoans, setCustomerLoans] = useState([]);
 
   const fetchLoanData = async () => {
     try {
@@ -74,11 +77,17 @@ const LoanPortfolioManager = () => {
       const pendingResponse = await axios.get('/api/loans/pending-approvals', {
         headers: { 'x-auth-token': token }
       });
+
+      // Fetch all customer loans with grain details
+      const loansResponse = await axios.get('/api/loans/all-customer-loans', {
+        headers: { 'x-auth-token': token }
+      });
       
       setLoanData({
         ...portfolioResponse.data,
-        pendingApprovals: pendingResponse.data
+        pendingApprovals: pendingResponse.data.loans || []
       });
+      setCustomerLoans(loansResponse.data.loans || []);
       setError(null);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to fetch loan data');
@@ -281,8 +290,9 @@ const LoanPortfolioManager = () => {
       <Card sx={{ mb: 3 }}>
         <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)}>
           <Tab label={`Pending Approvals (${pendingApprovals?.length || 0})`} />
-          <Tab label="Active Loans" />
-          <Tab label="Loan Analytics" />
+          <Tab label="Customer Loans" />
+          <Tab label="Loan Calculator" />
+          <Tab label="Portfolio Analytics" />
         </Tabs>
       </Card>
 
@@ -379,6 +389,111 @@ const LoanPortfolioManager = () => {
       )}
 
       {activeTab === 1 && (
+        <Card>
+          <CardContent>
+            <Typography variant="h6" gutterBottom fontWeight="bold">
+              Customer Loans
+            </Typography>
+            <Alert severity="info" sx={{ mb: 3 }}>
+              <Typography variant="body2">
+                <strong>Loan Terms:</strong> Customers receive 60% loan on grain market value. 
+                Calculation: Bags × 50kg ÷ 100 = Quintals. Quintals × Market value = Total grain value. 
+                Eligible loan = Total grain value × 60%
+              </Typography>
+            </Alert>
+
+            {customerLoans.length > 0 ? (
+              <TableContainer>
+                <Table>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Customer</TableCell>
+                      <TableCell align="right">Grain Bags</TableCell>
+                      <TableCell align="right">Quintals</TableCell>
+                      <TableCell align="right">Grain Value</TableCell>
+                      <TableCell align="right">Loan Amount (60%)</TableCell>
+                      <TableCell align="right">Outstanding</TableCell>
+                      <TableCell>Status</TableCell>
+                      <TableCell align="center">Actions</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {customerLoans.map((loan) => {
+                      const bags = loan.grainDetails?.numberOfBags || 0;
+                      const weightPerBag = loan.grainDetails?.bagWeight || 50;
+                      const totalWeightKg = bags * weightPerBag;
+                      const quintals = totalWeightKg / 100;
+                      const marketValuePerQuintal = loan.grainDetails?.marketValue || 1500;
+                      const totalGrainValue = quintals * marketValuePerQuintal;
+                      const loanAmount = loan.amount || 0;
+                      const outstanding = loan.remainingAmount || 0;
+
+                      return (
+                        <TableRow key={loan._id}>
+                          <TableCell>
+                            <Typography variant="body2" fontWeight="bold">
+                              {loan.customer?.profile?.firstName} {loan.customer?.profile?.lastName}
+                            </Typography>
+                            <Typography variant="caption" color="textSecondary">
+                              {loan.customer?.email}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">{bags.toLocaleString()}</TableCell>
+                          <TableCell align="right">{quintals.toFixed(2)}</TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2" color="primary">
+                              ₹{totalGrainValue.toLocaleString()}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body1" fontWeight="bold" color="success.main">
+                              ₹{loanAmount.toLocaleString()}
+                            </Typography>
+                            <Typography variant="caption" color="textSecondary">
+                              ({((loanAmount / totalGrainValue) * 100).toFixed(0)}% of value)
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2" color={outstanding > 0 ? 'error' : 'success.main'}>
+                              ₹{outstanding.toLocaleString()}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Chip
+                              label={loan.status}
+                              size="small"
+                              color={
+                                loan.status === 'active' ? 'success' :
+                                loan.status === 'completed' ? 'info' :
+                                loan.status === 'pending' ? 'warning' : 'default'
+                              }
+                            />
+                          </TableCell>
+                          <TableCell align="center">
+                            <Tooltip title="View Details">
+                              <IconButton size="small">
+                                <Visibility />
+                              </IconButton>
+                            </Tooltip>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            ) : (
+              <Alert severity="info">
+                No customer loans found. Loans will appear here once customers request and you approve them.
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {activeTab === 2 && <LoanCalculator />}
+
+      {activeTab === 3 && (
         <Grid container spacing={3}>
           <Grid item xs={12} md={6}>
             <Card>
@@ -476,8 +591,102 @@ const LoanPortfolioManager = () => {
         </Grid>
       )}
 
-      {activeTab === 2 && (
+      {activeTab === 3 && (
         <Grid container spacing={3}>
+          <Grid item xs={12} md={6}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom fontWeight="bold">
+                  Loan Health Status
+                </Typography>
+                <Grid container spacing={2} sx={{ mt: 2 }}>
+                  <Grid item xs={6}>
+                    <Paper sx={{ p: 2, textAlign: 'center', backgroundColor: '#e8f5e9' }}>
+                      <CheckCircle sx={{ fontSize: 40, color: '#4caf50', mb: 1 }} />
+                      <Typography variant="h4" fontWeight="bold" sx={{ color: '#4caf50' }}>
+                        {healthyLoans}
+                      </Typography>
+                      <Typography variant="body2" color="textSecondary">
+                        Healthy Loans
+                      </Typography>
+                      <Typography variant="caption" color="textSecondary">
+                        On-time payments
+                      </Typography>
+                    </Paper>
+                  </Grid>
+                  <Grid item xs={6}>
+                    <Paper sx={{ p: 2, textAlign: 'center', backgroundColor: '#fff3e0' }}>
+                      <Warning sx={{ fontSize: 40, color: '#ff9800', mb: 1 }} />
+                      <Typography variant="h4" fontWeight="bold" sx={{ color: '#ff9800' }}>
+                        {atRiskLoans}
+                      </Typography>
+                      <Typography variant="body2" color="textSecondary">
+                        At Risk Loans
+                      </Typography>
+                      <Typography variant="caption" color="textSecondary">
+                        Overdue by &gt;7 days
+                      </Typography>
+                    </Paper>
+                  </Grid>
+                </Grid>
+
+                <Divider sx={{ my: 3 }} />
+
+                <Box>
+                  <Typography variant="body2" color="textSecondary" gutterBottom>
+                    Loan-to-Value Ratio
+                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <Box sx={{ flex: 1 }}>
+                      <LinearProgress 
+                        variant="determinate" 
+                        value={loanToValueRatio * 100} 
+                        sx={{ height: 10, borderRadius: 5 }}
+                        color={loanToValueRatio > 0.65 ? 'warning' : 'primary'}
+                      />
+                    </Box>
+                    <Typography variant="body1" fontWeight="bold">
+                      {(loanToValueRatio * 100).toFixed(1)}%
+                    </Typography>
+                  </Box>
+                  <Typography variant="caption" color="textSecondary" sx={{ mt: 1, display: 'block' }}>
+                    Average loan amount vs grain collateral value
+                  </Typography>
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          <Grid item xs={12} md={6}>
+            <Card>
+              <CardContent>
+                <Typography variant="h6" gutterBottom fontWeight="bold">
+                  Portfolio Distribution
+                </Typography>
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie
+                      data={portfolioBreakdown}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={(entry) => `${entry.name}: ${entry.value}`}
+                      outerRadius={100}
+                      fill="#8884d8"
+                      dataKey="value"
+                    >
+                      {portfolioBreakdown.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <RechartsTooltip />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          </Grid>
+
           <Grid item xs={12}>
             <Card>
               <CardContent>

@@ -276,6 +276,8 @@ const UserManagementPanel = () => {
                 <TableCell>User</TableCell>
                 <TableCell>Contact</TableCell>
                 <TableCell>Role</TableCell>
+                {activeTab === 2 && <TableCell>Active Storage</TableCell>}
+                {activeTab === 2 && <TableCell>Total Spent</TableCell>}
                 <TableCell>Status</TableCell>
                 <TableCell>Joined</TableCell>
                 <TableCell>Actions</TableCell>
@@ -328,6 +330,20 @@ const UserManagementPanel = () => {
                       size="small"
                     />
                   </TableCell>
+                  {activeTab === 2 && (
+                    <TableCell>
+                      <Typography variant="body2">
+                        {user.stats?.activeAllocations || 0}
+                      </Typography>
+                    </TableCell>
+                  )}
+                  {activeTab === 2 && (
+                    <TableCell>
+                      <Typography variant="body2">
+                        ₹{user.stats?.totalSpent || 0}
+                      </Typography>
+                    </TableCell>
+                  )}
                   <TableCell>
                     <Chip
                       icon={user.isActive ? <CheckCircle /> : <PersonOff />}

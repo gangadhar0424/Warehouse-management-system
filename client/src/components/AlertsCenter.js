@@ -20,7 +20,18 @@ import {
   List,
   ListItem,
   ListItemText,
-  ListItemIcon
+  ListItemIcon,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
+  FormControl,
+  InputLabel,
+  Select,
+  Checkbox,
+  ListItemButton,
+  Grid
 } from '@mui/material';
 import {
   Refresh,
@@ -31,7 +42,10 @@ import {
   CheckCircle,
   FilterList,
   MarkEmailRead,
-  Delete
+  Delete,
+  Sms,
+  Send,
+  Phone
 } from '@mui/icons-material';
 import axios from 'axios';
 
@@ -42,6 +56,15 @@ const AlertsCenter = () => {
   const [activeTab, setActiveTab] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
   const [filterAnchor, setFilterAnchor] = useState(null);
+  const [smsDialogOpen, setSmsDialogOpen] = useState(false);
+  const [customersList, setCustomersList] = useState([]);
+  const [selectedCustomers, setSelectedCustomers] = useState([]);
+  const [smsData, setSmsData] = useState({
+    alertType: 'info',
+    message: ''
+  });
+  const [sendingSMS, setSendingSMS] = useState(false);
+  const [smsResult, setSmsResult] = useState(null);
 
   const fetchAlerts = async () => {
     try {
@@ -57,6 +80,85 @@ const AlertsCenter = () => {
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+  };
+
+  const fetchCustomersList = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get('/api/analytics/owner/customers-list', {
+        headers: { 'x-auth-token': token }
+      });
+      setCustomersList(response.data.customers || []);
+    } catch (err) {
+      console.error('Failed to fetch customers:', err);
+    }
+  };
+
+  const handleOpenSMSDialog = () => {
+    fetchCustomersList();
+    setSmsDialogOpen(true);
+    setSmsResult(null);
+  };
+
+  const handleCloseSMSDialog = () => {
+    setSmsDialogOpen(false);
+    setSelectedCustomers([]);
+    setSmsData({ alertType: 'info', message: '' });
+    setSmsResult(null);
+  };
+
+  const handleCustomerToggle = (customerId) => {
+    setSelectedCustomers(prev => 
+      prev.includes(customerId)
+        ? prev.filter(id => id !== customerId)
+        : [...prev, customerId]
+    );
+  };
+
+  const handleSelectAll = () => {
+    if (selectedCustomers.length === customersList.filter(c => c.hasPhone).length) {
+      setSelectedCustomers([]);
+    } else {
+      setSelectedCustomers(customersList.filter(c => c.hasPhone).map(c => c.id));
+    }
+  };
+
+  const handleSendSMS = async () => {
+    if (!smsData.message.trim()) {
+      alert('Please enter a message');
+      return;
+    }
+
+    if (selectedCustomers.length === 0) {
+      alert('Please select at least one customer');
+      return;
+    }
+
+    try {
+      setSendingSMS(true);
+      const token = localStorage.getItem('token');
+      
+      const response = await axios.post('/api/analytics/owner/send-alert-sms', {
+        customerIds: selectedCustomers,
+        alertType: smsData.alertType,
+        message: smsData.message
+      }, {
+        headers: { 'x-auth-token': token }
+      });
+
+      setSmsResult(response.data);
+      
+      // Auto-close after 3 seconds if all successful
+      if (response.data.results.successful === response.data.results.total) {
+        setTimeout(() => {
+          handleCloseSMSDialog();
+        }, 3000);
+      }
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to send SMS');
+    } finally {
+      setSendingSMS(false);
     }
   };
 
@@ -190,6 +292,17 @@ const AlertsCenter = () => {
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
+          <Tooltip title="Send SMS Alert to Customers">
+            <Button
+              variant="contained"
+              color="primary"
+              size="small"
+              startIcon={<Sms />}
+              onClick={handleOpenSMSDialog}
+            >
+              Send SMS
+            </Button>
+          </Tooltip>
           <Tooltip title="Mark all as read">
             <Button
               variant="outlined"
@@ -381,6 +494,170 @@ const AlertsCenter = () => {
           )}
         </CardContent>
       </Card>
+
+      {/* SMS Alert Dialog */}
+      <Dialog open={smsDialogOpen} onClose={handleCloseSMSDialog} maxWidth="md" fullWidth>
+        <DialogTitle>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Sms color="primary" />
+            <Typography variant="h6">Send SMS Alert to Customers</Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent dividers>
+          {smsResult ? (
+            <Alert 
+              severity={smsResult.results.failed === 0 ? 'success' : 'warning'}
+              sx={{ mb: 2 }}
+            >
+              <Typography variant="body1" fontWeight="bold">
+                {smsResult.message}
+              </Typography>
+              <Typography variant="body2" sx={{ mt: 1 }}>
+                Successful: {smsResult.results.successful} | Failed: {smsResult.results.failed}
+              </Typography>
+              {smsResult.results.failed > 0 && (
+                <Box sx={{ mt: 2 }}>
+                  <Typography variant="caption" fontWeight="bold">Failed Recipients:</Typography>
+                  <List dense>
+                    {smsResult.results.details
+                      .filter(d => !d.success)
+                      .map((detail, index) => (
+                        <ListItem key={index}>
+                          <ListItemText 
+                            primary={detail.customerName}
+                            secondary={`${detail.phone} - ${detail.message}`}
+                          />
+                        </ListItem>
+                      ))}
+                  </List>
+                </Box>
+              )}
+            </Alert>
+          ) : (
+            <Box>
+              <Grid container spacing={2} sx={{ mb: 3 }}>
+                <Grid item xs={12} md={6}>
+                  <FormControl fullWidth>
+                    <InputLabel>Alert Type</InputLabel>
+                    <Select
+                      value={smsData.alertType}
+                      onChange={(e) => setSmsData(prev => ({ ...prev, alertType: e.target.value }))}
+                      label="Alert Type"
+                    >
+                      <MenuItem value="critical">
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <ErrorIcon sx={{ color: '#f44336' }} />
+                          Critical
+                        </Box>
+                      </MenuItem>
+                      <MenuItem value="warning">
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Warning sx={{ color: '#ff9800' }} />
+                          Warning
+                        </Box>
+                      </MenuItem>
+                      <MenuItem value="info">
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Info sx={{ color: '#2196f3' }} />
+                          Information
+                        </Box>
+                      </MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Paper sx={{ p: 2, backgroundColor: 'grey.100' }}>
+                    <Typography variant="caption" color="text.secondary">Selected</Typography>
+                    <Typography variant="h6" fontWeight="bold">
+                      {selectedCustomers.length} of {customersList.filter(c => c.hasPhone).length} customers
+                    </Typography>
+                  </Paper>
+                </Grid>
+              </Grid>
+
+              <TextField
+                fullWidth
+                multiline
+                rows={4}
+                label="SMS Message"
+                placeholder="Enter your alert message here..."
+                value={smsData.message}
+                onChange={(e) => setSmsData(prev => ({ ...prev, message: e.target.value }))}
+                sx={{ mb: 3 }}
+                helperText={`${smsData.message.length}/160 characters`}
+              />
+
+              <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="h6">Select Customers</Typography>
+                <Button
+                  size="small"
+                  onClick={handleSelectAll}
+                  startIcon={<CheckCircle />}
+                >
+                  {selectedCustomers.length === customersList.filter(c => c.hasPhone).length 
+                    ? 'Deselect All' 
+                    : 'Select All'}
+                </Button>
+              </Box>
+
+              <Paper sx={{ maxHeight: 300, overflow: 'auto' }}>
+                <List>
+                  {customersList.map((customer) => (
+                    <ListItemButton
+                      key={customer.id}
+                      onClick={() => customer.hasPhone && handleCustomerToggle(customer.id)}
+                      disabled={!customer.hasPhone}
+                    >
+                      <Checkbox
+                        checked={selectedCustomers.includes(customer.id)}
+                        disabled={!customer.hasPhone}
+                      />
+                      <ListItemIcon>
+                        <Phone color={customer.hasPhone ? 'primary' : 'disabled'} />
+                      </ListItemIcon>
+                      <ListItemText
+                        primary={customer.name || customer.username}
+                        secondary={
+                          <Box>
+                            <Typography variant="caption" display="block">
+                              {customer.email}
+                            </Typography>
+                            <Typography variant="caption" color={customer.hasPhone ? 'success.main' : 'error'}>
+                              {customer.phone}
+                            </Typography>
+                          </Box>
+                        }
+                      />
+                    </ListItemButton>
+                  ))}
+                </List>
+                {customersList.length === 0 && (
+                  <Box sx={{ p: 3, textAlign: 'center' }}>
+                    <Typography variant="body2" color="text.secondary">
+                      No customers found
+                    </Typography>
+                  </Box>
+                )}
+              </Paper>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseSMSDialog}>
+            {smsResult ? 'Close' : 'Cancel'}
+          </Button>
+          {!smsResult && (
+            <Button
+              variant="contained"
+              onClick={handleSendSMS}
+              disabled={sendingSMS || selectedCustomers.length === 0 || !smsData.message.trim()}
+              startIcon={sendingSMS ? <CircularProgress size={20} /> : <Send />}
+            >
+              {sendingSMS ? 'Sending...' : `Send to ${selectedCustomers.length} Customer(s)`}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

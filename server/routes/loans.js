@@ -5,6 +5,7 @@ const { body, validationResult } = require('express-validator');
 const Loan = require('../models/Loan');
 const StorageAllocation = require('../models/StorageAllocation');
 const User = require('../models/User');
+const Transaction = require('../models/Transaction');
 
 const router = express.Router();
 
@@ -259,6 +260,30 @@ router.post('/:id/payment', auth, [
 
     await loan.save();
 
+    // Create transaction record for loan repayment
+    const transaction = new Transaction({
+      transactionId: `LOAN-${loan._id}-${Date.now()}`,
+      type: 'loan_repayment',
+      customer: loan.customer,
+      amount: {
+        baseAmount: parseFloat(amount),
+        totalAmount: parseFloat(amount)
+      },
+      payment: {
+        method,
+        status: 'completed',
+        reference: reference || '',
+        date: new Date()
+      },
+      metadata: {
+        loanId: loan._id,
+        notes: notes || `Loan repayment - ₹${parseFloat(amount)}`,
+        remainingBalance: loan.remainingAmount
+      }
+    });
+
+    await transaction.save();
+
     // Emit real-time notification
     if (req.io) {
       req.io.emit('payment_received', {
@@ -316,6 +341,107 @@ router.get('/pending-approvals', auth, authorize('owner'), async (req, res) => {
 
   } catch (error) {
     console.error('Error fetching pending loans:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   GET /api/loans/all-customer-loans
+// @desc    Get all customer loans with grain details (Owner only)
+// @access  Private (Owner)
+router.get('/all-customer-loans', auth, authorize('owner'), async (req, res) => {
+  try {
+    const loans = await Loan.find({ status: { $in: ['active', 'approved', 'completed'] } })
+      .populate('customer', 'profile email')
+      .sort({ createdAt: -1 });
+
+    // Add grain details and calculations for each loan
+    const loansWithDetails = await Promise.all(
+      loans.map(async (loan) => {
+        const allocations = await StorageAllocation.find({
+          customer: loan.customer._id,
+          status: 'active'
+        });
+
+        // Calculate grain details
+        let totalBags = 0;
+        let totalWeightKg = 0;
+        let avgMarketValue = 1500; // Default market value per quintal
+
+        allocations.forEach(allocation => {
+          const items = allocation.storageDetails?.items || [];
+          items.forEach(item => {
+            totalBags += item.quantity || 0;
+            totalWeightKg += item.weight || 0;
+          });
+        });
+
+        // If we have allocation pricing, use it
+        if (allocations.length > 0 && allocations[0].pricing) {
+          avgMarketValue = allocations[0].pricing.ratePerKg || 15; // Rate per kg
+        }
+
+        const quintals = totalWeightKg / 100;
+        const grainValue = quintals * (avgMarketValue * 100); // Convert kg rate to quintal rate
+
+        return {
+          ...loan.toObject(),
+          grainDetails: {
+            numberOfBags: totalBags,
+            bagWeight: totalBags > 0 ? totalWeightKg / totalBags : 50,
+            totalWeightKg,
+            quintals: quintals.toFixed(2),
+            marketValue: avgMarketValue * 100,
+            totalValue: grainValue
+          }
+        };
+      })
+    );
+
+    res.json({ loans: loansWithDetails });
+
+  } catch (error) {
+    console.error('Error fetching customer loans:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   PUT /api/loans/:id/reject
+// @desc    Reject a loan (Owner only)
+// @access  Private (Owner)
+router.put('/:id/reject', auth, authorize('owner'), async (req, res) => {
+  try {
+    const loan = await Loan.findById(req.params.id);
+
+    if (!loan) {
+      return res.status(404).json({ message: 'Loan not found' });
+    }
+
+    if (loan.status !== 'pending') {
+      return res.status(400).json({ message: 'Only pending loans can be rejected' });
+    }
+
+    loan.status = 'rejected';
+    loan.rejectedBy = req.user.id;
+    loan.rejectedDate = new Date();
+    loan.rejectionReason = req.body.reason || 'Not specified';
+
+    await loan.save();
+
+    // Emit real-time notification
+    if (req.io) {
+      req.io.to(`customer_${loan.customer}`).emit('loan_rejected', {
+        loanId: loan._id,
+        reason: loan.rejectionReason
+      });
+    }
+
+    res.json({
+      message: 'Loan rejected successfully',
+      loan
+    });
+
+  } catch (error) {
+    console.error('Error rejecting loan:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
