@@ -16,7 +16,9 @@ router.post('/entry', [auth, authorize('owner', 'worker')], [
   body('vehicleType').isIn(['truck', 'mini-truck', 'tractor', 'trailer', 'container', 'van', 'other']),
   body('driverName').trim().notEmpty(),
   body('driverPhone').trim().notEmpty(),
-  body('ownerName').trim().notEmpty()
+  body('customerName').trim().notEmpty(),
+  body('customerPhone').trim().notEmpty(),
+  body('customerEmail').isEmail().withMessage('Valid email is required')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -30,11 +32,12 @@ router.post('/entry', [auth, authorize('owner', 'worker')], [
       driverName,
       driverPhone,
       driverLicense,
-      ownerName,
-      ownerPhone,
+      customerName,
+      customerPhone,
+      customerEmail,
+      visitPurpose,
       capacity,
-      cargo,
-      customer
+      cargo
     } = req.body;
 
     // Check if vehicle already exists and is active
@@ -50,32 +53,70 @@ router.post('/entry', [auth, authorize('owner', 'worker')], [
       });
     }
 
+    // Find or create customer
+    let customer = await User.findOne({ email: customerEmail.toLowerCase() });
+    
+    if (!customer) {
+      // Generate temporary password (customer can change later)
+      const tempPassword = `TEMP${Math.random().toString(36).slice(-8).toUpperCase()}`;
+      
+      // Create new customer account
+      customer = new User({
+        username: customerEmail.split('@')[0] + Math.random().toString(36).slice(-4),
+        email: customerEmail.toLowerCase(),
+        password: tempPassword, // Will be hashed by User model pre-save hook
+        role: 'customer',
+        profile: {
+          firstName: customerName.split(' ')[0],
+          lastName: customerName.split(' ').slice(1).join(' ') || '',
+          phone: customerPhone
+        },
+        isActive: true,
+        needsPasswordChange: true // Flag to indicate temp password
+      });
+
+      await customer.save();
+      
+      console.log(`New customer created: ${customer.email} with temp password: ${tempPassword}`);
+      
+      // In production, you would email this to the customer
+      // For now, we'll return it in response (only for initial creation)
+    }
+
     const vehicle = new Vehicle({
       vehicleNumber: vehicleNumber.toUpperCase(),
       vehicleType,
       driverName,
       driverPhone,
       driverLicense,
-      ownerName,
-      ownerPhone,
+      ownerName: customerName,
+      ownerPhone: customerPhone,
+      visitPurpose: visitPurpose || 'weighing_only',
       capacity,
       cargo,
-      customer,
+      customer: customer._id,
       entryTime: new Date(),
-      status: 'entered'
+      status: visitPurpose === 'grain_loading' ? 'inside' : 'entered'
     });
 
     await vehicle.save();
 
     // Emit real-time update
-    req.io.emit('vehicle_entry', {
+    const updateType = visitPurpose === 'grain_loading' ? 'vehicle_loading' : 'vehicle_entry';
+    req.io.emit(updateType, {
       vehicle,
-      message: `Vehicle ${vehicleNumber} entered the warehouse`
+      message: visitPurpose === 'grain_loading' 
+        ? `Vehicle ${vehicleNumber} added to loading queue` 
+        : `Vehicle ${vehicleNumber} entered for weighing`
     });
 
     res.status(201).json({
       message: 'Vehicle entry registered successfully',
-      vehicle
+      vehicle,
+      customerCreated: customer.needsPasswordChange,
+      customerEmail: customer.email,
+      visitPurpose,
+      tempPassword: customer.needsPasswordChange ? 'Sent to customer email' : undefined
     });
 
   } catch (error) {

@@ -17,6 +17,40 @@ const razorpay = new Razorpay({
 
 const router = express.Router();
 
+// @route   POST /api/payments/generate-upi-qr
+// @desc    Generate UPI QR code for payment
+// @access  Private
+router.post('/generate-upi-qr', auth, async (req, res) => {
+  try {
+    const { upiString, amount, vehicleNumber } = req.body;
+
+    if (!upiString) {
+      return res.status(400).json({ message: 'UPI string is required' });
+    }
+
+    // Generate QR code as data URL
+    const qrCode = await QRCode.toDataURL(upiString, {
+      width: 300,
+      margin: 2,
+      color: {
+        dark: '#000000',
+        light: '#FFFFFF'
+      }
+    });
+
+    res.json({
+      success: true,
+      qrCode,
+      amount,
+      vehicleNumber
+    });
+
+  } catch (error) {
+    console.error('QR code generation error:', error);
+    res.status(500).json({ message: 'Failed to generate QR code', error: error.message });
+  }
+});
+
 // @route   POST /api/payments/create-order
 // @desc    Create Razorpay payment order
 // @access  Private
@@ -65,7 +99,7 @@ router.post('/create-order', auth, [
 // @desc    Create payment transaction
 // @access  Private
 router.post('/create', auth, [
-  body('type').isIn(['weigh_bridge', 'storage', 'loading', 'unloading', 'penalty']),
+  body('type').isIn(['weigh_bridge', 'storage', 'loading', 'unloading', 'penalty', 'weighbridge_fee']),
   body('amount.baseAmount').isNumeric(),
   body('payment.method').isIn(['cash', 'upi', 'card', 'bank_transfer', 'cheque'])
 ], async (req, res) => {
@@ -85,9 +119,39 @@ router.post('/create', auth, [
       description
     } = req.body;
 
+    // Map old type names to Transaction model enum values
+    const typeMapping = {
+      'weigh_bridge': 'weighbridge_fee',
+      'storage': 'grain_storage_rent',
+      'loading': 'weighbridge_fee',
+      'unloading': 'weighbridge_fee',
+      'penalty': 'weighbridge_fee',
+      'weighbridge_fee': 'weighbridge_fee'
+    };
+
+    const mappedType = typeMapping[type] || 'weighbridge_fee';
+
+    // Generate transaction ID
+    const transactionId = `TXN${Date.now()}${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
+
+    // Get customer from vehicle if not provided
+    let customerId = customer;
+    if (!customerId && vehicle) {
+      const vehicleDoc = await Vehicle.findById(vehicle);
+      if (vehicleDoc && vehicleDoc.customer) {
+        customerId = vehicleDoc.customer;
+      }
+    }
+
+    // If still no customer, use the logged-in user if they're a customer
+    if (!customerId && req.user.role === 'customer') {
+      customerId = req.user.id;
+    }
+
     const transaction = new Transaction({
-      type,
-      customer,
+      transactionId,
+      type: mappedType,
+      customer: customerId,
       vehicle,
       storageAllocation,
       amount,
@@ -242,6 +306,59 @@ router.get('/', auth, async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   GET /api/payments/pending
+// @desc    Get pending payments
+// @access  Private
+router.get('/pending', auth, async (req, res) => {
+  try {
+    let query = { 'payment.status': 'pending' };
+
+    // Filter by user role
+    if (req.user.role === 'customer') {
+      query.customer = req.user.id;
+    }
+
+    const pendingPayments = await Transaction.find(query)
+      .populate('customer', 'username email profile')
+      .populate('vehicle', 'vehicleNumber driverName')
+      .populate('processedBy', 'username')
+      .sort({ createdAt: -1 });
+
+    res.json(pendingPayments);
+
+  } catch (error) {
+    console.error('Error fetching pending payments:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   GET /api/payments/history
+// @desc    Get payment history (completed payments)
+// @access  Private
+router.get('/history', auth, async (req, res) => {
+  try {
+    let query = { 'payment.status': 'completed' };
+
+    // Filter by user role
+    if (req.user.role === 'customer') {
+      query.customer = req.user.id;
+    }
+
+    const paymentHistory = await Transaction.find(query)
+      .populate('customer', 'username email profile')
+      .populate('vehicle', 'vehicleNumber driverName')
+      .populate('processedBy', 'username')
+      .sort({ createdAt: -1 })
+      .limit(50); // Limit to last 50 completed payments
+
+    res.json(paymentHistory);
+
+  } catch (error) {
+    console.error('Error fetching payment history:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
 

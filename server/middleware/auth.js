@@ -1,8 +1,12 @@
 const jwt = require('jsonwebtoken');
 
 module.exports = (req, res, next) => {
-  // Get token from header
-  const token = req.header('Authorization')?.replace('Bearer ', '');
+  // Get token from header - support both x-auth-token and Authorization
+  let token = req.header('x-auth-token');
+  
+  if (!token) {
+    token = req.header('Authorization')?.replace('Bearer ', '');
+  }
 
   // Check if no token
   if (!token) {
@@ -26,12 +30,23 @@ const authorize = (...roles) => {
       return res.status(401).json({ message: 'Unauthorized' });
     }
 
+    console.log('Authorization check:', {
+      userRole: req.user.role,
+      requiredRoles: roles,
+      userId: req.user.id,
+      username: req.user.username
+    });
+
     if (!roles.includes(req.user.role)) {
+      console.log('❌ Authorization FAILED - User role:', req.user.role, 'Required roles:', roles);
       return res.status(403).json({ 
-        message: 'Access denied. Insufficient permissions.' 
+        message: 'Access denied. Insufficient permissions.',
+        userRole: req.user.role,
+        requiredRoles: roles
       });
     }
 
+    console.log('✅ Authorization SUCCESS');
     next();
   };
 };

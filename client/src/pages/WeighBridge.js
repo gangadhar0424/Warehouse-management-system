@@ -34,7 +34,9 @@ import {
   Receipt,
   QrCode,
   Print,
-  Info
+  Info,
+  MonetizationOn,
+  CheckCircle
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
@@ -56,8 +58,10 @@ const WeighBridge = () => {
     driverName: '',
     driverPhone: '',
     driverLicense: '',
-    ownerName: '',
-    ownerPhone: '',
+    customerName: '',
+    customerPhone: '',
+    customerEmail: '',
+    visitPurpose: '', // 'weighing_only' or 'grain_loading'
     capacity: {
       weight: '',
       volume: ''
@@ -85,6 +89,8 @@ const WeighBridge = () => {
   const [qrCodeDialog, setQrCodeDialog] = useState(false);
   const [qrCodeData, setQrCodeData] = useState('');
   const [razorpayPaymentDialog, setRazorpayPaymentDialog] = useState(false);
+  const [registeredVehicle, setRegisteredVehicle] = useState(null); // Store registered vehicle for payment
+  const [upiQrCode, setUpiQrCode] = useState(''); // UPI QR code image
 
   const { user } = useAuth();
   const { addNotification } = useSocket();
@@ -138,9 +144,21 @@ const WeighBridge = () => {
       addNotification({
         type: 'success',
         title: 'Vehicle Entry',
-        message: `Vehicle ${vehicleForm.vehicleNumber} entered successfully`,
+        message: response.data.visitPurpose === 'grain_loading' 
+          ? `Vehicle ${vehicleForm.vehicleNumber} added to loading queue`
+          : `Vehicle ${vehicleForm.vehicleNumber} entered successfully`,
         timestamp: new Date()
       });
+
+      // Only show payment dialog for weighing_only vehicles
+      if (response.data.visitPurpose === 'weighing_only') {
+        // Store registered vehicle and show payment dialog
+        setRegisteredVehicle(response.data.vehicle);
+        setPaymentDialog(true);
+      } else {
+        // For grain_loading, just show success message
+        setSuccess('Vehicle added to loading queue successfully! You can find it in the Vehicle Management module.');
+      }
 
       // Reset form
       setVehicleForm({
@@ -149,8 +167,10 @@ const WeighBridge = () => {
         driverName: '',
         driverPhone: '',
         driverLicense: '',
-        ownerName: '',
-        ownerPhone: '',
+        customerName: '',
+        customerPhone: '',
+        customerEmail: '',
+        visitPurpose: '',
         capacity: { weight: '', volume: '' },
         cargo: { description: '', quantity: '', unit: 'kg' }
       });
@@ -193,6 +213,116 @@ const WeighBridge = () => {
   };
 
   const handlePayment = async () => {
+    if (!registeredVehicle) return;
+
+    setLoading(true);
+    setError('');
+    
+    try {
+      const totalAmount = 130; // Fixed weighbridge fee
+
+      // If UPI selected, generate QR code
+      if (paymentForm.paymentMethod === 'upi') {
+        await generateUPIQRCode(totalAmount);
+        return; // Wait for user to scan and confirm
+      }
+
+      // For cash, create transaction immediately
+      await createWeighbridgeTransaction(totalAmount, 'cash');
+      
+    } catch (error) {
+      console.error('Payment error:', error);
+      setError(error.response?.data?.message || 'Failed to process payment');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const generateUPIQRCode = async (amount) => {
+    try {
+      // Create UPI payment string (standard UPI format)
+      const upiString = `upi://pay?pa=warehouse@upi&pn=Warehouse Management&am=${amount}&cu=INR&tn=Weighbridge Fee - Vehicle ${registeredVehicle.vehicleNumber}`;
+      
+      // Request QR code from backend
+      const response = await axios.post('/api/payments/generate-upi-qr', {
+        upiString,
+        amount,
+        vehicleNumber: registeredVehicle.vehicleNumber
+      });
+
+      setUpiQrCode(response.data.qrCode);
+      setQrCodeDialog(true);
+      setLoading(false);
+      
+    } catch (error) {
+      console.error('QR generation error:', error);
+      setError('Failed to generate UPI QR code');
+      setLoading(false);
+    }
+  };
+
+  const confirmUPIPayment = async () => {
+    setLoading(true);
+    try {
+      await createWeighbridgeTransaction(130, 'upi');
+      setQrCodeDialog(false);
+    } catch (error) {
+      setError('Failed to confirm payment');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const createWeighbridgeTransaction = async (amount, paymentMethod) => {
+    try {
+      // Create payment transaction
+      const paymentData = {
+        type: 'weigh_bridge',
+        customer: registeredVehicle.customer?._id || null,
+        vehicle: registeredVehicle._id,
+        amount: {
+          baseAmount: amount,
+          totalAmount: amount
+        },
+        payment: {
+          method: paymentMethod,
+          status: 'completed',
+          transactionDate: new Date()
+        },
+        description: `Weighbridge charges for vehicle ${registeredVehicle.vehicleNumber}`,
+        items: [{
+          description: 'Weighbridge Fee',
+          quantity: 1,
+          unitPrice: amount,
+          totalPrice: amount
+        }]
+      };
+
+      const response = await axios.post('/api/payments/create', paymentData);
+
+      setSuccess(`Payment of ₹${amount} processed successfully!`);
+      setPaymentDialog(false);
+      
+      // Notify via socket for real-time update
+      addNotification({
+        type: 'success',
+        title: 'Payment Received',
+        message: `Weighbridge payment of ₹${amount} received for vehicle ${registeredVehicle.vehicleNumber}`,
+        timestamp: new Date()
+      });
+
+      // Reset
+      setRegisteredVehicle(null);
+      setUpiQrCode('');
+      await fetchVehicles();
+      
+    } catch (error) {
+      console.error('Transaction creation error:', error);
+      throw error;
+    }
+  };
+
+  const handlePaymentOld = async () => {
     if (!selectedVehicle) return;
 
     setLoading(true);
@@ -329,157 +459,6 @@ const WeighBridge = () => {
            (parseFloat(paymentForm.otherCharges) || 0);
   };
 
-  const VehicleEntryForm = () => (
-    <Card>
-      <CardContent>
-        <Typography variant="h6" gutterBottom>
-          <LocalShipping sx={{ mr: 1, verticalAlign: 'middle' }} />
-          Vehicle Entry Registration
-        </Typography>
-        
-        <Box component="form" onSubmit={handleVehicleEntry} sx={{ mt: 2 }}>
-          <Grid container spacing={3}>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                required
-                label="Vehicle Number"
-                name="vehicleNumber"
-                value={vehicleForm.vehicleNumber}
-                onChange={handleVehicleFormChange}
-                placeholder="e.g., AP09AB1234"
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <FormControl fullWidth required>
-                <InputLabel>Vehicle Type</InputLabel>
-                <Select
-                  name="vehicleType"
-                  value={vehicleForm.vehicleType}
-                  label="Vehicle Type"
-                  onChange={handleVehicleFormChange}
-                >
-                  <MenuItem value="truck">Truck</MenuItem>
-                  <MenuItem value="trailer">Trailer</MenuItem>
-                  <MenuItem value="container">Container</MenuItem>
-                  <MenuItem value="van">Van</MenuItem>
-                  <MenuItem value="other">Other</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                required
-                label="Driver Name"
-                name="driverName"
-                value={vehicleForm.driverName}
-                onChange={handleVehicleFormChange}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                required
-                label="Driver Phone"
-                name="driverPhone"
-                value={vehicleForm.driverPhone}
-                onChange={handleVehicleFormChange}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Driver License"
-                name="driverLicense"
-                value={vehicleForm.driverLicense}
-                onChange={handleVehicleFormChange}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                required
-                label="Owner Name"
-                name="ownerName"
-                value={vehicleForm.ownerName}
-                onChange={handleVehicleFormChange}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Owner Phone"
-                name="ownerPhone"
-                value={vehicleForm.ownerPhone}
-                onChange={handleVehicleFormChange}
-              />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Vehicle Capacity (tons)"
-                name="capacity.weight"
-                type="number"
-                value={vehicleForm.capacity.weight}
-                onChange={handleVehicleFormChange}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <Typography variant="subtitle2" gutterBottom>Cargo Details</Typography>
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Cargo Description"
-                name="cargo.description"
-                value={vehicleForm.cargo.description}
-                onChange={handleVehicleFormChange}
-              />
-            </Grid>
-            <Grid item xs={12} sm={3}>
-              <TextField
-                fullWidth
-                label="Quantity"
-                name="cargo.quantity"
-                type="number"
-                value={vehicleForm.cargo.quantity}
-                onChange={handleVehicleFormChange}
-              />
-            </Grid>
-            <Grid item xs={12} sm={3}>
-              <FormControl fullWidth>
-                <InputLabel>Unit</InputLabel>
-                <Select
-                  name="cargo.unit"
-                  value={vehicleForm.cargo.unit}
-                  label="Unit"
-                  onChange={handleVehicleFormChange}
-                >
-                  <MenuItem value="kg">Kg</MenuItem>
-                  <MenuItem value="tons">Tons</MenuItem>
-                  <MenuItem value="pieces">Pieces</MenuItem>
-                  <MenuItem value="boxes">Boxes</MenuItem>
-                </Select>
-              </FormControl>
-            </Grid>
-            <Grid item xs={12}>
-              <Button
-                type="submit"
-                variant="contained"
-                size="large"
-                disabled={loading}
-                startIcon={loading ? <CircularProgress size={20} /> : <LocalShipping />}
-              >
-                Register Vehicle Entry
-              </Button>
-            </Grid>
-          </Grid>
-        </Box>
-      </CardContent>
-    </Card>
-  );
-
   const VehicleList = () => (
     <Card>
       <CardContent>
@@ -589,7 +568,221 @@ const WeighBridge = () => {
         </Tabs>
       </Box>
 
-      {activeTab === 0 && <VehicleEntryForm />}
+      {activeTab === 0 && (
+        <Card>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>
+              <LocalShipping sx={{ mr: 1, verticalAlign: 'middle' }} />
+              Vehicle Entry Registration
+            </Typography>
+            
+            <Box component="form" onSubmit={handleVehicleEntry} sx={{ mt: 2 }}>
+              <Grid container spacing={3}>
+                {/* Vehicle Type */}
+                <Grid item xs={12} sm={6}>
+                  <FormControl fullWidth required>
+                    <InputLabel>Vehicle Type</InputLabel>
+                    <Select
+                      name="vehicleType"
+                      value={vehicleForm.vehicleType}
+                      label="Vehicle Type"
+                      onChange={handleVehicleFormChange}
+                    >
+                      <MenuItem value="truck">Truck</MenuItem>
+                      <MenuItem value="trailer">Trailer</MenuItem>
+                      <MenuItem value="container">Container</MenuItem>
+                      <MenuItem value="van">Van</MenuItem>
+                      <MenuItem value="other">Other</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+
+                {/* Vehicle Number */}
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    required
+                    label="Vehicle Number"
+                    name="vehicleNumber"
+                    value={vehicleForm.vehicleNumber}
+                    onChange={handleVehicleFormChange}
+                    placeholder="e.g., AP09AB1234"
+                    inputProps={{ style: { textTransform: 'uppercase' } }}
+                  />
+                </Grid>
+
+                {/* Purpose of Visit */}
+                <Grid item xs={12}>
+                  <FormControl fullWidth required>
+                    <InputLabel>Purpose of Visit</InputLabel>
+                    <Select
+                      name="visitPurpose"
+                      value={vehicleForm.visitPurpose}
+                      label="Purpose of Visit"
+                      onChange={handleVehicleFormChange}
+                    >
+                      <MenuItem value="" disabled>
+                        <em>Select from list</em>
+                      </MenuItem>
+                      <MenuItem value="weighing_only">Weighing Only (Check Weight)</MenuItem>
+                      <MenuItem value="grain_loading">Grain Loading/Unloading</MenuItem>
+                    </Select>
+                  </FormControl>
+                  {vehicleForm.visitPurpose && (
+                    <Alert severity="info" sx={{ mt: 1 }}>
+                      {vehicleForm.visitPurpose === 'weighing_only' 
+                        ? '💡 After weighing & payment, vehicle details will be recorded only.'
+                        : '💡 Vehicle will be added to the Vehicle Management module for loading/unloading operations.'}
+                    </Alert>
+                  )}
+                </Grid>
+
+                {/* Driver Details Section */}
+                <Grid item xs={12}>
+                  <Divider sx={{ my: 2 }}>
+                    <Chip label="Driver Details" color="primary" />
+                  </Divider>
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    fullWidth
+                    required
+                    label="Driver Name"
+                    name="driverName"
+                    value={vehicleForm.driverName}
+                    onChange={handleVehicleFormChange}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    fullWidth
+                    required
+                    label="Driver Phone"
+                    name="driverPhone"
+                    value={vehicleForm.driverPhone}
+                    onChange={handleVehicleFormChange}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    fullWidth
+                    label="Driver License"
+                    name="driverLicense"
+                    value={vehicleForm.driverLicense}
+                    onChange={handleVehicleFormChange}
+                  />
+                </Grid>
+
+                {/* Customer Information Section */}
+                <Grid item xs={12}>
+                  <Divider sx={{ my: 2 }}>
+                    <Chip label="Customer Information" color="primary" />
+                  </Divider>
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    fullWidth
+                    required
+                    label="Customer Name"
+                    name="customerName"
+                    value={vehicleForm.customerName}
+                    onChange={handleVehicleFormChange}
+                    placeholder="Full name of customer"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    fullWidth
+                    required
+                    label="Customer Phone Number"
+                    name="customerPhone"
+                    value={vehicleForm.customerPhone}
+                    onChange={handleVehicleFormChange}
+                    placeholder="10-digit phone number"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    fullWidth
+                    required
+                    label="Customer Email Address"
+                    name="customerEmail"
+                    type="email"
+                    value={vehicleForm.customerEmail}
+                    onChange={handleVehicleFormChange}
+                    placeholder="customer@example.com"
+                  />
+                </Grid>
+
+                {/* Cargo Details Section */}
+                <Grid item xs={12}>
+                  <Divider sx={{ my: 2 }}>
+                    <Chip label="Cargo Details" color="primary" />
+                  </Divider>
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    fullWidth
+                    label="Vehicle Capacity (quintals)"
+                    name="capacity.weight"
+                    type="number"
+                    value={vehicleForm.capacity.weight}
+                    onChange={handleVehicleFormChange}
+                    placeholder="e.g., 100"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    fullWidth
+                    label="Cargo Description"
+                    name="cargo.description"
+                    value={vehicleForm.cargo.description}
+                    onChange={handleVehicleFormChange}
+                    placeholder="e.g., Rice, Wheat"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={2}>
+                  <TextField
+                    fullWidth
+                    label="Quantity"
+                    name="cargo.quantity"
+                    type="number"
+                    value={vehicleForm.cargo.quantity}
+                    onChange={handleVehicleFormChange}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={2}>
+                  <FormControl fullWidth>
+                    <InputLabel>Unit</InputLabel>
+                    <Select
+                      name="cargo.unit"
+                      value={vehicleForm.cargo.unit}
+                      label="Unit"
+                      onChange={handleVehicleFormChange}
+                    >
+                      <MenuItem value="kg">Kg</MenuItem>
+                      <MenuItem value="tons">Tons</MenuItem>
+                      <MenuItem value="bags">Bags</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={12}>
+                  <Button
+                    type="submit"
+                    variant="contained"
+                    size="large"
+                    fullWidth
+                    startIcon={loading ? <CircularProgress size={20} /> : <LocalShipping />}
+                    disabled={loading}
+                  >
+                    {loading ? 'Registering...' : 'Register Vehicle Entry'}
+                  </Button>
+                </Grid>
+              </Grid>
+            </Box>
+          </CardContent>
+        </Card>
+      )}
       {activeTab === 1 && <VehicleList />}
 
       {/* Weight Dialog */}
@@ -707,86 +900,155 @@ const WeighBridge = () => {
 
       {/* Payment Dialog */}
       <Dialog open={paymentDialog} onClose={() => setPaymentDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Payment - {selectedVehicle?.vehicleNumber}</DialogTitle>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Payment color="primary" />
+          Weighbridge Payment - {registeredVehicle?.vehicleNumber}
+        </DialogTitle>
         <DialogContent>
           <Box sx={{ mt: 2 }}>
+            <Paper sx={{ p: 3, mb: 3, bgcolor: 'primary.light', color: 'white' }}>
+              <Typography variant="h4" align="center" sx={{ fontWeight: 'bold' }}>
+                ₹130
+              </Typography>
+              <Typography variant="body2" align="center" sx={{ mt: 1 }}>
+                Weighbridge Fee
+              </Typography>
+            </Paper>
+
             <Grid container spacing={2}>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Weigh Bridge Charge (₹)"
-                  type="number"
-                  value={paymentForm.weighBridgeCharge}
-                  onChange={(e) => setPaymentForm(prev => ({ ...prev, weighBridgeCharge: e.target.value }))}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Storage Charge (₹)"
-                  type="number"
-                  value={paymentForm.storageCharge}
-                  onChange={(e) => setPaymentForm(prev => ({ ...prev, storageCharge: e.target.value }))}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Loading Charge (₹)"
-                  type="number"
-                  value={paymentForm.loadingCharge}
-                  onChange={(e) => setPaymentForm(prev => ({ ...prev, loadingCharge: e.target.value }))}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Other Charges (₹)"
-                  type="number"
-                  value={paymentForm.otherCharges}
-                  onChange={(e) => setPaymentForm(prev => ({ ...prev, otherCharges: e.target.value }))}
-                />
-              </Grid>
               <Grid item xs={12}>
-                <Paper sx={{ p: 2, bgcolor: 'info.light' }}>
-                  <Typography variant="h6">
-                    Total Amount: ₹{(
-                      (parseFloat(paymentForm.weighBridgeCharge) || 0) +
-                      (parseFloat(paymentForm.storageCharge) || 0) +
-                      (parseFloat(paymentForm.loadingCharge) || 0) +
-                      (parseFloat(paymentForm.otherCharges) || 0)
-                    ).toFixed(2)}
+                <Typography variant="subtitle1" sx={{ mb: 2, fontWeight: 'bold' }}>
+                  Select Payment Method:
+                </Typography>
+              </Grid>
+              
+              <Grid item xs={6}>
+                <Paper
+                  sx={{
+                    p: 3,
+                    textAlign: 'center',
+                    cursor: 'pointer',
+                    border: paymentForm.paymentMethod === 'cash' ? 3 : 1,
+                    borderColor: paymentForm.paymentMethod === 'cash' ? 'primary.main' : 'divider',
+                    '&:hover': { bgcolor: 'action.hover' }
+                  }}
+                  onClick={() => setPaymentForm(prev => ({ ...prev, paymentMethod: 'cash' }))}
+                >
+                  <MonetizationOn sx={{ fontSize: 48, color: 'success.main', mb: 1 }} />
+                  <Typography variant="h6">Cash</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Pay in cash
                   </Typography>
                 </Paper>
               </Grid>
+
+              <Grid item xs={6}>
+                <Paper
+                  sx={{
+                    p: 3,
+                    textAlign: 'center',
+                    cursor: 'pointer',
+                    border: paymentForm.paymentMethod === 'upi' ? 3 : 1,
+                    borderColor: paymentForm.paymentMethod === 'upi' ? 'primary.main' : 'divider',
+                    '&:hover': { bgcolor: 'action.hover' }
+                  }}
+                  onClick={() => setPaymentForm(prev => ({ ...prev, paymentMethod: 'upi' }))}
+                >
+                  <QrCode sx={{ fontSize: 48, color: 'primary.main', mb: 1 }} />
+                  <Typography variant="h6">UPI</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Scan QR code
+                  </Typography>
+                </Paper>
+              </Grid>
+
               <Grid item xs={12}>
-                <FormControl fullWidth>
-                  <InputLabel>Payment Method</InputLabel>
-                  <Select
-                    value={paymentForm.paymentMethod}
-                    label="Payment Method"
-                    onChange={(e) => setPaymentForm(prev => ({ ...prev, paymentMethod: e.target.value }))}
-                  >
-                    <MenuItem value="cash">Cash</MenuItem>
-                    <MenuItem value="upi">UPI</MenuItem>
-                    <MenuItem value="card">Card</MenuItem>
-                    <MenuItem value="bank_transfer">Bank Transfer</MenuItem>
-                  </Select>
-                </FormControl>
+                <Alert severity="info" sx={{ mt: 2 }}>
+                  {paymentForm.paymentMethod === 'cash' 
+                    ? 'Click "Process Payment" to confirm cash payment received. Vehicle details will be recorded.'
+                    : 'Click "Generate QR" to generate UPI payment QR code. After payment, vehicle details will be recorded.'}
+                </Alert>
               </Grid>
             </Grid>
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setPaymentDialog(false)}>Cancel</Button>
-          <Button onClick={handlePayment} variant="contained" disabled={loading}>
-            Process Payment
+          <Button onClick={() => { setPaymentDialog(false); setRegisteredVehicle(null); }}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handlePayment} 
+            variant="contained" 
+            disabled={loading}
+            startIcon={paymentForm.paymentMethod === 'upi' ? <QrCode /> : <Payment />}
+          >
+            {loading ? <CircularProgress size={24} /> : 
+              paymentForm.paymentMethod === 'upi' ? 'Generate QR Code' : 'Confirm Payment Received'
+            }
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* QR Code Dialog */}
+      {/* UPI QR Code Dialog */}
       <Dialog open={qrCodeDialog} onClose={() => setQrCodeDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ textAlign: 'center', bgcolor: 'primary.main', color: 'white' }}>
+          <QrCode sx={{ fontSize: 40, mb: 1 }} />
+          <Typography variant="h6">UPI Payment QR Code</Typography>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 3, textAlign: 'center' }}>
+            <Paper elevation={3} sx={{ p: 3, mb: 3, bgcolor: '#f5f5f5' }}>
+              {upiQrCode ? (
+                <img 
+                  src={upiQrCode} 
+                  alt="UPI QR Code" 
+                  style={{ width: '300px', height: '300px', margin: '0 auto', display: 'block' }}
+                />
+              ) : (
+                <CircularProgress size={60} />
+              )}
+            </Paper>
+
+            <Paper sx={{ p: 2, mb: 2, bgcolor: 'info.light' }}>
+              <Typography variant="h5" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
+                ₹130
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Weighbridge Fee
+              </Typography>
+            </Paper>
+
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Vehicle: <strong>{registeredVehicle?.vehicleNumber}</strong>
+            </Typography>
+
+            <Alert severity="info" sx={{ mb: 2 }}>
+              <Typography variant="body2">
+                1. Scan the QR code with any UPI app<br />
+                2. Complete the payment of ₹130<br />
+                3. Click "Payment Successful" below after completion
+              </Typography>
+            </Alert>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ justifyContent: 'space-between', p: 2 }}>
+          <Button onClick={() => { setQrCodeDialog(false); setUpiQrCode(''); }} color="error">
+            Cancel
+          </Button>
+          <Button 
+            onClick={confirmUPIPayment} 
+            variant="contained" 
+            color="success"
+            disabled={loading}
+            startIcon={<CheckCircle />}
+          >
+            {loading ? <CircularProgress size={24} /> : 'Payment Successful'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Old QR Code Dialog */}
+      <Dialog open={false} onClose={() => setQrCodeDialog(false)} maxWidth="sm" fullWidth>
         <DialogTitle>UPI Payment</DialogTitle>
         <DialogContent>
           <Box sx={{ textAlign: 'center', mt: 2 }}>

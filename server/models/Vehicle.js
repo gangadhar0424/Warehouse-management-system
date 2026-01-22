@@ -51,6 +51,11 @@ const vehicleSchema = new mongoose.Schema({
     enum: ['entered', 'loaded', 'weighed', 'exited', 'inside'],
     default: 'entered'
   },
+  visitPurpose: {
+    type: String,
+    enum: ['weighing_only', 'grain_loading'],
+    default: 'weighing_only'
+  },
   // New grain-specific fields
   grainDetails: {
     grainType: {

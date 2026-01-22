@@ -133,11 +133,9 @@ const Navbar = () => {
   };
 
   const menuItems = [
-    { text: 'Dashboard', icon: <Dashboard />, path: '/', roles: ['owner', 'customer', 'worker'] },
-    { text: 'Weigh Bridge & Payments', icon: <LocalShipping />, path: '/weigh-bridge', roles: ['owner', 'worker'] },
     { text: 'Owner Dashboard', icon: <Settings />, path: '/owner-dashboard', roles: ['owner'] },
     { text: 'Customer Dashboard', icon: <AccountCircle />, path: '/customer-dashboard', roles: ['customer'] },
-    { text: 'Vehicle Management', icon: <LocalShipping />, path: '/vehicles', roles: ['owner', 'worker'] },
+    { text: 'Worker Dashboard', icon: <Work />, path: '/', roles: ['worker'] },
     { text: 'Worker Tracking', icon: <Work />, path: '/worker-tracking', roles: ['owner'] },
     { text: 'Customer Grain', icon: <Grain />, path: '/customer-grain', roles: ['owner', 'customer'] }
   ];
@@ -211,25 +209,6 @@ const Navbar = () => {
                   {formatDateTime(currentDateTime).time}
                 </Typography>
               </Box>
-            </Box>
-          )}
-
-          {/* Warehouse Occupancy Display */}
-          {user?.role === 'owner' && !isMobile && (
-            <Box sx={{ display: 'flex', alignItems: 'center', mr: 2 }}>
-              <Tooltip title="Total Grain Storage">
-                <Box sx={{ display: 'flex', alignItems: 'center', bgcolor: 'rgba(255,255,255,0.1)', px: 2, py: 0.5, borderRadius: 1 }}>
-                  <Grain fontSize="small" sx={{ mr: 1 }} />
-                  <Box sx={{ textAlign: 'center' }}>
-                    <Typography variant="caption" display="block">
-                      {occupancyData.totalBags} Bags
-                    </Typography>
-                    <Typography variant="caption" display="block">
-                      {(occupancyData.totalWeight / 1000).toFixed(1)}T
-                    </Typography>
-                  </Box>
-                </Box>
-              </Tooltip>
             </Box>
           )}
 

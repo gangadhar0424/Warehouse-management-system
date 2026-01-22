@@ -301,4 +301,48 @@ router.put('/profile', auth, [
   }
 });
 
+// @route   POST /api/auth/change-password
+// @desc    Change user password
+// @access  Private
+router.post('/change-password', auth, [
+  body('currentPassword').optional().isLength({ min: 6 }),
+  body('newPassword').isLength({ min: 6 }).withMessage('Password must be at least 6 characters')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { currentPassword, newPassword } = req.body;
+    const user = await User.findById(req.user.id);
+
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // If not first-time password change, verify current password
+    if (!user.needsPasswordChange && currentPassword) {
+      const isMatch = await user.comparePassword(currentPassword);
+      if (!isMatch) {
+        return res.status(400).json({ message: 'Current password is incorrect' });
+      }
+    }
+
+    // Update password
+    user.password = newPassword;
+    user.needsPasswordChange = false;
+    await user.save();
+
+    res.json({ 
+      message: 'Password changed successfully',
+      needsPasswordChange: false
+    });
+
+  } catch (error) {
+    console.error('Password change error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 module.exports = router;

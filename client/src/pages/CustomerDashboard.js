@@ -38,7 +38,8 @@ import {
   Receipt,
   Refresh,
   ExtensionOutlined,
-  ContactSupport
+  ContactSupport,
+  Lock
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
@@ -53,6 +54,7 @@ import StorageCostCalculator from '../components/StorageCostCalculator';
 import GrainMarketPrices from '../components/GrainMarketPrices';
 import DocumentVault from '../components/DocumentVault';
 import CustomerNotificationsPanel from '../components/CustomerNotificationsPanel';
+import PaymentModule from '../components/PaymentModule';
 
 const CustomerDashboard = () => {
   const [activeTab, setActiveTab] = useState(0);
@@ -67,15 +69,28 @@ const CustomerDashboard = () => {
   const [extendDialog, setExtendDialog] = useState(false);
   const [paymentDialog, setPaymentDialog] = useState(false);
   const [contactDialog, setContactDialog] = useState(false);
+  const [passwordDialog, setPasswordDialog] = useState(false);
   const [selectedAllocation, setSelectedAllocation] = useState(null);
   const [extensionDate, setExtensionDate] = useState('');
+  
+  // Password change state
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  });
 
   const { user } = useAuth();
   const { addNotification } = useSocket();
 
   useEffect(() => {
     fetchCustomerData();
-  }, []);
+    
+    // Check if user needs to change password
+    if (user?.needsPasswordChange) {
+      setPasswordDialog(true);
+    }
+  }, [user]);
 
   const fetchCustomerData = async () => {
     try {
@@ -152,7 +167,39 @@ const CustomerDashboard = () => {
       default: return 'default';
     }
   };
+  const handlePasswordChange = async () => {
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
 
+    if (passwordForm.newPassword.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError('');
+
+      await axios.post('/api/auth/change-password', {
+        currentPassword: user?.needsPasswordChange ? undefined : passwordForm.currentPassword,
+        newPassword: passwordForm.newPassword
+      });
+
+      setSuccess('Password changed successfully!');
+      setPasswordDialog(false);
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      
+      // Refresh user data
+      await fetchCustomerData();
+      
+    } catch (error) {
+      setError(error.response?.data?.message || 'Failed to change password');
+    } finally {
+      setLoading(false);
+    }
+  };
   const getPaymentStatusColor = (status) => {
     switch (status) {
       case 'paid': return 'success';
@@ -451,6 +498,14 @@ const CustomerDashboard = () => {
         </Typography>
         <Box sx={{ display: 'flex', gap: 2 }}>
           <Button
+            variant="outlined"
+            color="secondary"
+            startIcon={<Lock />}
+            onClick={() => setPasswordDialog(true)}
+          >
+            Change Password
+          </Button>
+          <Button
             variant="contained"
             color="primary"
             startIcon={<ContactSupport />}
@@ -486,6 +541,7 @@ const CustomerDashboard = () => {
         <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)} variant="scrollable" scrollButtons="auto">
           <Tab label="Storage Allocations" />
           <Tab label="Transaction History" />
+          <Tab label="Payments" />
           <Tab label="My Grains Overview" />
           <Tab label="Loan Management" />
           <Tab label="Payment Timeline" />
@@ -498,13 +554,15 @@ const CustomerDashboard = () => {
 
       {activeTab === 0 && <StorageAllocations />}
       {activeTab === 1 && <TransactionHistory />}
-      {activeTab === 2 && <MyGrainsOverview />}
-      {activeTab === 3 && <LoanManagementCenter />}
-      {activeTab === 4 && <PaymentTimeline />}
-      {activeTab === 5 && <StorageCostCalculator />}
-      {activeTab === 6 && <GrainMarketPrices />}
-      {activeTab === 7 && <DocumentVault />}
-      {activeTab === 8 && <CustomerNotificationsPanel />}
+      {activeTab === 2 && <PaymentModule userRole="customer" />}
+      {activeTab === 2 && <PaymentModule userRole="customer" />}
+      {activeTab === 3 && <MyGrainsOverview />}
+      {activeTab === 4 && <LoanManagementCenter />}
+      {activeTab === 5 && <PaymentTimeline />}
+      {activeTab === 6 && <StorageCostCalculator />}
+      {activeTab === 7 && <GrainMarketPrices />}
+      {activeTab === 8 && <DocumentVault />}
+      {activeTab === 9 && <CustomerNotificationsPanel />}
 
       {/* Extension Dialog */}
       <Dialog open={extendDialog} onClose={() => setExtendDialog(false)} maxWidth="sm" fullWidth>
@@ -579,6 +637,73 @@ const CustomerDashboard = () => {
         open={contactDialog} 
         onClose={() => setContactDialog(false)} 
       />
+
+      {/* Password Change Dialog */}
+      <Dialog 
+        open={passwordDialog} 
+        onClose={() => !user?.needsPasswordChange && setPasswordDialog(false)}
+        maxWidth="sm" 
+        fullWidth
+        disableEscapeKeyDown={user?.needsPasswordChange}
+      >
+        <DialogTitle>
+          {user?.needsPasswordChange ? 'Set Your Password' : 'Change Password'}
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 2 }}>
+            {user?.needsPasswordChange ? (
+              <Alert severity="info" sx={{ mb: 3 }}>
+                Welcome! Please create your own password to secure your account.
+              </Alert>
+            ) : (
+              <TextField
+                fullWidth
+                type="password"
+                label="Current Password"
+                value={passwordForm.currentPassword}
+                onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
+                sx={{ mb: 2 }}
+              />
+            )}
+            
+            <TextField
+              fullWidth
+              type="password"
+              label="New Password"
+              value={passwordForm.newPassword}
+              onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
+              helperText="Minimum 6 characters"
+              sx={{ mb: 2 }}
+            />
+            
+            <TextField
+              fullWidth
+              type="password"
+              label="Confirm New Password"
+              value={passwordForm.confirmPassword}
+              onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
+              error={passwordForm.newPassword !== passwordForm.confirmPassword && passwordForm.confirmPassword !== ''}
+              helperText={
+                passwordForm.newPassword !== passwordForm.confirmPassword && passwordForm.confirmPassword !== ''
+                  ? 'Passwords do not match'
+                  : ''
+              }
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          {!user?.needsPasswordChange && (
+            <Button onClick={() => setPasswordDialog(false)}>Cancel</Button>
+          )}
+          <Button 
+            onClick={handlePasswordChange} 
+            variant="contained"
+            disabled={loading || !passwordForm.newPassword || passwordForm.newPassword !== passwordForm.confirmPassword}
+          >
+            {loading ? <CircularProgress size={24} /> : 'Change Password'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 };
