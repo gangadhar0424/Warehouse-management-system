@@ -135,9 +135,10 @@ const Navbar = () => {
   const menuItems = [
     { text: 'Owner Dashboard', icon: <Settings />, path: '/owner-dashboard', roles: ['owner'] },
     { text: 'Weighbridge', icon: <Dashboard />, path: '/weigh-bridge', roles: ['owner'] },
-    { text: 'Payments', icon: <Payment />, path: '/payments', roles: ['owner'] },
+    { text: 'Vehicles', icon: <LocalShipping />, path: '/vehicles', roles: ['owner'] },
     { text: 'Customer Dashboard', icon: <AccountCircle />, path: '/customer-dashboard', roles: ['customer'] },
-    { text: 'Customer Grain', icon: <Grain />, path: '/customer-grain', roles: ['owner', 'customer'] }
+    { text: 'My Grains', icon: <Grain />, path: '/customer-grain', roles: ['customer'] },
+    { text: 'Payments', icon: <Payment />, path: '/payments', roles: ['customer'] }
   ];
 
   const filteredMenuItems = menuItems.filter(item => 
@@ -187,7 +188,7 @@ const Navbar = () => {
           )}
           
           <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            Warehouse Management System
+            {user?.role === 'owner' ? 'Warehouse Management System - Owner' : 'Warehouse Management System - Customer'}
           </Typography>
 
           {/* Real-time Date and Time Display */}

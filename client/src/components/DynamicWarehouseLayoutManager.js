@@ -108,6 +108,7 @@ const DynamicWarehouseLayoutManager = () => {
       const response = await axios.get('/api/dynamic-warehouse/layouts', {
         headers: { 'x-auth-token': token }
       });
+      console.log('Fetched layouts:', response.data.layouts);
       setLayouts(response.data.layouts || []);
     } catch (error) {
       console.error('Error fetching layouts:', error);

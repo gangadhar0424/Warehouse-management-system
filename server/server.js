@@ -8,8 +8,8 @@ const path = require('path');
 const http = require('http');
 const socketIo = require('socket.io');
 
-// Load environment variables from parent directory
-dotenv.config({ path: path.join(__dirname, '..', '.env') });
+// Load environment variables from server directory
+dotenv.config({ path: path.join(__dirname, '.env') });
 
 const app = express();
 const server = http.createServer(app);
@@ -19,6 +19,9 @@ const io = socketIo(server, {
     methods: ["GET", "POST"]
   }
 });
+
+// Trust proxy for rate limiting
+app.set('trust proxy', 1);
 
 // Middleware
 app.use(helmet({
@@ -35,7 +38,9 @@ app.use(express.urlencoded({ extended: true }));
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 1000, // limit each IP to 1000 requests per windowMs
-  message: 'Too many requests from this IP, please try again later.'
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false
 });
 app.use(limiter);
 
@@ -92,7 +97,7 @@ app.use('/api/vehicles', require('./routes/vehicles'));
 app.use('/api/warehouse', require('./routes/warehouse'));
 app.use('/api/dynamic-warehouse', require('./routes/dynamicWarehouse'));
 app.use('/api/customers', require('./routes/customers'));
-
+app.use('/api/requests', require('./routes/requests'));
 app.use('/api/transactions', require('./routes/transactions'));
 app.use('/api/payments', require('./routes/payments'));
 app.use('/api/reports', require('./routes/reports'));

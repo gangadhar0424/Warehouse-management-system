@@ -46,14 +46,13 @@ const UserManagementPanel = () => {
   const [users, setUsers] = useState({
     owners: [],
     customers: [],
-    workers: [],
     all: []
   });
   const [stats, setStats] = useState({
     total: 0,
     active: 0,
     inactive: 0,
-    byRole: { owners: 0, customers: 0, workers: 0 }
+    byRole: { owners: 0, customers: 0 }
   });
 
   useEffect(() => {
@@ -104,19 +103,16 @@ const UserManagementPanel = () => {
     let userList = [];
     switch (activeTab) {
       case 0:
-        userList = users.all;
+        userList = users.all || [];
         break;
       case 1:
-        userList = users.owners;
+        userList = users.owners || [];
         break;
       case 2:
-        userList = users.customers;
-        break;
-      case 3:
-        userList = users.workers;
+        userList = users.customers || [];
         break;
       default:
-        userList = users.all;
+        userList = users.all || [];
     }
 
     if (searchTerm) {
@@ -213,18 +209,6 @@ const UserManagementPanel = () => {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography color="textSecondary" gutterBottom>
-                Workers
-              </Typography>
-              <Typography variant="h4" color="success.main">
-                {stats.byRole.workers}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
       </Grid>
 
       {/* Main Panel */}
@@ -245,10 +229,9 @@ const UserManagementPanel = () => {
         {/* Tabs */}
         <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
           <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)}>
-            <Tab label={`All Users (${users.all.length})`} />
-            <Tab label={`Owners (${users.owners.length})`} />
-            <Tab label={`Customers (${users.customers.length})`} />
-            <Tab label={`Workers (${users.workers.length})`} />
+            <Tab label={`All Users (${users.all?.length || 0})`} />
+            <Tab label={`Owners (${users.owners?.length || 0})`} />
+            <Tab label={`Customers (${users.customers?.length || 0})`} />
           </Tabs>
         </Box>
 

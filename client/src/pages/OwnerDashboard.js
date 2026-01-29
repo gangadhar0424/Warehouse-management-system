@@ -64,6 +64,7 @@ import DynamicWarehouseLayoutManager from '../components/DynamicWarehouseLayoutM
 import UserManagementPanel from '../components/UserManagementPanel';
 import VehicleManagement from './VehicleManagement';
 import PredictionsTab from '../components/PredictionsTab';
+import OwnerRequestManagement from '../components/OwnerRequestManagement';
 
 const OwnerDashboard = () => {
   const [activeTab, setActiveTab] = useState(0);
@@ -879,6 +880,7 @@ const OwnerDashboard = () => {
           <Tab label="User Management" />
           <Tab label="Vehicle Management" />
           <Tab label="Transactions" />
+          <Tab label="Customer Requests" />
           <Tab label="Analytics" />
           <Tab label="Predictions" />
           <Tab label="Loan Portfolio" />
@@ -890,10 +892,11 @@ const OwnerDashboard = () => {
       {activeTab === 1 && <UserManagementPanel />}
       {activeTab === 2 && <VehicleManagement />}
       {activeTab === 3 && <WarehouseTransactions />}
-      {activeTab === 4 && <CombinedAnalytics />}
-      {activeTab === 5 && <PredictionsTab />}
-      {activeTab === 6 && <LoanPortfolioManager />}
-      {activeTab === 7 && <AlertsCenter />}
+      {activeTab === 4 && <OwnerRequestManagement />}
+      {activeTab === 5 && <CombinedAnalytics />}
+      {activeTab === 6 && <PredictionsTab />}
+      {activeTab === 7 && <LoanPortfolioManager />}
+      {activeTab === 8 && <AlertsCenter />}
 
       {/* Storage Allocation Dialog */}
       <Dialog open={allocationDialog} onClose={() => setAllocationDialog(false)} maxWidth="sm" fullWidth>

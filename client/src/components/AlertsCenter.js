@@ -406,68 +406,6 @@ const AlertsCenter = () => {
         </Paper>
       </Box>
 
-      {/* Prediction & Market Alerts Section */}
-      {((alerts.predictiveAlerts && alerts.predictiveAlerts.length > 0) || 
-        (alerts.marketAlerts && alerts.marketAlerts.length > 0)) && (
-        <Card sx={{ mb: 3, bgcolor: '#f3e5f5' }}>
-          <CardContent>
-            <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, color: '#9c27b0' }}>
-              <Warning /> AI-Powered Predictions & Market Alerts
-            </Typography>
-            <Divider sx={{ my: 2 }} />
-            
-            {/* Market Alerts */}
-            {alerts.marketAlerts && alerts.marketAlerts.length > 0 && (
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold' }}>
-                  Market Trends
-                </Typography>
-                {alerts.marketAlerts.map((alert, index) => (
-                  <Alert 
-                    key={index} 
-                    severity={alert.severity === 'high' ? 'error' : alert.severity === 'medium' ? 'warning' : 'info'}
-                    sx={{ mb: 1 }}
-                  >
-                    <Typography variant="subtitle2" fontWeight="bold">
-                      {alert.title}
-                    </Typography>
-                    <Typography variant="body2">
-                      {alert.message}
-                    </Typography>
-                  </Alert>
-                ))}
-              </Box>
-            )}
-
-            {/* Predictive Alerts */}
-            {alerts.predictiveAlerts && alerts.predictiveAlerts.length > 0 && (
-              <Box>
-                <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold' }}>
-                  Customer Risk Predictions
-                </Typography>
-                {alerts.predictiveAlerts.slice(0, 5).map((alert, index) => (
-                  <Alert 
-                    key={index} 
-                    severity={alert.severity === 'high' ? 'error' : alert.severity === 'medium' ? 'warning' : 'info'}
-                    sx={{ mb: 1 }}
-                  >
-                    <Typography variant="subtitle2" fontWeight="bold">
-                      {alert.title}
-                    </Typography>
-                    <Typography variant="body2">
-                      {alert.message}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-                      Customer: {alert.customerName}
-                    </Typography>
-                  </Alert>
-                ))}
-              </Box>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
 
       {/* Tabs for filtering */}
       <Card sx={{ mb: 3 }}>
