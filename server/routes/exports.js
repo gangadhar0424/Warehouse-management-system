@@ -28,7 +28,7 @@ router.get('/transactions', auth, authorize(['owner']), async (req, res) => {
             .populate('vehicle')
             .sort({ createdAt: -1 });
 
-        const result = await excelExportService.exportTransactions(transactions);
+        const result = await excelExportService.exportTransactions(transactions, req.user.id);
 
         res.json({
             success: true,
@@ -67,7 +67,7 @@ router.get('/customers', auth, authorize(['owner']), async (req, res) => {
             };
         }));
 
-        const result = await excelExportService.exportCustomers(customersWithStats);
+        const result = await excelExportService.exportCustomers(customersWithStats, req.user.id);
 
         res.json({
             success: true,
@@ -105,7 +105,7 @@ router.get('/vehicles', auth, authorize(['owner']), async (req, res) => {
             };
         }));
 
-        const result = await excelExportService.exportVehicles(vehiclesWithStats);
+        const result = await excelExportService.exportVehicles(vehiclesWithStats, req.user.id);
 
         res.json({
             success: true,
@@ -139,7 +139,7 @@ router.get('/storage-allocations', auth, authorize(['owner']), async (req, res) 
             .populate('warehouse', 'name location')
             .sort({ createdAt: -1 });
 
-        const result = await excelExportService.exportStorageAllocations(allocations);
+        const result = await excelExportService.exportStorageAllocations(allocations, req.user.id);
 
         res.json({
             success: true,
@@ -202,7 +202,7 @@ router.get('/comprehensive-report', auth, authorize(['owner']), async (req, res)
             totalRevenue
         };
 
-        const result = await excelExportService.exportComprehensiveReport(data);
+        const result = await excelExportService.exportComprehensiveReport(data, req.user.id);
 
         res.json({
             success: true,
@@ -254,7 +254,7 @@ router.get('/daily-report', auth, authorize(['owner']), async (req, res) => {
             uniqueCustomers: [...new Set(transactions.map(t => t.customer?._id).filter(Boolean))].length
         };
 
-        const result = await excelExportService.exportTransactions(transactions);
+        const result = await excelExportService.exportTransactions(transactions, req.user.id);
         
         res.json({
             success: true,
@@ -306,25 +306,25 @@ router.post('/custom', auth, authorize(['owner']), async (req, res) => {
                     .populate('customer', 'name email phone')
                     .populate('vehicle')
                     .sort({ createdAt: -1 });
-                result = await excelExportService.exportTransactions(transactions);
+                result = await excelExportService.exportTransactions(transactions, req.user.id);
                 break;
                 
             case 'customers':
                 const customers = await User.find({ role: 'customer', ...query })
                     .select('name email phone address company createdAt');
-                result = await excelExportService.exportCustomers(customers);
+                result = await excelExportService.exportCustomers(customers, req.user.id);
                 break;
                 
             case 'vehicles':
                 const vehicles = await Vehicle.find(query);
-                result = await excelExportService.exportVehicles(vehicles);
+                result = await excelExportService.exportVehicles(vehicles, req.user.id);
                 break;
                 
             case 'allocations':
                 const allocations = await StorageAllocation.find(query)
                     .populate('customer', 'name')
                     .populate('warehouse', 'name');
-                result = await excelExportService.exportStorageAllocations(allocations);
+                result = await excelExportService.exportStorageAllocations(allocations, req.user.id);
                 break;
                 
             default:
@@ -345,27 +345,6 @@ router.post('/custom', auth, authorize(['owner']), async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Failed to export data'
-        });
-    }
-});
-
-// @route   DELETE /api/exports/cleanup
-// @desc    Clean old export files
-// @access  Private (Owner only)
-router.delete('/cleanup', auth, authorize(['owner']), async (req, res) => {
-    try {
-        await excelExportService.cleanOldExports();
-        
-        res.json({
-            success: true,
-            message: 'Old export files cleaned successfully'
-        });
-
-    } catch (error) {
-        console.error('Export cleanup error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to clean export files'
         });
     }
 });

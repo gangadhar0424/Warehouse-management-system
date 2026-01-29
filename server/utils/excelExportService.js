@@ -1,21 +1,34 @@
 const XLSX = require('xlsx');
-const path = require('path');
-const fs = require('fs');
+const gridFSFileService = require('./gridFSFileService');
 
 class ExcelExportService {
     constructor() {
-        this.exportsDir = './uploads/exports';
-        this.ensureExportsDir();
+        // No longer need local directory - using GridFS
+        console.log('ExcelExportService initialized with MongoDB GridFS storage');
     }
 
-    ensureExportsDir() {
-        if (!fs.existsSync(this.exportsDir)) {
-            fs.mkdirSync(this.exportsDir, { recursive: true });
-        }
+    /**
+     * Upload Excel buffer to GridFS
+     * @param {Buffer} buffer - Excel file buffer
+     * @param {string} filename - File name
+     * @param {string} userId - User ID who requested export
+     * @returns {Promise<object>} Upload result
+     */
+    async uploadExcelToGridFS(buffer, filename, userId) {
+        return await gridFSFileService.uploadFile(
+            buffer,
+            {
+                originalname: filename,
+                mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                size: buffer.length,
+                uploadedBy: userId
+            },
+            'exports'
+        );
     }
 
     // Export transactions to Excel
-    async exportTransactions(transactions) {
+    async exportTransactions(transactions, userId) {
         try {
             const workbook = XLSX.utils.book_new();
             
@@ -58,15 +71,18 @@ class ExcelExportService {
             XLSX.utils.book_append_sheet(workbook, worksheet, 'Transactions');
 
             const filename = `transactions_${new Date().toISOString().split('T')[0]}_${Date.now()}.xlsx`;
-            const filepath = path.join(this.exportsDir, filename);
-
-            XLSX.writeFile(workbook, filepath);
+            
+            // Write to buffer instead of file
+            const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+            
+            // Upload to GridFS
+            const result = await this.uploadExcelToGridFS(buffer, filename, userId);
 
             return {
                 success: true,
                 filename,
-                filepath,
-                url: `/uploads/exports/${filename}`,
+                fileId: result.file.id,
+                url: result.file.url,
                 recordCount: transactions.length
             };
         } catch (error) {
@@ -76,7 +92,7 @@ class ExcelExportService {
     }
 
     // Export customers to Excel
-    async exportCustomers(customers) {
+    async exportCustomers(customers, userId) {
         try {
             const workbook = XLSX.utils.book_new();
             
@@ -111,15 +127,18 @@ class ExcelExportService {
             XLSX.utils.book_append_sheet(workbook, worksheet, 'Customers');
 
             const filename = `customers_${new Date().toISOString().split('T')[0]}_${Date.now()}.xlsx`;
-            const filepath = path.join(this.exportsDir, filename);
-
-            XLSX.writeFile(workbook, filepath);
+            
+            // Write to buffer instead of file
+            const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+            
+            // Upload to GridFS
+            const result = await this.uploadExcelToGridFS(buffer, filename, userId);
 
             return {
                 success: true,
                 filename,
-                filepath,
-                url: `/uploads/exports/${filename}`,
+                fileId: result.file.id,
+                url: result.file.url,
                 recordCount: customers.length
             };
         } catch (error) {
@@ -129,7 +148,7 @@ class ExcelExportService {
     }
 
     // Export vehicles to Excel
-    async exportVehicles(vehicles) {
+    async exportVehicles(vehicles, userId) {
         try {
             const workbook = XLSX.utils.book_new();
             
@@ -168,15 +187,18 @@ class ExcelExportService {
             XLSX.utils.book_append_sheet(workbook, worksheet, 'Vehicles');
 
             const filename = `vehicles_${new Date().toISOString().split('T')[0]}_${Date.now()}.xlsx`;
-            const filepath = path.join(this.exportsDir, filename);
-
-            XLSX.writeFile(workbook, filepath);
+            
+            // Write to buffer instead of file
+            const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+            
+            // Upload to GridFS
+            const result = await this.uploadExcelToGridFS(buffer, filename, userId);
 
             return {
                 success: true,
                 filename,
-                filepath,
-                url: `/uploads/exports/${filename}`,
+                fileId: result.file.id,
+                url: result.file.url,
                 recordCount: vehicles.length
             };
         } catch (error) {
@@ -186,7 +208,7 @@ class ExcelExportService {
     }
 
     // Export storage allocations to Excel
-    async exportStorageAllocations(allocations) {
+    async exportStorageAllocations(allocations, userId) {
         try {
             const workbook = XLSX.utils.book_new();
             
@@ -229,15 +251,18 @@ class ExcelExportService {
             XLSX.utils.book_append_sheet(workbook, worksheet, 'Storage Allocations');
 
             const filename = `storage_allocations_${new Date().toISOString().split('T')[0]}_${Date.now()}.xlsx`;
-            const filepath = path.join(this.exportsDir, filename);
-
-            XLSX.writeFile(workbook, filepath);
+            
+            // Write to buffer instead of file
+            const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+            
+            // Upload to GridFS
+            const result = await this.uploadExcelToGridFS(buffer, filename, userId);
 
             return {
                 success: true,
                 filename,
-                filepath,
-                url: `/uploads/exports/${filename}`,
+                fileId: result.file.id,
+                url: result.file.url,
                 recordCount: allocations.length
             };
         } catch (error) {
@@ -247,7 +272,7 @@ class ExcelExportService {
     }
 
     // Export comprehensive report
-    async exportComprehensiveReport(data) {
+    async exportComprehensiveReport(data, userId) {
         try {
             const workbook = XLSX.utils.book_new();
             
@@ -302,41 +327,23 @@ class ExcelExportService {
             }
 
             const filename = `comprehensive_report_${new Date().toISOString().split('T')[0]}_${Date.now()}.xlsx`;
-            const filepath = path.join(this.exportsDir, filename);
-
-            XLSX.writeFile(workbook, filepath);
+            
+            // Write to buffer instead of file
+            const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+            
+            // Upload to GridFS
+            const result = await this.uploadExcelToGridFS(buffer, filename, userId);
 
             return {
                 success: true,
                 filename,
-                filepath,
-                url: `/uploads/exports/${filename}`,
+                fileId: result.file.id,
+                url: result.file.url,
                 totalRecords: Object.values(data).reduce((sum, arr) => sum + (Array.isArray(arr) ? arr.length : 0), 0)
             };
         } catch (error) {
             console.error('Comprehensive report export error:', error);
             throw error;
-        }
-    }
-
-    // Clean old export files (older than 24 hours)
-    async cleanOldExports() {
-        try {
-            const files = fs.readdirSync(this.exportsDir);
-            const now = Date.now();
-            const oneDayAgo = now - (24 * 60 * 60 * 1000); // 24 hours in milliseconds
-
-            for (const file of files) {
-                const filePath = path.join(this.exportsDir, file);
-                const stats = fs.statSync(filePath);
-                
-                if (stats.birthtime.getTime() < oneDayAgo) {
-                    fs.unlinkSync(filePath);
-                    console.log(`Cleaned old export file: ${file}`);
-                }
-            }
-        } catch (error) {
-            console.error('Error cleaning old exports:', error);
         }
     }
 }

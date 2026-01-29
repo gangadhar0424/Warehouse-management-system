@@ -8,7 +8,6 @@ const Transaction = require('../models/Transaction');
 const StorageAllocation = require('../models/StorageAllocation');
 const Loan = require('../models/Loan');
 const DynamicWarehouseLayout = require('../models/DynamicWarehouseLayout');
-const WarehouseLayout = require('../models/WarehouseLayout');
 
 const resetDatabase = async () => {
   try {
@@ -45,12 +44,8 @@ const resetDatabase = async () => {
     const deletedLoans = await Loan.deleteMany({});
     console.log(`✅ Deleted ${deletedLoans.deletedCount} loans`);
 
-    // Delete all dynamic warehouse layouts
-    const deletedDynamicLayouts = await DynamicWarehouseLayout.deleteMany({});
-    console.log(`✅ Deleted ${deletedDynamicLayouts.deletedCount} dynamic warehouse layouts`);
-
     // Delete all warehouse layouts
-    const deletedLayouts = await WarehouseLayout.deleteMany({});
+    const deletedLayouts = await DynamicWarehouseLayout.deleteMany({});
     console.log(`✅ Deleted ${deletedLayouts.deletedCount} warehouse layouts`);
 
     console.log('\n✨ Database reset completed successfully!');
@@ -60,7 +55,6 @@ const resetDatabase = async () => {
     console.log(`   - Transactions: ${deletedTransactions.deletedCount}`);
     console.log(`   - Storage Allocations: ${deletedAllocations.deletedCount}`);
     console.log(`   - Loans: ${deletedLoans.deletedCount}`);
-    console.log(`   - Dynamic Layouts: ${deletedDynamicLayouts.deletedCount}`);
     console.log(`   - Warehouse Layouts: ${deletedLayouts.deletedCount}`);
     console.log('\n🎯 Database is now empty and ready for fresh data!\n');
 

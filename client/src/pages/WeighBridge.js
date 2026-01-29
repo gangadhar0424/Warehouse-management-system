@@ -220,12 +220,15 @@ const WeighBridge = () => {
         timestamp: new Date()
       });
 
-      // Show payment dialog for weighing_only vehicles
+      // Store the registered vehicle data
+      setRegisteredVehicle(response.data.vehicle);
+      
+      // Show payment dialog for weighing_only vehicles immediately
       if (response.data.visitPurpose === 'weighing_only') {
-        setRegisteredVehicle(response.data.vehicle);
         setPaymentDialog(true);
       } else {
-        setSuccess('Vehicle added to loading queue successfully!');
+        // For grain_loading, vehicle is added to queue but payment can be done later
+        setSuccess('Vehicle added to loading queue successfully! Payment can be processed from Active Vehicles tab.');
       }
 
       // Reset form
@@ -323,8 +326,7 @@ const WeighBridge = () => {
       
     } catch (error) {
       console.error('Payment error:', error);
-      setError(error.response?.data?.message || 'Failed to process payment');
-    } finally {
+      setError(error.message || error.response?.data?.message || 'Failed to process payment');
       setLoading(false);
     }
   };
@@ -356,11 +358,13 @@ const WeighBridge = () => {
   const confirmUPIPayment = async () => {
     const weighingFee = parseFloat(paymentForm.weighingFee) || 100;
     setLoading(true);
+    setError('');
     try {
       await processPayment(weighingFee, 'upi');
       setUpiQrDialog(false);
     } catch (error) {
-      setError('Failed to confirm payment');
+      setError(error.message || 'Failed to confirm UPI payment');
+      setUpiQrDialog(false);
     } finally {
       setLoading(false);
     }
@@ -370,8 +374,8 @@ const WeighBridge = () => {
     try {
       // Create payment transaction
       const paymentData = {
-        type: 'weigh_bridge',
-        customer: registeredVehicle.customer?._id || null,
+        type: 'weighbridge_fee',
+        customer: registeredVehicle.customer?._id || registeredVehicle.customer || null,
         vehicle: registeredVehicle._id,
         amount: {
           baseAmount: amount,
@@ -391,7 +395,9 @@ const WeighBridge = () => {
         }]
       };
 
+      console.log('Creating payment transaction with data:', paymentData);
       const response = await axios.post('/api/payments/create', paymentData);
+      console.log('Payment transaction created:', response.data);
 
       // Update vehicle payment status
       await axios.put(`/api/vehicles/${registeredVehicle._id}`, {
@@ -419,7 +425,9 @@ const WeighBridge = () => {
       
     } catch (error) {
       console.error('Payment processing error:', error);
-      throw error;
+      console.error('Error details:', error.response?.data);
+      const errorMsg = error.response?.data?.message || error.response?.data?.errors?.[0]?.msg || 'Payment processing failed';
+      throw new Error(errorMsg);
     }
   };
 

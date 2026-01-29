@@ -8,7 +8,7 @@ const storageAllocationSchema = new mongoose.Schema({
   },
   warehouse: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'WarehouseLayout',
+    ref: 'DynamicWarehouseLayout',
     required: true
   },
   owner: {

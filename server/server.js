@@ -49,14 +49,7 @@ const db = mongoose.connection;
 db.on('error', console.error.bind(console, 'MongoDB connection error:'));
 db.once('open', async () => {
   console.log('Connected to MongoDB');
-  
-  // Initialize local file storage
-  try {
-    const localFileService = require('./utils/localFileService');
-    console.log('Local file storage initialized');
-  } catch (error) {
-    console.log('File service initialization error:', error.message);
-  }
+  console.log('All files will be stored in MongoDB GridFS');
 });
 
 // Socket.IO connection handling
@@ -83,7 +76,6 @@ app.use((req, res, next) => {
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/users', require('./routes/users'));
 app.use('/api/vehicles', require('./routes/vehicles'));
-app.use('/api/warehouse', require('./routes/warehouse'));
 app.use('/api/dynamic-warehouse', require('./routes/dynamicWarehouse'));
 app.use('/api/customers', require('./routes/customers'));
 app.use('/api/workers', require('./routes/workers'));
