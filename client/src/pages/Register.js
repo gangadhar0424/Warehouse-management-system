@@ -47,8 +47,7 @@ const Register = () => {
       // Redirect authenticated users to their dashboard
       const dashboardRoutes = {
         owner: '/owner-dashboard',
-        customer: '/customer-dashboard',
-        worker: '/worker-dashboard'
+        customer: '/customer-dashboard'
       };
       navigate(dashboardRoutes[user?.role] || '/', { replace: true });
     }
@@ -133,7 +132,7 @@ const Register = () => {
           </Typography>
 
           {error && (
-            <Alert severity="error" sx={{ width: '100%', mb: 2 }}>
+            <Alert severity="error" sx={{ width: '100%', mb: 2, whiteSpace: 'pre-line' }}>
               {error}
             </Alert>
           )}
@@ -220,7 +219,6 @@ const Register = () => {
                   >
                     <MenuItem value="customer">Customer</MenuItem>
                     <MenuItem value="owner">Warehouse Owner</MenuItem>
-                    <MenuItem value="worker">Worker</MenuItem>
                   </Select>
                 </FormControl>
               </Grid>

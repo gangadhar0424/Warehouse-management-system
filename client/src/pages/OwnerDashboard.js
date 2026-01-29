@@ -48,7 +48,9 @@ import {
   Delete,
   Visibility,
   Home,
-  Inventory
+  Inventory,
+  Scale,
+  MonetizationOn
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
@@ -72,33 +74,17 @@ const OwnerDashboard = () => {
   // Data states
   const [stats, setStats] = useState(null);
   const [customers, setCustomers] = useState([]);
-  const [workers, setWorkers] = useState([]);
   const [vehicles, setVehicles] = useState([]);
 
   // Dialog states
   const [customerDialog, setCustomerDialog] = useState(false);
-  const [workerDialog, setWorkerDialog] = useState(false);
   const [allocationDialog, setAllocationDialog] = useState(false);
-  
-  // Editing states
-  const [editingWorker, setEditingWorker] = useState(null);
 
   // Form states
   const [customerForm, setCustomerForm] = useState({
     username: '',
     email: '',
     password: ''
-  });
-
-  const [workerForm, setWorkerForm] = useState({
-    username: '',
-    email: '',
-    password: '',
-    profile: {
-      firstName: '',
-      lastName: '',
-      phone: ''
-    }
   });
 
   const [allocationForm, setAllocationForm] = useState({
@@ -138,18 +124,15 @@ const OwnerDashboard = () => {
       const [
         vehicleStatsRes,
         customersRes,
-        workersRes,
         vehiclesRes
       ] = await Promise.all([
         axios.get('/api/vehicles/stats/dashboard'),
         axios.get('/api/customers'),
-        axios.get('/api/workers'),
         axios.get('/api/vehicles')
       ]);
 
       setStats(vehicleStatsRes.data);
       setCustomers(customersRes.data.customers);
-      setWorkers(workersRes.data.workers);
       setVehicles(vehiclesRes.data.vehicles);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
@@ -160,29 +143,6 @@ const OwnerDashboard = () => {
   };
 
 
-
-  const handleAddWorker = async () => {
-    try {
-      await axios.post('/api/workers', workerForm);
-      
-      setSuccess('Worker added successfully!');
-      setWorkerDialog(false);
-      setWorkerForm({
-        username: '', email: '', password: '',
-        profile: { firstName: '', lastName: '', phone: '' }
-      });
-      
-      fetchDashboardData();
-      addNotification({
-        type: 'success',
-        title: 'Worker Added',
-        message: `Worker "${workerForm.profile.firstName}" added successfully`,
-        timestamp: new Date()
-      });
-    } catch (error) {
-      setError(error.response?.data?.message || 'Failed to add worker');
-    }
-  };
 
   const handleAllocateStorage = async () => {
     try {
@@ -234,39 +194,6 @@ const OwnerDashboard = () => {
   const handleViewCustomer = (customerId) => {
     // Navigate to customer detail view or show detailed modal
     window.open(`/customer-profile/${customerId}`, '_blank');
-  };
-
-  const handleEditWorker = (worker) => {
-    setWorkerForm({
-      username: worker.username,
-      email: worker.email,
-      password: '', // Don't pre-fill password for security
-      profile: {
-        firstName: worker.profile.firstName,
-        lastName: worker.profile.lastName,
-        phone: worker.profile.phone
-      }
-    });
-    setEditingWorker(worker._id);
-    setWorkerDialog(true);
-  };
-
-  const handleDeleteWorker = async (workerId) => {
-    if (window.confirm('Are you sure you want to delete this worker?')) {
-      try {
-        await axios.delete(`/api/workers/${workerId}`);
-        setSuccess('Worker deleted successfully!');
-        fetchDashboardData();
-        addNotification({
-          type: 'success',
-          title: 'Worker Deleted',
-          message: 'Worker has been removed from the system',
-          timestamp: new Date()
-        });
-      } catch (error) {
-        setError(error.response?.data?.message || 'Failed to delete worker');
-      }
-    }
   };
 
   const handleComprehensiveReport = async () => {
@@ -967,80 +894,6 @@ const OwnerDashboard = () => {
       {activeTab === 5 && <PredictionsTab />}
       {activeTab === 6 && <LoanPortfolioManager />}
       {activeTab === 7 && <AlertsCenter />}
-
-      {/* Worker Addition Dialog */}
-      <Dialog open={workerDialog} onClose={() => setWorkerDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Add New Worker</DialogTitle>
-        <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={6}>
-              <TextField
-                fullWidth
-                label="First Name"
-                value={workerForm.profile.firstName}
-                onChange={(e) => setWorkerForm(prev => ({
-                  ...prev,
-                  profile: { ...prev.profile, firstName: e.target.value }
-                }))}
-              />
-            </Grid>
-            <Grid item xs={6}>
-              <TextField
-                fullWidth
-                label="Last Name"
-                value={workerForm.profile.lastName}
-                onChange={(e) => setWorkerForm(prev => ({
-                  ...prev,
-                  profile: { ...prev.profile, lastName: e.target.value }
-                }))}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Username"
-                value={workerForm.username}
-                onChange={(e) => setWorkerForm(prev => ({ ...prev, username: e.target.value }))}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                type="email"
-                label="Email"
-                value={workerForm.email}
-                onChange={(e) => setWorkerForm(prev => ({ ...prev, email: e.target.value }))}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                label="Phone"
-                value={workerForm.profile.phone}
-                onChange={(e) => setWorkerForm(prev => ({
-                  ...prev,
-                  profile: { ...prev.profile, phone: e.target.value }
-                }))}
-              />
-            </Grid>
-            <Grid item xs={12}>
-              <TextField
-                fullWidth
-                type="password"
-                label="Password"
-                value={workerForm.password}
-                onChange={(e) => setWorkerForm(prev => ({ ...prev, password: e.target.value }))}
-              />
-            </Grid>
-          </Grid>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setWorkerDialog(false)}>Cancel</Button>
-          <Button onClick={handleAddWorker} variant="contained">
-            Add Worker
-          </Button>
-        </DialogActions>
-      </Dialog>
 
       {/* Storage Allocation Dialog */}
       <Dialog open={allocationDialog} onClose={() => setAllocationDialog(false)} maxWidth="sm" fullWidth>

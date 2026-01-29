@@ -360,4 +360,116 @@ router.get('/market-alerts', auth, async (req, res) => {
   }
 });
 
+// @route   POST /api/predictions/grain-prices
+// @desc    Get ML predictions for customer's stored grains
+// @access  Private (Customer)
+router.post('/grain-prices', auth, async (req, res) => {
+  try {
+    const { grains } = req.body;
+    
+    if (!grains || !Array.isArray(grains) || grains.length === 0) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Grains array is required' 
+      });
+    }
+
+    const predictions = [];
+    
+    // Generate predictions for each grain type
+    for (const grain of grains) {
+      const { type, weight, storageDuration } = grain;
+      
+      // Mock ML prediction logic (replace with actual ML service call)
+      // In production, this would call the Python ML service
+      const basePrice = getBasePrice(type);
+      const priceFactor = calculatePriceFactor(storageDuration);
+      const predictedPrice = Math.round(basePrice * priceFactor);
+      const currentPrice = basePrice;
+      const priceChange = ((predictedPrice - currentPrice) / currentPrice * 100).toFixed(2);
+      
+      // Recommendation logic
+      let recommendation = 'hold';
+      if (priceChange > 5) recommendation = 'wait';
+      if (priceChange > -5 && priceChange <= 5) recommendation = 'hold';
+      if (priceChange < -5 || storageDuration > 120) recommendation = 'sell_now';
+      
+      // Confidence calculation
+      const confidence = storageDuration < 30 ? 0.9 : storageDuration < 90 ? 0.75 : 0.6;
+      
+      predictions.push({
+        grainType: type,
+        currentPrice,
+        predictedPrice,
+        priceChange: parseFloat(priceChange),
+        recommendation,
+        confidence,
+        storageDays: storageDuration,
+        optimalSellDate: calculateOptimalSellDate(storageDuration, priceChange)
+      });
+    }
+
+    res.json({
+      success: true,
+      predictions
+    });
+
+  } catch (error) {
+    console.error('Error generating grain price predictions:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error generating predictions', 
+      error: error.message 
+    });
+  }
+});
+
+// Helper functions for prediction
+function getBasePrice(grainType) {
+  const prices = {
+    'Rice': 3200,
+    'Wheat': 2500,
+    'Corn': 1800,
+    'Barley': 2200,
+    'Sorghum': 2000,
+    'Millet': 1900,
+    'Maize': 1800,
+    'Pulses': 4500
+  };
+  
+  // Find case-insensitive match
+  const matchedType = Object.keys(prices).find(
+    key => key.toLowerCase() === grainType?.toLowerCase()
+  );
+  
+  return prices[matchedType] || 2000; // Default price
+}
+
+function calculatePriceFactor(storageDuration) {
+  // Price typically increases for first 60 days, then stabilizes or decreases
+  if (storageDuration < 30) return 1.02; // 2% increase expected
+  if (storageDuration < 60) return 1.05; // 5% increase expected
+  if (storageDuration < 90) return 1.03; // 3% increase
+  if (storageDuration < 120) return 1.0; // Stable
+  return 0.97; // Slight decrease due to quality degradation
+}
+
+function calculateOptimalSellDate(storageDuration, priceChange) {
+  if (priceChange > 5) {
+    // Price is expected to rise, wait 30 days
+    const optimalDate = new Date();
+    optimalDate.setDate(optimalDate.getDate() + 30);
+    return optimalDate.toISOString().split('T')[0];
+  } else if (priceChange < -5) {
+    // Price is falling, sell immediately
+    return new Date().toISOString().split('T')[0];
+  } else {
+    // Stable price, sell within 15 days
+    const optimalDate = new Date();
+    optimalDate.setDate(optimalDate.getDate() + 15);
+    return optimalDate.toISOString().split('T')[0];
+  }
+}
+
 module.exports = router;
+

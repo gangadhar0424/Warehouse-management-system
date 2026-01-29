@@ -446,4 +446,76 @@ router.put('/:id/reject', auth, authorize('owner'), async (req, res) => {
   }
 });
 
+// @route   GET /api/loans/repayment-alerts
+// @desc    Get repayment alerts for customer's active loans
+// @access  Private (Customer)
+router.get('/repayment-alerts', auth, async (req, res) => {
+  try {
+    const customerId = req.user.id;
+    
+    // Get all active loans for the customer
+    const loans = await Loan.find({
+      customer: customerId,
+      status: 'active',
+      remainingAmount: { $gt: 0 }
+    });
+
+    const alerts = [];
+    const today = new Date();
+
+    for (const loan of loans) {
+      if (loan.dueDate) {
+        const dueDate = new Date(loan.dueDate);
+        const diffTime = dueDate - today;
+        const daysUntilDue = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        
+        // Create alerts for loans due within 14 days or overdue
+        if (daysUntilDue <= 14) {
+          const isOverdue = daysUntilDue < 0;
+          
+          // Determine if notifications were sent (based on days until due)
+          const emailSent = daysUntilDue <= 7;
+          const smsSent = daysUntilDue <= 3 || isOverdue;
+          
+          alerts.push({
+            loanId: loan._id,
+            dueDate: loan.dueDate,
+            daysUntilDue,
+            isOverdue,
+            amountDue: loan.monthlyPayment || loan.remainingAmount,
+            remainingAmount: loan.remainingAmount,
+            monthlyPayment: loan.monthlyPayment,
+            emailSent,
+            smsSent,
+            loanAmount: loan.amount,
+            interestRate: loan.interestRate
+          });
+        }
+      }
+    }
+
+    // Sort alerts by urgency (overdue first, then closest due date)
+    alerts.sort((a, b) => {
+      if (a.isOverdue && !b.isOverdue) return -1;
+      if (!a.isOverdue && b.isOverdue) return 1;
+      return a.daysUntilDue - b.daysUntilDue;
+    });
+
+    res.json({
+      success: true,
+      alerts,
+      count: alerts.length
+    });
+
+  } catch (error) {
+    console.error('Error fetching repayment alerts:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Error fetching repayment alerts', 
+      error: error.message 
+    });
+  }
+});
+
 module.exports = router;
+

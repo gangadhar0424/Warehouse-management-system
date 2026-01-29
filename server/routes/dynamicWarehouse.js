@@ -295,8 +295,8 @@ router.get('/layout/:id/available-slots', auth, async (req, res) => {
 
 // @route   POST /api/dynamic-warehouse/allocate-slot
 // @desc    Allocate a specific slot to customer
-// @access  Private (Owner/Worker)
-router.post('/allocate-slot', [auth, authorize('owner', 'worker')], [
+// @access  Private (Owner)
+router.post('/allocate-slot', [auth, authorize('owner')], [
   body('warehouseId').isMongoId().withMessage('Valid warehouse ID is required'),
   body('building').notEmpty().withMessage('Building is required'),
   body('block').notEmpty().withMessage('Block is required'),
@@ -352,8 +352,8 @@ router.post('/allocate-slot', [auth, authorize('owner', 'worker')], [
 
 // @route   POST /api/dynamic-warehouse/deallocate-slot
 // @desc    Deallocate a specific slot
-// @access  Private (Owner/Worker)
-router.post('/deallocate-slot', [auth, authorize('owner', 'worker')], [
+// @access  Private (Owner)
+router.post('/deallocate-slot', [auth, authorize('owner')], [
   body('warehouseId').isMongoId().withMessage('Valid warehouse ID is required'),
   body('building').notEmpty().withMessage('Building is required'),
   body('block').notEmpty().withMessage('Block is required'),

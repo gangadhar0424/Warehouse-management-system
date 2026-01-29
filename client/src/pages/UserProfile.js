@@ -69,7 +69,6 @@ const UserProfile = () => {
     company: '',
     position: ''
   });
-  const [workerStats, setWorkerStats] = useState(null);
   const [customerTransactions, setCustomerTransactions] = useState([]);
   const [ownerDashboard, setOwnerDashboard] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -95,12 +94,7 @@ const UserProfile = () => {
       setLoading(true);
       const token = localStorage.getItem('token');
       
-      if (user.role === 'worker') {
-        const response = await axios.get('/api/workers/stats', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        setWorkerStats(response.data);
-      } else if (user.role === 'customer') {
+      if (user.role === 'customer') {
         const response = await axios.get('/api/transactions/my-transactions', {
           headers: { Authorization: `Bearer ${token}` }
         });
@@ -239,16 +233,16 @@ const UserProfile = () => {
           <Grid item xs={12}>
             <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
               <Tab label="Personal Info" />
-              {user.role === 'worker' && <Tab label="Work Stats" />}
               {user.role === 'customer' && <Tab label="Transactions" />}
               {user.role === 'owner' && <Tab label="Dashboard" />}
               {user.role === 'owner' && <Tab label="Settings" />}
             </Tabs>
           </Grid>
+        </Grid>
 
-          {/* Personal Information Tab */}
-          <TabPanel value={tabValue} index={0}>
-            <Grid container spacing={3}>
+        {/* Personal Information Tab */}
+        <TabPanel value={tabValue} index={0}>
+          <Grid container spacing={3}>
               <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth
@@ -317,89 +311,8 @@ const UserProfile = () => {
             </Grid>
           </TabPanel>
 
-          {/* Worker Stats Tab */}
-          {user.role === 'worker' && (
-            <TabPanel value={tabValue} index={1}>
-              {workerStats ? (
-                <Grid container spacing={3}>
-                  <Grid item xs={12} md={3}>
-                    <Card>
-                      <CardContent>
-                        <Box display="flex" alignItems="center">
-                          <Work sx={{ fontSize: 40, color: 'primary.main', mr: 2 }} />
-                          <Box>
-                            <Typography variant="h4">
-                              {workerStats.totalBags || 0}
-                            </Typography>
-                            <Typography color="text.secondary">
-                              Total Bags Handled
-                            </Typography>
-                          </Box>
-                        </Box>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                  <Grid item xs={12} md={3}>
-                    <Card>
-                      <CardContent>
-                        <Box display="flex" alignItems="center">
-                          <MonetizationOn sx={{ fontSize: 40, color: 'success.main', mr: 2 }} />
-                          <Box>
-                            <Typography variant="h4">
-                              {formatCurrency(workerStats.totalEarnings || 0)}
-                            </Typography>
-                            <Typography color="text.secondary">
-                              Total Earnings
-                            </Typography>
-                          </Box>
-                        </Box>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                  <Grid item xs={12} md={3}>
-                    <Card>
-                      <CardContent>
-                        <Box display="flex" alignItems="center">
-                          <Assessment sx={{ fontSize: 40, color: 'info.main', mr: 2 }} />
-                          <Box>
-                            <Typography variant="h4">
-                              {workerStats.workDays || 0}
-                            </Typography>
-                            <Typography color="text.secondary">
-                              Work Days
-                            </Typography>
-                          </Box>
-                        </Box>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                  <Grid item xs={12} md={3}>
-                    <Card>
-                      <CardContent>
-                        <Box display="flex" alignItems="center">
-                          <Grain sx={{ fontSize: 40, color: 'warning.main', mr: 2 }} />
-                          <Box>
-                            <Typography variant="h4">
-                              {(workerStats.totalBags || 0) > 0 ? 
-                                Math.round((workerStats.totalBags || 0) / (workerStats.workDays || 1)) : 0}
-                            </Typography>
-                            <Typography color="text.secondary">
-                              Avg Bags/Day
-                            </Typography>
-                          </Box>
-                        </Box>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                </Grid>
-              ) : (
-                <Typography>Loading worker statistics...</Typography>
-              )}
-            </TabPanel>
-          )}
-
-          {/* Customer Transactions Tab */}
-          {user.role === 'customer' && (
+        {/* Customer Transactions Tab */}
+        {user.role === 'customer' && (
             <TabPanel value={tabValue} index={1}>
               <TableContainer component={Paper}>
                 <Table>
@@ -440,12 +353,12 @@ const UserProfile = () => {
             </TabPanel>
           )}
 
-          {/* Owner Dashboard Tab */}
-          {user.role === 'owner' && (
+        {/* Owner Dashboard Tab */}
+        {user.role === 'owner' && (
             <TabPanel value={tabValue} index={1}>
               {ownerDashboard ? (
                 <Grid container spacing={3}>
-                  <Grid item xs={12} md={4}>
+                  <Grid item xs={12} md={6}>
                     <Card>
                       <CardContent>
                         <Typography variant="h6" gutterBottom>
@@ -457,19 +370,7 @@ const UserProfile = () => {
                       </CardContent>
                     </Card>
                   </Grid>
-                  <Grid item xs={12} md={4}>
-                    <Card>
-                      <CardContent>
-                        <Typography variant="h6" gutterBottom>
-                          Active Workers
-                        </Typography>
-                        <Typography variant="h4" color="primary.main">
-                          {ownerDashboard.activeWorkers || 0}
-                        </Typography>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                  <Grid item xs={12} md={4}>
+                  <Grid item xs={12} md={6}>
                     <Card>
                       <CardContent>
                         <Typography variant="h6" gutterBottom>
@@ -488,8 +389,8 @@ const UserProfile = () => {
             </TabPanel>
           )}
 
-          {/* Owner Settings Tab */}
-          {user.role === 'owner' && (
+        {/* Owner Settings Tab */}
+        {user.role === 'owner' && (
             <TabPanel value={tabValue} index={2}>
               <Grid container spacing={3}>
                 <Grid item xs={12}>
@@ -610,7 +511,6 @@ const UserProfile = () => {
               </Grid>
             </TabPanel>
           )}
-        </Grid>
       </Paper>
     </Container>
   );

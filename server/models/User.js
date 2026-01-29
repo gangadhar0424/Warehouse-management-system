@@ -24,7 +24,7 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['owner', 'customer', 'worker', 'admin'],
+    enum: ['owner', 'customer', 'admin'],
     default: 'customer'
   },
   profile: {
@@ -59,28 +59,6 @@ const userSchema = new mongoose.Schema({
   resetPasswordToken: String,
   resetPasswordExpires: Date,
   lastLogin: Date,
-  // Worker-specific fields
-  workerDetails: {
-    employeeId: String,
-    paymentPerBag: { type: Number, default: 5 }, // Payment per bag carried
-    totalBagsCarried: { type: Number, default: 0 },
-    totalEarnings: { type: Number, default: 0 },
-    lastWorkDate: Date,
-    bankDetails: {
-      accountNumber: String,
-      ifscCode: String,
-      bankName: String
-    },
-    workHistory: [{
-      date: { type: Date, default: Date.now },
-      bagsCarried: Number,
-      paymentAmount: Number,
-      workType: { type: String, enum: ['loading', 'unloading', 'shifting'], default: 'loading' },
-      customer: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-      grainType: String,
-      notes: String
-    }]
-  },
   // Customer-specific fields for grain storage
   customerGrainDetails: {
     totalBagsStored: { type: Number, default: 0 },

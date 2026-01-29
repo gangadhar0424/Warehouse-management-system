@@ -531,12 +531,6 @@ router.get('/owner-dashboard', [auth, authorize('owner')], async (req, res) => {
     ]);
     const totalRevenue = revenueResult.length > 0 ? revenueResult[0].totalRevenue : 0;
 
-    // Get active workers count
-    const activeWorkers = await User.countDocuments({ 
-      role: 'worker', 
-      isActive: true 
-    });
-
     // Get total customers count
     const totalCustomers = await User.countDocuments({ 
       role: 'customer', 
@@ -560,7 +554,6 @@ router.get('/owner-dashboard', [auth, authorize('owner')], async (req, res) => {
 
     res.json({
       totalRevenue,
-      activeWorkers,
       totalCustomers,
       todayTransactions,
       pendingPayments
@@ -569,6 +562,35 @@ router.get('/owner-dashboard', [auth, authorize('owner')], async (req, res) => {
   } catch (error) {
     console.error('Error fetching owner dashboard:', error);
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   GET /api/warehouse/allocations/my-locations
+// @desc    Get customer's grain storage locations with detailed warehouse position
+// @access  Private (Customer only)
+router.get('/allocations/my-locations', [auth, authorize('customer')], async (req, res) => {
+  try {
+    const customerId = req.user.id;
+
+    // Get all storage allocations for this customer
+    const allocations = await StorageAllocation.find({
+      customer: customerId
+    })
+      .populate('warehouse', 'name description')
+      .populate('owner', 'username profile')
+      .sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      allocations: allocations
+    });
+
+  } catch (error) {
+    console.error('Error fetching customer grain locations:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error while fetching grain locations' 
+    });
   }
 });
 

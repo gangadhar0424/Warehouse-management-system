@@ -191,7 +191,6 @@ const CombinedAnalytics = () => {
   const customers = dashboardData?.customers || {};
   const loans = dashboardData?.loans || {};
   const inventory = dashboardData?.inventory || {};
-  const workers = dashboardData?.workers || {};
   const monthlyTrends = dashboardData?.monthlyTrends || [];
 
   const financial = financialData || {};

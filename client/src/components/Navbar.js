@@ -137,8 +137,6 @@ const Navbar = () => {
     { text: 'Weighbridge', icon: <Dashboard />, path: '/weigh-bridge', roles: ['owner'] },
     { text: 'Payments', icon: <Payment />, path: '/payments', roles: ['owner'] },
     { text: 'Customer Dashboard', icon: <AccountCircle />, path: '/customer-dashboard', roles: ['customer'] },
-    { text: 'Worker Dashboard', icon: <Work />, path: '/', roles: ['worker'] },
-    { text: 'Worker Tracking', icon: <Work />, path: '/worker-tracking', roles: ['owner'] },
     { text: 'Customer Grain', icon: <Grain />, path: '/customer-grain', roles: ['owner', 'customer'] }
   ];
 

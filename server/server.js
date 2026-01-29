@@ -8,8 +8,8 @@ const path = require('path');
 const http = require('http');
 const socketIo = require('socket.io');
 
-// Load environment variables
-dotenv.config();
+// Load environment variables from parent directory
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
 const app = express();
 const server = http.createServer(app);
@@ -41,21 +41,27 @@ app.use(limiter);
 
 // MongoDB connection with increased timeout
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost/warehouse_management', {
-  serverSelectionTimeoutMS: 30000, // 30 seconds timeout
-  socketTimeoutMS: 45000, // 45 seconds socket timeout
+  serverSelectionTimeoutMS: 5000, // 5 seconds timeout
+  socketTimeoutMS: 10000, // 10 seconds socket timeout
+}).catch(err => {
+  console.warn('⚠️  MongoDB connection failed:', err.message);
+  console.warn('⚠️  Server will continue running but database features will be unavailable');
+  console.warn('⚠️  To fix: Install MongoDB or update MONGODB_URI in .env file');
 });
 
 const db = mongoose.connection;
-db.on('error', console.error.bind(console, 'MongoDB connection error:'));
+db.on('error', (error) => {
+  console.warn('⚠️  MongoDB error:', error.message);
+});
 db.once('open', async () => {
-  console.log('Connected to MongoDB');
+  console.log('✅ Connected to MongoDB');
   
   // Initialize local file storage
   try {
     const localFileService = require('./utils/localFileService');
-    console.log('Local file storage initialized');
+    console.log('✅ Local file storage initialized');
   } catch (error) {
-    console.log('File service initialization error:', error.message);
+    console.log('⚠️  File service initialization error:', error.message);
   }
 });
 
@@ -86,7 +92,7 @@ app.use('/api/vehicles', require('./routes/vehicles'));
 app.use('/api/warehouse', require('./routes/warehouse'));
 app.use('/api/dynamic-warehouse', require('./routes/dynamicWarehouse'));
 app.use('/api/customers', require('./routes/customers'));
-app.use('/api/workers', require('./routes/workers'));
+
 app.use('/api/transactions', require('./routes/transactions'));
 app.use('/api/payments', require('./routes/payments'));
 app.use('/api/reports', require('./routes/reports'));
@@ -136,7 +142,6 @@ if (process.env.NODE_ENV === 'production' || process.env.SERVE_REACT === 'true')
         <li>GET /api/warehouse/* - Warehouse routes (requires auth)</li>
         <li>GET /api/vehicles/* - Vehicle routes (requires auth)</li>
         <li>GET /api/customers/* - Customer routes (requires auth)</li>
-        <li>GET /api/workers/* - Worker routes (requires auth)</li>
         <li>GET /api/analytics/* - Analytics routes (requires auth)</li>
         <li>GET /api/loans/* - Loan routes (requires auth)</li>
         <li>GET /api/market/* - Market routes (requires auth)</li>

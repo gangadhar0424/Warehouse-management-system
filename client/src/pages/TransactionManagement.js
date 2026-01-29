@@ -243,7 +243,7 @@ const TransactionManagement = () => {
           variant="contained"
           startIcon={<Add />}
           onClick={() => setCreateDialog(true)}
-          disabled={user?.role !== 'owner' && user?.role !== 'worker'}
+          disabled={user?.role !== 'owner'}
         >
           New Transaction
         </Button>
@@ -409,7 +409,7 @@ const TransactionManagement = () => {
                       <Visibility />
                     </IconButton>
                   </Tooltip>
-                  {transaction.payment.status === 'pending' && (user?.role === 'owner' || user?.role === 'worker') && (
+                  {transaction.payment.status === 'pending' && user?.role === 'owner' && (
                     <Tooltip title="Mark as Paid">
                       <IconButton
                         size="small"

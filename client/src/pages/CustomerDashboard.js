@@ -39,14 +39,18 @@ import {
   Refresh,
   ExtensionOutlined,
   ContactSupport,
-  Lock
+  Lock,
+  LocationOn,
+  ShowChart,
+  NotificationsActive,
+  Calculate
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
 import CustomerContactForm from '../components/CustomerContactForm';
 import axios from 'axios';
 
-// Import new customer dashboard components
+// Import existing customer dashboard components
 import MyGrainsOverview from '../components/MyGrainsOverview';
 import LoanManagementCenter from '../components/LoanManagementCenter';
 import PaymentTimeline from '../components/PaymentTimeline';
@@ -55,6 +59,13 @@ import GrainMarketPrices from '../components/GrainMarketPrices';
 import DocumentVault from '../components/DocumentVault';
 import CustomerNotificationsPanel from '../components/CustomerNotificationsPanel';
 import PaymentModule from '../components/PaymentModule';
+
+// Import new enhanced customer components
+import CustomerGrainLocationView from '../components/CustomerGrainLocationView';
+import CustomerPaymentOptions from '../components/CustomerPaymentOptions';
+import CustomerMarketPricesAndPredictions from '../components/CustomerMarketPricesAndPredictions';
+import CustomerLoanAlerts from '../components/CustomerLoanAlerts';
+import CustomerLoanCalculatorAndRequest from '../components/CustomerLoanCalculatorAndRequest';
 
 const CustomerDashboard = () => {
   const [activeTab, setActiveTab] = useState(0);
@@ -549,12 +560,16 @@ const CustomerDashboard = () => {
           <Tab label="Market Prices" />
           <Tab label="Documents" />
           <Tab label="Notifications" />
+          <Tab icon={<LocationOn />} label="Grain Locations" />
+          <Tab icon={<Payment />} label="Payment Options" />
+          <Tab icon={<ShowChart />} label="Market & Predictions" />
+          <Tab icon={<NotificationsActive />} label="Loan Alerts" />
+          <Tab icon={<Calculate />} label="Loan Calculator" />
         </Tabs>
       </Box>
 
       {activeTab === 0 && <StorageAllocations />}
       {activeTab === 1 && <TransactionHistory />}
-      {activeTab === 2 && <PaymentModule userRole="customer" />}
       {activeTab === 2 && <PaymentModule userRole="customer" />}
       {activeTab === 3 && <MyGrainsOverview />}
       {activeTab === 4 && <LoanManagementCenter />}
@@ -563,6 +578,11 @@ const CustomerDashboard = () => {
       {activeTab === 7 && <GrainMarketPrices />}
       {activeTab === 8 && <DocumentVault />}
       {activeTab === 9 && <CustomerNotificationsPanel />}
+      {activeTab === 10 && <CustomerGrainLocationView />}
+      {activeTab === 11 && <CustomerPaymentOptions />}
+      {activeTab === 12 && <CustomerMarketPricesAndPredictions />}
+      {activeTab === 13 && <CustomerLoanAlerts />}
+      {activeTab === 14 && <CustomerLoanCalculatorAndRequest />}
 
       {/* Extension Dialog */}
       <Dialog open={extendDialog} onClose={() => setExtendDialog(false)} maxWidth="sm" fullWidth>

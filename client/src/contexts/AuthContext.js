@@ -157,7 +157,14 @@ export const AuthProvider = ({ children }) => {
       setAuthToken(res.data.token);
       return { success: true, user: res.data.user };
     } catch (error) {
-      const message = error.response?.data?.message || 'Login failed';
+      let message = error.response?.data?.message || 'Login failed';
+      const hint = error.response?.data?.hint;
+      
+      // Include hint if available (e.g., MongoDB connection info)
+      if (hint) {
+        message = `${message}\n\n${hint}`;
+      }
+      
       dispatch({
         type: 'LOGIN_FAIL',
         payload: message
@@ -181,7 +188,14 @@ export const AuthProvider = ({ children }) => {
       setAuthToken(res.data.token);
       return { success: true };
     } catch (error) {
-      const message = error.response?.data?.message || 'Registration failed';
+      let message = error.response?.data?.message || 'Registration failed';
+      const hint = error.response?.data?.hint;
+      
+      // Include hint if available (e.g., MongoDB connection info)
+      if (hint) {
+        message = `${message}\n\n${hint}`;
+      }
+      
       dispatch({
         type: 'REGISTER_FAIL',
         payload: message

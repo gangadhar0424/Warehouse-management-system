@@ -14,7 +14,7 @@ const authorize = (...roles) => {
 };
 
 // @route   GET /api/users/all
-// @desc    Get all users (owners, customers, workers)
+// @desc    Get all users (owners, customers)
 // @access  Owner only
 router.get('/all', auth, authorize('owner'), async (req, res) => {
   try {
@@ -26,7 +26,6 @@ router.get('/all', auth, authorize('owner'), async (req, res) => {
     const usersByRole = {
       owners: users.filter(u => u.role === 'owner'),
       customers: users.filter(u => u.role === 'customer'),
-      workers: users.filter(u => u.role === 'worker'),
       all: users
     };
 
@@ -37,8 +36,7 @@ router.get('/all', auth, authorize('owner'), async (req, res) => {
       inactive: users.filter(u => !u.isActive).length,
       byRole: {
         owners: usersByRole.owners.length,
-        customers: usersByRole.customers.length,
-        workers: usersByRole.workers.length
+        customers: usersByRole.customers.length
       }
     };
 

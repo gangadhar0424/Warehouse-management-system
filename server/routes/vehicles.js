@@ -10,8 +10,8 @@ const router = express.Router();
 
 // @route   POST /api/vehicles/entry
 // @desc    Register vehicle entry
-// @access  Private (Owner/Worker)
-router.post('/entry', [auth, authorize('owner', 'worker')], [
+// @access  Private (Owner)
+router.post('/entry', [auth, authorize('owner')], [
   body('vehicleNumber').trim().notEmpty().withMessage('Vehicle number is required'),
   body('vehicleType').isIn(['truck', 'mini-truck', 'tractor', 'trailer', 'container', 'van', 'other']).withMessage('Invalid vehicle type'),
   body('driverName').trim().notEmpty().withMessage('Driver name is required'),
@@ -243,8 +243,8 @@ router.get('/:id', auth, async (req, res) => {
 
 // @route   PUT /api/vehicles/:id
 // @desc    Update vehicle details (payment status, etc.)
-// @access  Private (Owner/Worker)
-router.put('/:id', [auth, authorize('owner', 'worker')], async (req, res) => {
+// @access  Private (Owner)
+router.put('/:id', [auth, authorize('owner')], async (req, res) => {
   try {
     const vehicle = await Vehicle.findById(req.params.id);
     
@@ -275,8 +275,8 @@ router.put('/:id', [auth, authorize('owner', 'worker')], async (req, res) => {
 
 // @route   PUT /api/vehicles/:id/weigh
 // @desc    Update weigh bridge data
-// @access  Private (Owner/Worker)
-router.put('/:id/weigh', [auth, authorize('owner', 'worker')], [
+// @access  Private (Owner)
+router.put('/:id/weigh', [auth, authorize('owner')], [
   body('weight').isNumeric(),
   body('weighType').isIn(['tare', 'gross'])
 ], async (req, res) => {
@@ -344,8 +344,8 @@ router.put('/:id/weigh', [auth, authorize('owner', 'worker')], [
 
 // @route   PUT /api/vehicles/:id/exit
 // @desc    Process vehicle exit
-// @access  Private (Owner/Worker)
-router.put('/:id/exit', [auth, authorize('owner', 'worker')], async (req, res) => {
+// @access  Private (Owner)
+router.put('/:id/exit', [auth, authorize('owner')], async (req, res) => {
   try {
     const vehicle = await Vehicle.findById(req.params.id);
 
@@ -468,8 +468,8 @@ router.get('/stats/dashboard', [auth, authorize('owner')], async (req, res) => {
 
 // @route   POST /api/vehicles/grain-entry
 // @desc    Register vehicle entry with grain details
-// @access  Private (Owner/Worker)
-router.post('/grain-entry', [auth, authorize('owner', 'worker')], [
+// @access  Private (Owner)
+router.post('/grain-entry', [auth, authorize('owner')], [
   body('vehicleNumber').trim().notEmpty().withMessage('Vehicle number is required'),
   body('vehicleType').isIn(['truck', 'mini-truck', 'tractor', 'trailer']).withMessage('Invalid vehicle type'),
   body('driverName').trim().notEmpty().withMessage('Driver name is required'),
@@ -614,8 +614,8 @@ router.post('/grain-entry', [auth, authorize('owner', 'worker')], [
 
 // @route   POST /api/vehicles/grain-exit
 // @desc    Register vehicle exit with grain tracking
-// @access  Private (Owner/Worker)
-router.post('/grain-exit', [auth, authorize('owner', 'worker')], [
+// @access  Private (Owner)
+router.post('/grain-exit', [auth, authorize('owner')], [
   body('vehicleId').notEmpty(),
   body('exitWeight').optional().isNumeric(),
   body('actualBags').optional().isNumeric(),

@@ -13,6 +13,46 @@ const marketPrices = {
   'Millet': { price: 1900, change: +15, trend: 'up', lastUpdated: new Date() }
 };
 
+// Previous prices for change calculation
+const previousPrices = {
+  'Wheat': 2450,
+  'Rice': 3230,
+  'Corn': 1800,
+  'Barley': 2180,
+  'Sorghum': 2010,
+  'Millet': 1885
+};
+
+// @route   GET /api/market/live-prices
+// @desc    Get live market prices with previous day comparison
+// @access  Private
+router.get('/live-prices', auth, (req, res) => {
+  try {
+    const prices = Object.keys(marketPrices).map(grainType => ({
+      grainType,
+      currentPrice: marketPrices[grainType].price,
+      previousPrice: previousPrices[grainType] || marketPrices[grainType].price,
+      change: marketPrices[grainType].change,
+      trend: marketPrices[grainType].trend,
+      market: 'Local Market',
+      lastUpdated: marketPrices[grainType].lastUpdated
+    }));
+
+    res.json({ 
+      success: true,
+      prices,
+      lastUpdated: new Date() 
+    });
+  } catch (error) {
+    console.error('Error fetching live market prices:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error', 
+      error: error.message 
+    });
+  }
+});
+
 // @route   GET /api/market/prices
 // @desc    Get current market prices for all grains
 // @access  Public

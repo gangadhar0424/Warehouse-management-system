@@ -9,11 +9,14 @@ const auth = require('../middleware/auth');
 const { authorize } = require('../middleware/auth');
 const emailService = require('../utils/emailService');
 
-// Initialize Razorpay
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
-});
+// Initialize Razorpay only if credentials are provided
+let razorpay = null;
+if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
+  razorpay = new Razorpay({
+    key_id: process.env.RAZORPAY_KEY_ID,
+    key_secret: process.env.RAZORPAY_KEY_SECRET,
+  });
+}
 
 const router = express.Router();
 
@@ -63,6 +66,14 @@ router.post('/create-order', auth, [
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ errors: errors.array() });
+    }
+
+    // Check if Razorpay is configured
+    if (!razorpay) {
+      return res.status(503).json({ 
+        success: false,
+        message: 'Payment gateway not configured. Please configure Razorpay credentials in environment variables.' 
+      });
     }
 
     const { amount, currency = 'INR', type, vehicle, storageAllocation, description } = req.body;
@@ -208,8 +219,8 @@ router.post('/create', auth, [
 
 // @route   POST /api/payments/:id/process
 // @desc    Process payment
-// @access  Private (Owner/Worker)
-router.post('/:id/process', [auth, authorize('owner', 'worker')], async (req, res) => {
+// @access  Private (Owner)
+router.post('/:id/process', [auth, authorize('owner')], async (req, res) => {
   try {
     const { gatewayTransactionId, gatewayResponse } = req.body;
 
@@ -728,4 +739,147 @@ router.post('/storage-rent', auth, [
   }
 });
 
+// @route   POST /api/payments/customer-payment
+// @desc    Process customer payment (weighbridge, rent, loan, custom)
+// @access  Private (Customer only)
+router.post('/customer-payment', [auth, authorize('customer')], [
+  body('type').isIn(['weighbridge', 'rent', 'loan', 'custom']),
+  body('amount').isNumeric().isFloat({ min: 0 }),
+  body('method').isIn(['cash', 'upi', 'razorpay', 'bank_transfer', 'card'])
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { 
+      type, 
+      amount, 
+      method, 
+      description, 
+      loanId, 
+      allocationId,
+      razorpayPaymentId,
+      razorpayOrderId,
+      razorpaySignature
+    } = req.body;
+
+    const customerId = req.user.id;
+
+    // Verify Razorpay signature if payment method is Razorpay
+    if (method === 'razorpay') {
+      if (!razorpayPaymentId || !razorpayOrderId || !razorpaySignature) {
+        return res.status(400).json({ message: 'Razorpay payment details missing' });
+      }
+
+      const text = razorpayOrderId + '|' + razorpayPaymentId;
+      const generated_signature = crypto
+        .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+        .update(text)
+        .digest('hex');
+
+      if (generated_signature !== razorpaySignature) {
+        return res.status(400).json({ message: 'Payment verification failed' });
+      }
+    }
+
+    // Create transaction record
+    const transaction = new Transaction({
+      customer: customerId,
+      type: type === 'weighbridge' ? 'weigh_bridge' : type,
+      amount: parseFloat(amount),
+      paymentMethod: method,
+      status: 'completed',
+      description: description || `${type} payment`,
+      payment: {
+        method: method,
+        transactionId: razorpayPaymentId || `${method.toUpperCase()}_${Date.now()}`,
+        date: new Date()
+      },
+      metadata: {
+        loanId: loanId || undefined,
+        allocationId: allocationId || undefined,
+        paymentType: type,
+        notes: description
+      }
+    });
+
+    await transaction.save();
+
+    // Update related models based on payment type
+    if (type === 'loan' && loanId) {
+      const Loan = require('../models/Loan');
+      const loan = await Loan.findById(loanId);
+      
+      if (loan && loan.customer.toString() === customerId) {
+        loan.payments.push({
+          amount: parseFloat(amount),
+          method: method,
+          type: 'principal',
+          transactionId: razorpayPaymentId || transaction._id
+        });
+        
+        loan.paidAmount = (loan.paidAmount || 0) + parseFloat(amount);
+        loan.remainingAmount = loan.totalAmount - loan.paidAmount;
+        
+        if (loan.remainingAmount <= 0) {
+          loan.status = 'completed';
+          loan.remainingAmount = 0;
+        }
+        
+        await loan.save();
+      }
+    }
+
+    if (type === 'rent' && allocationId) {
+      const StorageAllocation = require('../models/StorageAllocation');
+      const allocation = await StorageAllocation.findById(allocationId);
+      
+      if (allocation && allocation.customer.toString() === customerId) {
+        allocation.rentDetails = allocation.rentDetails || {};
+        allocation.rentDetails.paidRent = (allocation.rentDetails.paidRent || 0) + parseFloat(amount);
+        allocation.rentDetails.dueRent = Math.max(0, (allocation.rentDetails.totalRent || 0) - allocation.rentDetails.paidRent);
+        
+        await allocation.save();
+      }
+    }
+
+    // Update customer's payment history
+    const User = require('../models/User');
+    await User.findByIdAndUpdate(customerId, {
+      $push: {
+        'customerGrainDetails.paymentHistory': {
+          date: new Date(),
+          type: type === 'weighbridge' ? 'weighbridge' : type,
+          amount: parseFloat(amount),
+          description: description || `${type} payment`,
+          transactionId: razorpayPaymentId || transaction._id.toString()
+        }
+      }
+    });
+
+    res.json({
+      success: true,
+      message: `${type.charAt(0).toUpperCase() + type.slice(1)} payment recorded successfully`,
+      transaction: {
+        _id: transaction._id,
+        amount: transaction.amount,
+        type: transaction.type,
+        method: transaction.paymentMethod,
+        date: transaction.createdAt
+      }
+    });
+
+  } catch (error) {
+    console.error('Error processing customer payment:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error while processing payment', 
+      error: error.message 
+    });
+  }
+});
+
 module.exports = router;
+

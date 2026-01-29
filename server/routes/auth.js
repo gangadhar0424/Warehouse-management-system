@@ -1,19 +1,31 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 const User = require('../models/User');
 const auth = require('../middleware/auth');
 const { body, validationResult } = require('express-validator');
 
 const router = express.Router();
 
+// Middleware to check MongoDB connection
+const checkDbConnection = (req, res, next) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ 
+      message: 'Database is not connected. Please install and start MongoDB, or configure MONGODB_URI in .env file.',
+      hint: 'Visit https://www.mongodb.com/try/download/community to download MongoDB'
+    });
+  }
+  next();
+};
+
 // @route   POST /api/auth/register
 // @desc    Register a new user
 // @access  Public
-router.post('/register', [
+router.post('/register', checkDbConnection, [
   body('username').trim().isLength({ min: 3, max: 50 }),
   body('email').isEmail().normalizeEmail(),
   body('password').isLength({ min: 6 }),
-  body('role').isIn(['owner', 'customer', 'worker']),
+  body('role').isIn(['owner', 'customer']),
   body('profile.firstName').trim().notEmpty(),
   body('profile.lastName').trim().notEmpty(),
   body('profile.phone').trim().notEmpty()
@@ -72,15 +84,15 @@ router.post('/register', [
     });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Registration error:', error);
+    res.status(500).json({ message: 'Server error during registration', error: error.message });
   }
 });
 
 // @route   POST /api/auth/login
 // @desc    Login user
 // @access  Public
-router.post('/login', [
+router.post('/login', checkDbConnection, [
   body('login').trim().notEmpty(),
   body('password').notEmpty()
 ], async (req, res) => {

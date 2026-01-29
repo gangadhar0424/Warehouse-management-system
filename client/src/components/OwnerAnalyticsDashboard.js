@@ -151,7 +151,7 @@ const OwnerAnalyticsDashboard = () => {
     return null;
   }
 
-  const { revenue, customers, loans, inventory, workers, monthlyTrends } = dashboardData;
+  const { revenue, customers, loans, inventory, monthlyTrends } = dashboardData;
 
   return (
     <Box sx={{ p: 3 }}>
@@ -1058,52 +1058,6 @@ const OwnerAnalyticsDashboard = () => {
           </Box>
         </Paper>
       </Box>
-
-      {/* Worker Performance Summary (moved from overview) */}
-      <Grid container spacing={3}>
-        <Grid item xs={12}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom fontWeight="bold">
-                Worker Performance Summary
-              </Typography>
-              <Grid container spacing={2}>
-                {workers?.performance?.map((worker, index) => (
-                  <Grid item xs={12} sm={6} md={4} lg={3} key={index}>
-                    <Paper sx={{ p: 2 }}>
-                      <Typography variant="body1" fontWeight="bold" gutterBottom>
-                        {worker.name}
-                      </Typography>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                        <Typography variant="body2" color="textSecondary">
-                          Vehicles Processed
-                        </Typography>
-                        <Typography variant="body2" fontWeight="bold">
-                          {worker.vehiclesProcessed}
-                        </Typography>
-                      </Box>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                        <Typography variant="body2" color="textSecondary">
-                          Accuracy
-                        </Typography>
-                        <Typography variant="body2" fontWeight="bold" color="primary">
-                          {worker.accuracy}%
-                        </Typography>
-                      </Box>
-                      <Chip 
-                        label={worker.productivity}
-                        color={worker.productivity === 'High' ? 'success' : 'default'}
-                        size="small"
-                        sx={{ mt: 1 }}
-                      />
-                    </Paper>
-                  </Grid>
-                ))}
-              </Grid>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
     </Box>
   );
 };

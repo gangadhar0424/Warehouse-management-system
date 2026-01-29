@@ -138,29 +138,6 @@ router.get('/owner/dashboard', auth, authorize('owner'), async (req, res) => {
 
     const averageStorageDuration = allocationCount > 0 ? Math.round(totalDays / allocationCount) : 0;
 
-    // Worker performance
-    const workers = await User.find({ role: 'worker' }).select('profile');
-    const workerStats = await Promise.all(
-      workers.map(async (worker) => {
-        const vehiclesProcessed = await Vehicle.countDocuments({ 
-          weighBridge: { $exists: true },
-          'weighBridge.operator': worker._id
-        });
-
-        const paymentsCollected = await Transaction.countDocuments({
-          processedBy: worker._id
-        });
-
-        return {
-          workerId: worker._id,
-          name: `${worker.profile?.firstName || ''} ${worker.profile?.lastName || ''}`,
-          vehiclesProcessed,
-          paymentsCollected,
-          productivity: vehiclesProcessed > 30 ? 'High' : vehiclesProcessed > 15 ? 'Medium' : 'Low'
-        };
-      })
-    );
-
     res.json({
       revenue: {
         rentCollected: rentRevenue,
@@ -189,8 +166,7 @@ router.get('/owner/dashboard', auth, authorize('owner'), async (req, res) => {
       grainInventory,
       totalGrainValue,
       averageStorageDuration,
-      expiringGrains,
-      workerStats
+      expiringGrains
     });
 
   } catch (error) {
@@ -287,10 +263,9 @@ router.get('/owner/financial-summary', auth, authorize('owner'), async (req, res
 
     // Expenses (mock data - would need expense tracking system)
     const expenses = {
-      workerSalaries: 50000, // Mock
       maintenance: 10000,
       utilities: 8000,
-      total: 68000
+      total: 18000
     };
 
     const netProfit = income.total - expenses.total;

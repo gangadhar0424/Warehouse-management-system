@@ -25,9 +25,9 @@ const resetDatabase = async () => {
     
     await new Promise(resolve => setTimeout(resolve, 3000));
 
-    // Delete all users (owners, customers, workers, admins)
+    // Delete all users (owners, customers, admins)
     const deletedUsers = await User.deleteMany({});
-    console.log(`✅ Deleted ${deletedUsers.deletedCount} users (owners, customers, workers, admins)`);
+    console.log(`✅ Deleted ${deletedUsers.deletedCount} users (owners, customers, admins)`);
 
     // Delete all vehicles
     const deletedVehicles = await Vehicle.deleteMany({});

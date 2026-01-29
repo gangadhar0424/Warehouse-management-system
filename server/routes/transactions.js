@@ -4,7 +4,7 @@ const Transaction = require('../models/Transaction');
 const auth = require('../middleware/auth');
 const { body, validationResult } = require('express-validator');
 
-// Get all transactions (Owner/Worker only)
+// Get all transactions (Owner only)
 router.get('/', auth, async (req, res) => {
   try {
     if (req.user.role === 'customer') {
@@ -179,7 +179,7 @@ router.put('/:id', [
       return res.status(404).json({ message: 'Transaction not found' });
     }
 
-    // Only owner and workers can update transactions
+    // Only owner can update transactions
     if (req.user.role === 'customer') {
       return res.status(403).json({ message: 'Access denied' });
     }

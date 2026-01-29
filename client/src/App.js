@@ -12,11 +12,9 @@ import Dashboard from './pages/Dashboard';
 import WeighBridge from './pages/WeighBridge';
 import OwnerDashboard from './pages/OwnerDashboard';
 import CustomerDashboard from './pages/CustomerDashboard';
-import WorkerDashboard from './pages/WorkerDashboard';
 import VehicleManagement from './pages/VehicleManagement';
 import TransactionManagement from './pages/TransactionManagement';
 import UserProfile from './pages/UserProfile';
-import WorkerBagTracking from './pages/WorkerBagTracking';
 import CustomerGrainManagement from './pages/CustomerGrainManagement';
 import PaymentManagement from './pages/PaymentManagement';
 import './App.css';
@@ -104,12 +102,7 @@ function App() {
                     <CustomerDashboard />
                   </ProtectedRoute>
                 } />
-                <Route path="/worker-dashboard" element={
-                  <ProtectedRoute>
-                    <Navbar />
-                    <WorkerDashboard />
-                  </ProtectedRoute>
-                } />
+
                 <Route path="/vehicles" element={
                   <ProtectedRoute>
                     <Navbar />
@@ -122,12 +115,7 @@ function App() {
                     <TransactionManagement />
                   </ProtectedRoute>
                 } />
-                <Route path="/worker-tracking" element={
-                  <ProtectedRoute>
-                    <Navbar />
-                    <WorkerBagTracking />
-                  </ProtectedRoute>
-                } />
+
                 <Route path="/customer-grain" element={
                   <ProtectedRoute>
                     <Navbar />

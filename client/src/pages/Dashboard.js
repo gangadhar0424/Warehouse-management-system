@@ -73,8 +73,6 @@ const Dashboard = () => {
         navigate('/owner-dashboard', { replace: true });
       } else if (user.role === 'customer') {
         navigate('/customer-dashboard', { replace: true });
-      } else if (user.role === 'worker') {
-        navigate('/worker-dashboard', { replace: true });
       }
     }
   }, [user, navigate]);
@@ -217,34 +215,7 @@ const Dashboard = () => {
     </Grid>
   );
 
-  const renderWorkerDashboard = () => (
-    <Grid container spacing={3}>
-      <Grid item xs={12} sm={6} md={4}>
-        <StatCard
-          title="Vehicles Processed"
-          value={stats?.vehiclesProcessed || 0}
-          icon={<LocalShipping fontSize="large" />}
-          color="primary"
-        />
-      </Grid>
-      <Grid item xs={12} sm={6} md={4}>
-        <StatCard
-          title="Tasks Completed"
-          value={stats?.tasksCompleted || 0}
-          icon={<TrendingUp fontSize="large" />}
-          color="success"
-        />
-      </Grid>
-      <Grid item xs={12} sm={6} md={4}>
-        <StatCard
-          title="Pending Tasks"
-          value={stats?.pendingTasks || 0}
-          icon={<People fontSize="large" />}
-          color="warning"
-        />
-      </Grid>
-    </Grid>
-  );
+
 
   if (loading) {
     return (
@@ -263,7 +234,6 @@ const Dashboard = () => {
         </Typography>
         <Typography variant="body2">
           • <strong>🌾 Grain Storage System:</strong> Warehouse layout now supports grain bag allocation instead of generic boxes<br/>
-          • <strong>👷 Enhanced Worker Management:</strong> Worker system with bag counting and payment tracking<br/>
           • <strong>⚖️ Simplified WeighBridge:</strong> Payment system focused on ₹100 weighing fee transactions<br/>
           • <strong>📊 Visual Warehouse Layout:</strong> Cinema-style section visualization for grain storage allocation
         </Typography>
@@ -274,8 +244,7 @@ const Dashboard = () => {
       </Typography>
       
       <Typography variant="h6" color="text.secondary" gutterBottom>
-        {user?.role === 'owner' ? 'Owner Dashboard' : 
-         user?.role === 'customer' ? 'Customer Dashboard' : 'Worker Dashboard'}
+        {user?.role === 'owner' ? 'Owner Dashboard' : 'Customer Dashboard'}
       </Typography>
 
       {/* Quick Access to Updated Features */}
@@ -310,17 +279,6 @@ const Dashboard = () => {
             <Button
               fullWidth
               variant="outlined"
-              startIcon={<People />}
-              onClick={() => navigate('/workers')}
-              sx={{ py: 1.5 }}
-            >
-              Worker Bag Tracking
-            </Button>
-          </Grid>
-          <Grid item xs={12} sm={6} md={3}>
-            <Button
-              fullWidth
-              variant="outlined"
               startIcon={<LocalShipping />}
               onClick={() => navigate('/vehicles')}
               sx={{ py: 1.5 }}
@@ -339,7 +297,6 @@ const Dashboard = () => {
 
       {user?.role === 'owner' && renderOwnerDashboard()}
       {user?.role === 'customer' && renderCustomerDashboard()}
-      {user?.role === 'worker' && renderWorkerDashboard()}
     </Container>
   );
 };

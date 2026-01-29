@@ -138,8 +138,7 @@ const Login = () => {
       // Navigate to role-specific dashboard
       const roleDashboard = {
         owner: '/owner-dashboard',
-        customer: '/customer-dashboard',
-        worker: '/worker-dashboard'
+        customer: '/customer-dashboard'
       };
       navigate(roleDashboard[result.user.role], { replace: true });
     } else {
@@ -197,10 +196,6 @@ const Login = () => {
               <ToggleButton value="customer" aria-label="customer login">
                 <Person sx={{ mr: 1 }} />
                 Customer
-              </ToggleButton>
-              <ToggleButton value="worker" aria-label="worker login">
-                <Engineering sx={{ mr: 1 }} />
-                Worker
               </ToggleButton>
             </ToggleButtonGroup>
           </Box>
