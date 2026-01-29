@@ -47,8 +47,6 @@ import {
   Edit,
   Delete,
   Visibility,
-  Scale,
-  MonetizationOn,
   Home,
   Inventory
 } from '@mui/icons-material';
@@ -63,12 +61,10 @@ import AlertsCenter from '../components/AlertsCenter';
 import DynamicWarehouseLayoutManager from '../components/DynamicWarehouseLayoutManager';
 import UserManagementPanel from '../components/UserManagementPanel';
 import VehicleManagement from './VehicleManagement';
-import WeighBridge from './WeighBridge';
-import PaymentModule from '../components/PaymentModule';
+import PredictionsTab from '../components/PredictionsTab';
 
 const OwnerDashboard = () => {
   const [activeTab, setActiveTab] = useState(0);
-  const [weighbridgeSubTab, setWeighbridgeSubTab] = useState(0); // Sub-tab for Weighbridge & Payments
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -954,11 +950,10 @@ const OwnerDashboard = () => {
         <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)} variant="scrollable" scrollButtons="auto">
           <Tab label="Warehouse Layout Manager" />
           <Tab label="User Management" />
-          <Tab label="Weighbridge & Payments" />
           <Tab label="Vehicle Management" />
-          <Tab label="Payments" />
           <Tab label="Transactions" />
           <Tab label="Analytics" />
+          <Tab label="Predictions" />
           <Tab label="Loan Portfolio" />
           <Tab label="Alerts Center" />
         </Tabs>
@@ -966,32 +961,12 @@ const OwnerDashboard = () => {
 
       {activeTab === 0 && <DynamicWarehouseLayoutManager />}
       {activeTab === 1 && <UserManagementPanel />}
-      
-      {/* Weighbridge & Payments Tab with Sub-tabs */}
-      {activeTab === 2 && (
-        <Box>
-          <Tabs 
-            value={weighbridgeSubTab} 
-            onChange={(e, newValue) => setWeighbridgeSubTab(newValue)}
-            sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}
-            variant="scrollable"
-            scrollButtons="auto"
-          >
-            <Tab label="Weighbridge" icon={<Scale />} iconPosition="start" />
-            <Tab label="Payments" icon={<MonetizationOn />} iconPosition="start" />
-          </Tabs>
-          
-          {weighbridgeSubTab === 0 && <WeighBridge />}
-          {weighbridgeSubTab === 1 && <PaymentModule userRole="owner" />}
-        </Box>
-      )}
-      
-      {activeTab === 3 && <VehicleManagement />}
-      {activeTab === 4 && <PaymentModule userRole="owner" />}
-      {activeTab === 5 && <WarehouseTransactions />}
-      {activeTab === 6 && <CombinedAnalytics />}
-      {activeTab === 7 && <LoanPortfolioManager />}
-      {activeTab === 8 && <AlertsCenter />}
+      {activeTab === 2 && <VehicleManagement />}
+      {activeTab === 3 && <WarehouseTransactions />}
+      {activeTab === 4 && <CombinedAnalytics />}
+      {activeTab === 5 && <PredictionsTab />}
+      {activeTab === 6 && <LoanPortfolioManager />}
+      {activeTab === 7 && <AlertsCenter />}
 
       {/* Worker Addition Dialog */}
       <Dialog open={workerDialog} onClose={() => setWorkerDialog(false)} maxWidth="sm" fullWidth>

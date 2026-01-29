@@ -17,7 +17,14 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
-  Divider
+  Divider,
+  Chip,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow
 } from '@mui/material';
 import {
   TrendingUp,
@@ -29,7 +36,11 @@ import {
   Analytics as AnalyticsIcon,
   Receipt,
   AttachMoney,
-  TrendingDown
+  TrendingDown,
+  LocationOn,
+  Timeline,
+  Inventory,
+  Business
 } from '@mui/icons-material';
 import {
   LineChart,
@@ -44,11 +55,16 @@ import {
   CartesianGrid,
   Tooltip as RechartsTooltip,
   Legend,
-  ResponsiveContainer
+  ResponsiveContainer,
+  ScatterChart,
+  Scatter,
+  ZAxis,
+  AreaChart,
+  Area
 } from 'recharts';
 import axios from 'axios';
 
-const COLORS = ['#1976d2', '#dc004e', '#4caf50', '#ff9800', '#9c27b0', '#00bcd4'];
+const COLORS = ['#1976d2', '#dc004e', '#4caf50', '#ff9800', '#9c27b0', '#00bcd4', '#e91e63', '#3f51b5'];
 
 const CombinedAnalytics = () => {
   const [loading, setLoading] = useState(true);
@@ -58,6 +74,12 @@ const CombinedAnalytics = () => {
   const [financialData, setFinancialData] = useState(null);
   const [selectedPeriod, setSelectedPeriod] = useState('month');
   const [refreshing, setRefreshing] = useState(false);
+  
+  // New analytics states
+  const [grainAnalytics, setGrainAnalytics] = useState(null);
+  const [storageDurationData, setStorageDurationData] = useState(null);
+  const [customerAnalytics, setCustomerAnalytics] = useState(null);
+  const [warehouseCapacity, setWarehouseCapacity] = useState(null);
 
   const fetchAllData = async () => {
     try {
@@ -74,8 +96,20 @@ const CombinedAnalytics = () => {
         headers: { 'x-auth-token': token }
       });
       
+      // Fetch new analytics data
+      const [grainRes, storageRes, customerRes, capacityRes] = await Promise.all([
+        axios.get('/api/analytics/owner/grain-analytics', { headers: { 'x-auth-token': token } }),
+        axios.get('/api/analytics/owner/storage-duration-analytics', { headers: { 'x-auth-token': token } }),
+        axios.get('/api/analytics/owner/customer-analytics', { headers: { 'x-auth-token': token } }),
+        axios.get('/api/analytics/owner/warehouse-capacity-viz', { headers: { 'x-auth-token': token } })
+      ]);
+      
       setDashboardData(dashboardResponse.data);
       setFinancialData(financialResponse.data);
+      setGrainAnalytics(grainRes.data);
+      setStorageDurationData(storageRes.data);
+      setCustomerAnalytics(customerRes.data);
+      setWarehouseCapacity(capacityRes.data);
       setError(null);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to fetch analytics data');
@@ -209,10 +243,14 @@ const CombinedAnalytics = () => {
       </Box>
 
       {/* Tabs */}
-      <Tabs value={activeTab} onChange={(e, val) => setActiveTab(val)} sx={{ mb: 3 }}>
+      <Tabs value={activeTab} onChange={(e, val) => setActiveTab(val)} sx={{ mb: 3 }} variant="scrollable" scrollButtons="auto">
         <Tab label="Revenue & Analytics" />
         <Tab label="Financial Reports" />
         <Tab label="Data Exports" />
+        <Tab icon={<Grain />} label="Grain Analytics" />
+        <Tab icon={<Timeline />} label="Storage Duration" />
+        <Tab icon={<People />} label="Customer Analytics" />
+        <Tab icon={<Business />} label="Warehouse Capacity" />
       </Tabs>
 
       {/* Tab 1: Revenue & Analytics Dashboard */}
@@ -617,6 +655,478 @@ const CombinedAnalytics = () => {
             All files are stored locally. Export files are automatically cleaned after 24 hours.
           </Alert>
         </Paper>
+      )}
+
+      {/* Tab 3: Grain Analytics */}
+      {activeTab === 3 && grainAnalytics && (
+        <Grid container spacing={3}>
+          <Grid item xs={12}>
+            <Typography variant="h6" gutterBottom fontWeight="bold">
+              Grain-Based Analytics - Current Inventory
+            </Typography>
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Total Grain Types: {grainAnalytics.totalGrainTypes}
+            </Alert>
+          </Grid>
+
+          {/* Grain Distribution Chart */}
+          <Grid item xs={12} lg={6}>
+            <Card>
+              <CardContent>
+                <Typography variant="subtitle1" gutterBottom fontWeight="bold">
+                  Grain Weight Distribution
+                </Typography>
+                <ResponsiveContainer width="100%" height={350}>
+                  <BarChart data={grainAnalytics.grainAnalytics || []}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="grainType" angle={-45} textAnchor="end" height={100} />
+                    <YAxis />
+                    <RechartsTooltip formatter={(value) => `${value.toLocaleString()} kg`} />
+                    <Legend />
+                    <Bar dataKey="totalWeight" fill="#4caf50" name="Weight (kg)" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* Grain Value Chart */}
+          <Grid item xs={12} lg={6}>
+            <Card>
+              <CardContent>
+                <Typography variant="subtitle1" gutterBottom fontWeight="bold">
+                  Grain Value Distribution
+                </Typography>
+                <ResponsiveContainer width="100%" height={350}>
+                  <PieChart>
+                    <Pie
+                      data={grainAnalytics.grainAnalytics || []}
+                      dataKey="totalValue"
+                      nameKey="grainType"
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={100}
+                      label={({ grainType, percent }) => `${grainType}: ${(percent * 100).toFixed(1)}%`}
+                    >
+                      {(grainAnalytics.grainAnalytics || []).map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <RechartsTooltip formatter={(value) => `₹${value.toLocaleString()}`} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* Grain Details Table */}
+          <Grid item xs={12}>
+            <Card>
+              <CardContent>
+                <Typography variant="subtitle1" gutterBottom fontWeight="bold">
+                  Grain Inventory Details
+                </Typography>
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell><strong>Grain Type</strong></TableCell>
+                        <TableCell align="right"><strong>Weight (kg)</strong></TableCell>
+                        <TableCell align="right"><strong>Quantity</strong></TableCell>
+                        <TableCell align="right"><strong>Value (₹)</strong></TableCell>
+                        <TableCell align="right"><strong>Customers</strong></TableCell>
+                        <TableCell align="right"><strong>Blocks</strong></TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {(grainAnalytics.grainAnalytics || []).map((grain, index) => (
+                        <TableRow key={index}>
+                          <TableCell>{grain.grainType}</TableCell>
+                          <TableCell align="right">{grain.totalWeight.toLocaleString()}</TableCell>
+                          <TableCell align="right">{grain.totalQuantity.toLocaleString()}</TableCell>
+                          <TableCell align="right">₹{grain.totalValue.toLocaleString()}</TableCell>
+                          <TableCell align="right">{grain.customerCount}</TableCell>
+                          <TableCell align="right">{grain.blockCount}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+      )}
+
+      {/* Tab 4: Storage Duration Analytics */}
+      {activeTab === 4 && storageDurationData && (
+        <Grid container spacing={3}>
+          <Grid item xs={12}>
+            <Typography variant="h6" gutterBottom fontWeight="bold">
+              Storage Duration Analytics
+            </Typography>
+            <Grid container spacing={2} sx={{ mb: 3 }}>
+              <Grid item xs={12} sm={4}>
+                <Paper sx={{ p: 2, textAlign: 'center', bgcolor: '#e3f2fd' }}>
+                  <Typography variant="body2" color="textSecondary">Currently Storing</Typography>
+                  <Typography variant="h4" fontWeight="bold" color="primary">
+                    {storageDurationData.stats.activeCount}
+                  </Typography>
+                </Paper>
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <Paper sx={{ p: 2, textAlign: 'center', bgcolor: '#f3e5f5' }}>
+                  <Typography variant="body2" color="textSecondary">Previously Stored</Typography>
+                  <Typography variant="h4" fontWeight="bold" color="secondary">
+                    {storageDurationData.stats.completedCount}
+                  </Typography>
+                </Paper>
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <Paper sx={{ p: 2, textAlign: 'center', bgcolor: '#e8f5e9' }}>
+                  <Typography variant="body2" color="textSecondary">Avg. Duration</Typography>
+                  <Typography variant="h4" fontWeight="bold" sx={{ color: '#4caf50' }}>
+                    {storageDurationData.stats.averageDuration} days
+                  </Typography>
+                </Paper>
+              </Grid>
+            </Grid>
+          </Grid>
+
+          {/* Duration Distribution */}
+          <Grid item xs={12} lg={6}>
+            <Card>
+              <CardContent>
+                <Typography variant="subtitle1" gutterBottom fontWeight="bold">
+                  Storage Duration Distribution
+                </Typography>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={Object.keys(storageDurationData.durationRanges).map(range => ({
+                    range,
+                    count: storageDurationData.durationRanges[range]
+                  }))}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="range" angle={-15} textAnchor="end" height={80} />
+                    <YAxis />
+                    <RechartsTooltip />
+                    <Bar dataKey="count" fill="#1976d2" name="Number of Storages" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* Currently Storing Table */}
+          <Grid item xs={12} lg={6}>
+            <Card>
+              <CardContent>
+                <Typography variant="subtitle1" gutterBottom fontWeight="bold">
+                  Currently Storing (Top 10)
+                </Typography>
+                <TableContainer sx={{ maxHeight: 300 }}>
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell><strong>Customer</strong></TableCell>
+                        <TableCell align="right"><strong>Days Stored</strong></TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {(storageDurationData.currentlyStoring || []).slice(0, 10).map((item, index) => (
+                        <TableRow key={index}>
+                          <TableCell>{item.customer}</TableCell>
+                          <TableCell align="right">
+                            <Chip 
+                              label={item.daysStored} 
+                              size="small" 
+                              color={item.daysStored > 90 ? "warning" : "primary"}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+      )}
+
+      {/* Tab 5: Customer Analytics */}
+      {activeTab === 5 && customerAnalytics && (
+        <Grid container spacing={3}>
+          <Grid item xs={12}>
+            <Typography variant="h6" gutterBottom fontWeight="bold">
+              Customer Analytics
+            </Typography>
+            <Grid container spacing={2} sx={{ mb: 3 }}>
+              <Grid item xs={12} sm={6}>
+                <Paper sx={{ p: 2, textAlign: 'center', bgcolor: '#e8f5e9' }}>
+                  <Typography variant="body2" color="textSecondary">Current Customers</Typography>
+                  <Typography variant="h3" fontWeight="bold" sx={{ color: '#4caf50' }}>
+                    {customerAnalytics.currentCustomers.count}
+                  </Typography>
+                </Paper>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <Paper sx={{ p: 2, textAlign: 'center', bgcolor: '#fff3e0' }}>
+                  <Typography variant="body2" color="textSecondary">Previous Customers</Typography>
+                  <Typography variant="h3" fontWeight="bold" sx={{ color: '#ff9800' }}>
+                    {customerAnalytics.previousCustomers.count}
+                  </Typography>
+                </Paper>
+              </Grid>
+            </Grid>
+          </Grid>
+
+          {/* Customer In/Out Flow Line Chart */}
+          <Grid item xs={12}>
+            <Card>
+              <CardContent>
+                <Typography variant="subtitle1" gutterBottom fontWeight="bold">
+                  Customer In/Out Flow (Last 12 Months)
+                </Typography>
+                <ResponsiveContainer width="100%" height={350}>
+                  <LineChart data={customerAnalytics.customerFlow || []}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="month" />
+                    <YAxis />
+                    <RechartsTooltip />
+                    <Legend />
+                    <Line type="monotone" dataKey="in" stroke="#4caf50" strokeWidth={2} name="Customers IN" />
+                    <Line type="monotone" dataKey="out" stroke="#f44336" strokeWidth={2} name="Customers OUT" />
+                    <Line type="monotone" dataKey="net" stroke="#1976d2" strokeWidth={2} strokeDasharray="5 5" name="Net Change" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* Customer Segmentation Bubble Chart */}
+          <Grid item xs={12} lg={6}>
+            <Card>
+              <CardContent>
+                <Typography variant="subtitle1" gutterBottom fontWeight="bold">
+                  Customer Segmentation (Bubble Chart)
+                </Typography>
+                <ResponsiveContainer width="100%" height={400}>
+                  <ScatterChart>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis 
+                      type="number" 
+                      dataKey="transactionCount" 
+                      name="Transactions" 
+                      label={{ value: 'Number of Transactions', position: 'bottom' }}
+                    />
+                    <YAxis 
+                      type="number" 
+                      dataKey="totalSpent" 
+                      name="Total Spent" 
+                      label={{ value: 'Total Spent (₹)', angle: -90, position: 'left' }}
+                    />
+                    <ZAxis 
+                      type="number" 
+                      dataKey="avgTransactionValue" 
+                      range={[50, 400]} 
+                      name="Avg Value"
+                    />
+                    <RechartsTooltip 
+                      cursor={{ strokeDasharray: '3 3' }}
+                      formatter={(value, name) => {
+                        if (name === 'Total Spent' || name === 'Avg Value') return `₹${value.toLocaleString()}`;
+                        return value;
+                      }}
+                    />
+                    <Legend />
+                    <Scatter 
+                      name="Active Customers" 
+                      data={(customerAnalytics.segmentation || []).filter(c => c.status === 'active')} 
+                      fill="#4caf50"
+                    />
+                    <Scatter 
+                      name="Inactive Customers" 
+                      data={(customerAnalytics.segmentation || []).filter(c => c.status === 'inactive')} 
+                      fill="#ff9800"
+                    />
+                  </ScatterChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* Customer Lifetime Value Bar Chart */}
+          <Grid item xs={12} lg={6}>
+            <Card>
+              <CardContent>
+                <Typography variant="subtitle1" gutterBottom fontWeight="bold">
+                  Top 10 Customer Lifetime Value
+                </Typography>
+                <ResponsiveContainer width="100%" height={400}>
+                  <BarChart 
+                    data={(customerAnalytics.customerLifetimeValue || []).slice(0, 10)}
+                    layout="vertical"
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis type="number" />
+                    <YAxis dataKey="name" type="category" width={120} />
+                    <RechartsTooltip formatter={(value) => `₹${value.toLocaleString()}`} />
+                    <Bar dataKey="totalSpent" fill="#1976d2" name="Total Spent (₹)">
+                      {(customerAnalytics.customerLifetimeValue || []).slice(0, 10).map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.status === 'active' ? '#4caf50' : '#ff9800'} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* Customer Location Map */}
+          <Grid item xs={12}>
+            <Card>
+              <CardContent>
+                <Typography variant="subtitle1" gutterBottom fontWeight="bold">
+                  Customer Locations
+                </Typography>
+                <TableContainer sx={{ maxHeight: 400 }}>
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell><strong>Customer Name</strong></TableCell>
+                        <TableCell><strong>Location</strong></TableCell>
+                        <TableCell align="right"><strong>Total Spent (₹)</strong></TableCell>
+                        <TableCell align="center"><strong>Status</strong></TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {(customerAnalytics.customerLifetimeValue || []).map((customer, index) => (
+                        <TableRow key={index}>
+                          <TableCell>{customer.name}</TableCell>
+                          <TableCell>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                              <LocationOn fontSize="small" color="action" />
+                              {customer.location}
+                            </Box>
+                          </TableCell>
+                          <TableCell align="right">₹{customer.totalSpent.toLocaleString()}</TableCell>
+                          <TableCell align="center">
+                            <Chip 
+                              label={customer.status} 
+                              size="small" 
+                              color={customer.status === 'active' ? 'success' : 'default'}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+      )}
+
+      {/* Tab 6: Warehouse Capacity */}
+      {activeTab === 6 && warehouseCapacity && (
+        <Grid container spacing={3}>
+          <Grid item xs={12}>
+            <Typography variant="h6" gutterBottom fontWeight="bold">
+              Warehouse Capacity Visualization - Block-wise Grain Storage
+            </Typography>
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Total Blocks: {warehouseCapacity.summary.totalBlocks} | 
+              Average Occupancy: {warehouseCapacity.summary.averageOccupancy}%
+            </Alert>
+          </Grid>
+
+          {/* Block Occupancy Chart */}
+          <Grid item xs={12}>
+            <Card>
+              <CardContent>
+                <Typography variant="subtitle1" gutterBottom fontWeight="bold">
+                  Block-wise Occupancy Rate
+                </Typography>
+                <ResponsiveContainer width="100%" height={350}>
+                  <BarChart data={warehouseCapacity.capacityData || []}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="blockName" angle={-45} textAnchor="end" height={100} />
+                    <YAxis />
+                    <RechartsTooltip />
+                    <Legend />
+                    <Bar dataKey="occupiedBoxes" stackId="a" fill="#4caf50" name="Occupied Boxes" />
+                    <Bar dataKey="availableBoxes" stackId="a" fill="#e0e0e0" name="Available Boxes" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* Block Capacity Grid */}
+          {(warehouseCapacity.capacityData || []).map((block, index) => (
+            <Grid item xs={12} sm={6} lg={4} key={index}>
+              <Card sx={{ height: '100%', border: `2px solid ${parseFloat(block.occupancyRate) > 80 ? '#f44336' : '#4caf50'}` }}>
+                <CardContent>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                    <Typography variant="subtitle1" fontWeight="bold">
+                      {block.blockName}
+                    </Typography>
+                    <Chip 
+                      label={`${block.occupancyRate}%`} 
+                      color={parseFloat(block.occupancyRate) > 80 ? 'error' : parseFloat(block.occupancyRate) > 50 ? 'warning' : 'success'}
+                      size="small"
+                    />
+                  </Box>
+                  
+                  <Box sx={{ mb: 2 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                      <Typography variant="body2" color="textSecondary">Occupied:</Typography>
+                      <Typography variant="body2" fontWeight="bold">{block.occupiedBoxes}/{block.totalBoxes} boxes</Typography>
+                    </Box>
+                    <Box sx={{ height: 8, backgroundColor: '#e0e0e0', borderRadius: 4, overflow: 'hidden' }}>
+                      <Box 
+                        sx={{ 
+                          height: '100%', 
+                          width: `${block.occupancyRate}%`,
+                          backgroundColor: parseFloat(block.occupancyRate) > 80 ? '#f44336' : '#4caf50',
+                          transition: 'width 0.3s ease'
+                        }}
+                      />
+                    </Box>
+                  </Box>
+
+                  <Box sx={{ mb: 1 }}>
+                    <Typography variant="body2" color="textSecondary" gutterBottom>
+                      Total Weight: <strong>{block.totalWeight.toLocaleString()} kg</strong>
+                    </Typography>
+                    <Typography variant="body2" color="textSecondary">
+                      Customers: <strong>{block.customerCount}</strong>
+                    </Typography>
+                  </Box>
+
+                  {block.grains.length > 0 && (
+                    <>
+                      <Typography variant="body2" fontWeight="bold" sx={{ mt: 2, mb: 1 }}>
+                        Stored Grains:
+                      </Typography>
+                      {block.grains.map((grain, gIndex) => (
+                        <Chip 
+                          key={gIndex}
+                          label={`${grain.type}: ${grain.weight.toLocaleString()}kg`}
+                          size="small"
+                          sx={{ mr: 0.5, mb: 0.5 }}
+                          color="primary"
+                          variant="outlined"
+                        />
+                      ))}
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
       )}
     </Box>
   );

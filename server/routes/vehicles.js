@@ -12,17 +12,36 @@ const router = express.Router();
 // @desc    Register vehicle entry
 // @access  Private (Owner/Worker)
 router.post('/entry', [auth, authorize('owner', 'worker')], [
-  body('vehicleNumber').trim().notEmpty(),
-  body('vehicleType').isIn(['truck', 'mini-truck', 'tractor', 'trailer', 'container', 'van', 'other']),
-  body('driverName').trim().notEmpty(),
-  body('driverPhone').trim().notEmpty(),
-  body('customerName').trim().notEmpty(),
-  body('customerPhone').trim().notEmpty(),
-  body('customerEmail').isEmail().withMessage('Valid email is required')
+  body('vehicleNumber').trim().notEmpty().withMessage('Vehicle number is required'),
+  body('vehicleType').isIn(['truck', 'mini-truck', 'tractor', 'trailer', 'container', 'van', 'other']).withMessage('Invalid vehicle type'),
+  body('driverName').trim().notEmpty().withMessage('Driver name is required'),
+  body('driverPhone').trim().notEmpty().withMessage('Driver phone is required'),
+  body('visitPurpose').isIn(['weighing_only', 'grain_loading']).withMessage('Visit purpose is required'),
+  body('weighingOption').isIn(['empty_now', 'loaded_now', 'will_return']).withMessage('Weighing option is required'),
+  body('customerName').optional({ checkFalsy: true }).trim(),
+  body('customerPhone').optional({ checkFalsy: true }).trim(),
+  body('customerEmail').optional({ checkFalsy: true }).custom((value) => {
+    // Only validate email format if value is provided
+    if (value && value.trim()) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(value)) {
+        throw new Error('Valid email is required');
+      }
+    }
+    return true;
+  })
 ], async (req, res) => {
   try {
+    console.log('Received vehicle entry request:', {
+      visitPurpose: req.body.visitPurpose,
+      weighingOption: req.body.weighingOption,
+      customerName: req.body.customerName,
+      vehicleNumber: req.body.vehicleNumber
+    });
+
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
+      console.log('Validation errors:', JSON.stringify(errors.array(), null, 2));
       return res.status(400).json({ errors: errors.array() });
     }
 
@@ -36,9 +55,21 @@ router.post('/entry', [auth, authorize('owner', 'worker')], [
       customerPhone,
       customerEmail,
       visitPurpose,
+      weighingOption,
+      weighBridgeData,
+      weighingStatus,
       capacity,
       cargo
     } = req.body;
+
+    // Validate customer details are provided for grain_loading
+    if (visitPurpose === 'grain_loading') {
+      if (!customerName?.trim() || !customerPhone?.trim() || !customerEmail?.trim()) {
+        return res.status(400).json({
+          message: 'Customer details (name, phone, email) are required for grain loading/unloading operations'
+        });
+      }
+    }
 
     // Check if vehicle already exists and is active
     const existingVehicle = await Vehicle.findOne({
@@ -54,33 +85,43 @@ router.post('/entry', [auth, authorize('owner', 'worker')], [
     }
 
     // Find or create customer
-    let customer = await User.findOne({ email: customerEmail.toLowerCase() });
+    let customer = null;
+    let customerCreatedNow = false;
     
-    if (!customer) {
-      // Generate temporary password (customer can change later)
-      const tempPassword = `TEMP${Math.random().toString(36).slice(-8).toUpperCase()}`;
+    if (customerEmail && customerName && customerPhone) {
+      customer = await User.findOne({ email: customerEmail.toLowerCase() });
       
-      // Create new customer account
-      customer = new User({
-        username: customerEmail.split('@')[0] + Math.random().toString(36).slice(-4),
-        email: customerEmail.toLowerCase(),
-        password: tempPassword, // Will be hashed by User model pre-save hook
-        role: 'customer',
-        profile: {
-          firstName: customerName.split(' ')[0],
-          lastName: customerName.split(' ').slice(1).join(' ') || '',
-          phone: customerPhone
-        },
-        isActive: true,
-        needsPasswordChange: true // Flag to indicate temp password
-      });
+      if (!customer) {
+        // Generate temporary password (customer can change later)
+        const tempPassword = `TEMP${Math.random().toString(36).slice(-8).toUpperCase()}`;
+        
+        // Create new customer account
+        customer = new User({
+          username: customerEmail.split('@')[0] + Math.random().toString(36).slice(-4),
+          email: customerEmail.toLowerCase(),
+          password: tempPassword, // Will be hashed by User model pre-save hook
+          role: 'customer',
+          profile: {
+            firstName: customerName.split(' ')[0],
+            lastName: customerName.split(' ').slice(1).join(' ') || '',
+            phone: customerPhone
+          },
+          isActive: true,
+          needsPasswordChange: true // Flag to indicate temp password
+        });
 
-      await customer.save();
-      
-      console.log(`New customer created: ${customer.email} with temp password: ${tempPassword}`);
-      
-      // In production, you would email this to the customer
-      // For now, we'll return it in response (only for initial creation)
+        await customer.save();
+        customerCreatedNow = true;
+        
+        console.log(`✅ New customer created: ${customer.email} with temp password: ${tempPassword}`);
+        console.log(`📧 Customer Email: ${customer.email}`);
+        console.log(`🔑 Temporary Password: ${tempPassword}`);
+        console.log(`📞 Phone: ${customerPhone}`);
+        
+        // In production, you would email this to the customer
+      } else {
+        console.log(`✅ Existing customer found: ${customer.email}`);
+      }
     }
 
     const vehicle = new Vehicle({
@@ -89,12 +130,15 @@ router.post('/entry', [auth, authorize('owner', 'worker')], [
       driverName,
       driverPhone,
       driverLicense,
-      ownerName: customerName,
-      ownerPhone: customerPhone,
+      ownerName: customerName || driverName,
+      ownerPhone: customerPhone || driverPhone,
       visitPurpose: visitPurpose || 'weighing_only',
+      weighingOption,
+      weighBridgeData: weighBridgeData || undefined,
+      weighingStatus: weighingStatus || 'not_started',
       capacity,
       cargo,
-      customer: customer._id,
+      customer: customer?._id || null,
       entryTime: new Date(),
       status: visitPurpose === 'grain_loading' ? 'inside' : 'entered'
     });
@@ -113,10 +157,16 @@ router.post('/entry', [auth, authorize('owner', 'worker')], [
     res.status(201).json({
       message: 'Vehicle entry registered successfully',
       vehicle,
-      customerCreated: customer.needsPasswordChange,
-      customerEmail: customer.email,
+      customerCreated: customerCreatedNow,
+      customerEmail: customer?.email || null,
       visitPurpose,
-      tempPassword: customer.needsPasswordChange ? 'Sent to customer email' : undefined
+      customerInfo: customerCreatedNow ? {
+        email: customer.email,
+        message: 'New customer account created. Temporary password sent to customer.'
+      } : customer ? {
+        email: customer.email,
+        message: 'Linked to existing customer account.'
+      } : null
     });
 
   } catch (error) {
@@ -191,12 +241,44 @@ router.get('/:id', auth, async (req, res) => {
   }
 });
 
+// @route   PUT /api/vehicles/:id
+// @desc    Update vehicle details (payment status, etc.)
+// @access  Private (Owner/Worker)
+router.put('/:id', [auth, authorize('owner', 'worker')], async (req, res) => {
+  try {
+    const vehicle = await Vehicle.findById(req.params.id);
+    
+    if (!vehicle) {
+      return res.status(404).json({ message: 'Vehicle not found' });
+    }
+
+    // Update only the fields provided in the request body
+    const allowedUpdates = ['paymentStatus', 'paymentAmount', 'paymentMethod', 'paymentDate', 'status'];
+    allowedUpdates.forEach(field => {
+      if (req.body[field] !== undefined) {
+        vehicle[field] = req.body[field];
+      }
+    });
+
+    await vehicle.save();
+
+    res.json({
+      message: 'Vehicle updated successfully',
+      vehicle
+    });
+
+  } catch (error) {
+    console.error('Vehicle update error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // @route   PUT /api/vehicles/:id/weigh
 // @desc    Update weigh bridge data
 // @access  Private (Owner/Worker)
 router.put('/:id/weigh', [auth, authorize('owner', 'worker')], [
-  body('grossWeight').isNumeric(),
-  body('tareWeight').isNumeric()
+  body('weight').isNumeric(),
+  body('weighType').isIn(['tare', 'gross'])
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -204,31 +286,53 @@ router.put('/:id/weigh', [auth, authorize('owner', 'worker')], [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { grossWeight, tareWeight } = req.body;
+    const { weight, weighType } = req.body;
     const vehicle = await Vehicle.findById(req.params.id);
 
     if (!vehicle) {
       return res.status(404).json({ message: 'Vehicle not found' });
     }
 
-    vehicle.weighBridgeData = {
-      grossWeight,
-      tareWeight,
-      netWeight: grossWeight - tareWeight,
-      weighBridgeOperator: req.user.id
-    };
+    // Initialize weighBridgeData if it doesn't exist
+    if (!vehicle.weighBridgeData) {
+      vehicle.weighBridgeData = {};
+    }
+
+    if (weighType === 'tare') {
+      // First weighing - empty vehicle
+      vehicle.weighBridgeData.tareWeight = parseFloat(weight);
+      vehicle.weighBridgeData.firstWeighTime = new Date();
+      vehicle.weighingStatus = 'partial';
+      vehicle.status = 'weighed';
+    } else {
+      // Second weighing - loaded vehicle
+      vehicle.weighBridgeData.grossWeight = parseFloat(weight);
+      vehicle.weighBridgeData.secondWeighTime = new Date();
+      
+      // Calculate net weight if both weights are available
+      if (vehicle.weighBridgeData.tareWeight) {
+        vehicle.weighBridgeData.netWeight = vehicle.weighBridgeData.grossWeight - vehicle.weighBridgeData.tareWeight;
+      }
+      
+      vehicle.weighingStatus = 'completed';
+      vehicle.status = 'weighed';
+    }
     
-    vehicle.status = 'weighed';
+    vehicle.weighBridgeData.weighBridgeOperator = req.user.id;
     await vehicle.save();
 
     // Emit real-time update
     req.io.emit('vehicle_weighed', {
       vehicle,
-      message: `Vehicle ${vehicle.vehicleNumber} has been weighed`
+      message: weighType === 'tare' 
+        ? `Vehicle ${vehicle.vehicleNumber} - First weighing completed`
+        : `Vehicle ${vehicle.vehicleNumber} - Both weighings completed`
     });
 
     res.json({
-      message: 'Weigh bridge data updated successfully',
+      message: weighType === 'tare' 
+        ? 'First weighing recorded. Vehicle can return for second weighing.' 
+        : 'Weighing completed successfully!',
       vehicle
     });
 

@@ -41,10 +41,17 @@ const vehicleSchema = new mongoose.Schema({
     grossWeight: Number,
     tareWeight: Number,
     netWeight: Number,
+    firstWeighTime: Date,
+    secondWeighTime: Date,
     weighBridgeOperator: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
     }
+  },
+  weighingStatus: {
+    type: String,
+    enum: ['not_started', 'partial', 'completed'],
+    default: 'not_started'
   },
   status: {
     type: String,
@@ -55,6 +62,11 @@ const vehicleSchema = new mongoose.Schema({
     type: String,
     enum: ['weighing_only', 'grain_loading'],
     default: 'weighing_only'
+  },
+  weighingOption: {
+    type: String,
+    enum: ['empty_now', 'loaded_now', 'will_return'],
+    default: 'will_return'
   },
   // New grain-specific fields
   grainDetails: {

@@ -449,6 +449,8 @@ router.post('/allocate-bags', [auth, authorize('owner')], async (req, res) => {
   try {
     const { layoutId, building, block, slotLabel, customerId, customerName, bags, grainType, weight, notes } = req.body;
 
+    console.log('➕ Allocating bags:', { layoutId, building, block, slotLabel, customerId, customerName, bags });
+
     if (!layoutId || !building || !block || !slotLabel || !customerId || !bags) {
       return res.status(400).json({ message: 'Missing required fields' });
     }
@@ -474,9 +476,19 @@ router.post('/allocate-bags', [auth, authorize('owner')], async (req, res) => {
       return res.status(404).json({ message: 'Slot not found' });
     }
 
+    console.log('📦 Slot before allocation:', { 
+      slotLabel: slot.slotLabel, 
+      capacity: slot.capacity,
+      filledBags: slot.filledBags, 
+      remainingCapacity: slot.capacity - slot.filledBags,
+      status: slot.status,
+      currentAllocations: slot.allocations.length 
+    });
+
     // Check capacity
     const remainingCapacity = slot.capacity - slot.filledBags;
     if (bags > remainingCapacity) {
+      console.log('❌ Insufficient capacity:', { available: remainingCapacity, requested: bags });
       return res.status(400).json({ 
         message: `Insufficient capacity. Available: ${remainingCapacity} bags, Requested: ${bags} bags` 
       });
@@ -499,9 +511,20 @@ router.post('/allocate-bags', [auth, authorize('owner')], async (req, res) => {
     // Update status
     if (slot.filledBags >= slot.capacity) {
       slot.status = 'full';
+      console.log('🔴 Slot is now FULL');
     } else if (slot.filledBags > 0) {
       slot.status = 'partially-filled';
+      console.log('🟡 Slot is now PARTIALLY FILLED');
     }
+
+    console.log('📦 Slot after allocation:', { 
+      slotLabel: slot.slotLabel, 
+      filledBags: slot.filledBags, 
+      remainingCapacity: slot.capacity - slot.filledBags,
+      status: slot.status,
+      isOccupied: slot.isOccupied,
+      totalAllocations: slot.allocations.length 
+    });
 
     await warehouse.save();
 
@@ -541,7 +564,14 @@ router.post('/allocate-bags', [auth, authorize('owner')], async (req, res) => {
 // @access  Private (Owner only)
 router.post('/deallocate-bags', [auth, authorize('owner')], async (req, res) => {
   try {
-    const { layoutId, building, block, slotLabel, customerId, bags } = req.body;
+    let { layoutId, building, block, slotLabel, customerId, bags } = req.body;
+
+    // Handle if customerId is an object (extract _id)
+    if (typeof customerId === 'object' && customerId._id) {
+      customerId = customerId._id;
+    }
+
+    console.log('🔄 Deallocating bags:', { layoutId, building, block, slotLabel, customerId, bags });
 
     const warehouse = await DynamicWarehouseLayout.findById(layoutId);
     if (!warehouse) {
@@ -555,6 +585,14 @@ router.post('/deallocate-bags', [auth, authorize('owner')], async (req, res) => 
     if (!slot) {
       return res.status(404).json({ message: 'Slot not found' });
     }
+
+    console.log('📦 Slot before deallocation:', { 
+      slotLabel: slot.slotLabel, 
+      filledBags: slot.filledBags, 
+      capacity: slot.capacity,
+      status: slot.status,
+      allocationsCount: slot.allocations.length 
+    });
 
     // Find customer allocation
     const allocationIndex = slot.allocations.findIndex(a => a.customer.toString() === customerId);
@@ -573,9 +611,11 @@ router.post('/deallocate-bags', [auth, authorize('owner')], async (req, res) => 
     // Update allocation
     if (bags === allocation.bags) {
       // Remove entire allocation
+      console.log('🗑️ Removing entire allocation for customer:', customerId);
       slot.allocations.splice(allocationIndex, 1);
     } else {
       // Partial deallocation
+      console.log(`📉 Partial deallocation: ${allocation.bags} -> ${allocation.bags - bags} bags`);
       allocation.bags -= bags;
     }
 
@@ -585,9 +625,20 @@ router.post('/deallocate-bags', [auth, authorize('owner')], async (req, res) => 
     if (slot.filledBags === 0) {
       slot.status = 'empty';
       slot.isOccupied = false;
+      console.log('✅ Slot is now EMPTY and available for allocation');
     } else if (slot.filledBags < slot.capacity) {
       slot.status = 'partially-filled';
+      console.log('⚠️ Slot is now PARTIALLY FILLED');
     }
+
+    console.log('📦 Slot after deallocation:', { 
+      slotLabel: slot.slotLabel, 
+      filledBags: slot.filledBags, 
+      capacity: slot.capacity,
+      status: slot.status,
+      isOccupied: slot.isOccupied,
+      allocationsCount: slot.allocations.length 
+    });
 
     await warehouse.save();
 

@@ -96,6 +96,7 @@ app.use('/api/exports', require('./routes/exports'));
 app.use('/api/analytics', require('./routes/analytics'));
 app.use('/api/loans', require('./routes/loans'));
 app.use('/api/market', require('./routes/market'));
+app.use('/api/predictions', require('./routes/predictions'));
 
 // Serve static uploads folder
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));

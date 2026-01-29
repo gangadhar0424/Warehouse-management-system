@@ -662,4 +662,325 @@ router.get('/owner/customers-list', auth, authorize('owner'), async (req, res) =
   }
 });
 
+// @route   GET /api/analytics/owner/grain-analytics
+// @desc    Get grain-based analytics (current grains in warehouse)
+// @access  Private (Owner only)
+router.get('/owner/grain-analytics', auth, authorize('owner'), async (req, res) => {
+  try {
+    const allocations = await StorageAllocation.find({ status: 'active' }).populate('customer', 'profile');
+    
+    const grainData = {};
+    const blockGrainMapping = {};
+    
+    allocations.forEach(allocation => {
+      allocation.storageDetails.items.forEach(item => {
+        const grainType = item.description;
+        const blockKey = `B${allocation.allocation.building}-Block${allocation.allocation.block}`;
+        
+        // Grain totals
+        if (!grainData[grainType]) {
+          grainData[grainType] = {
+            totalWeight: 0,
+            totalQuantity: 0,
+            totalValue: 0,
+            customers: new Set(),
+            blocks: new Set()
+          };
+        }
+        
+        grainData[grainType].totalWeight += item.weight || 0;
+        grainData[grainType].totalQuantity += item.quantity || 0;
+        grainData[grainType].totalValue += item.value || 0;
+        grainData[grainType].customers.add(allocation.customer._id.toString());
+        grainData[grainType].blocks.add(blockKey);
+        
+        // Block-wise grain mapping
+        if (!blockGrainMapping[blockKey]) {
+          blockGrainMapping[blockKey] = [];
+        }
+        blockGrainMapping[blockKey].push({
+          grainType,
+          weight: item.weight || 0,
+          quantity: item.quantity || 0,
+          customerName: `${allocation.customer.profile?.firstName || ''} ${allocation.customer.profile?.lastName || ''}`.trim()
+        });
+      });
+    });
+    
+    // Convert Sets to counts
+    const grainAnalytics = Object.keys(grainData).map(grain => ({
+      grainType: grain,
+      totalWeight: grainData[grain].totalWeight,
+      totalQuantity: grainData[grain].totalQuantity,
+      totalValue: grainData[grain].totalValue,
+      customerCount: grainData[grain].customers.size,
+      blockCount: grainData[grain].blocks.size
+    }));
+    
+    res.json({
+      grainAnalytics,
+      blockGrainMapping,
+      totalGrainTypes: grainAnalytics.length
+    });
+    
+  } catch (error) {
+    console.error('Error fetching grain analytics:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   GET /api/analytics/owner/storage-duration-analytics
+// @desc    Get storage duration analytics (stored/storing grains)
+// @access  Private (Owner only)
+router.get('/owner/storage-duration-analytics', auth, authorize('owner'), async (req, res) => {
+  try {
+    const activeAllocations = await StorageAllocation.find({ status: 'active' })
+      .populate('customer', 'profile');
+    const completedAllocations = await StorageAllocation.find({ status: 'completed' })
+      .populate('customer', 'profile')
+      .sort({ 'duration.actualEndDate': -1 })
+      .limit(50);
+    
+    const currentlyStoring = activeAllocations.map(allocation => {
+      const startDate = new Date(allocation.duration.startDate);
+      const daysStored = Math.floor((Date.now() - startDate) / (1000 * 60 * 60 * 24));
+      
+      return {
+        customer: `${allocation.customer.profile?.firstName || ''} ${allocation.customer.profile?.lastName || ''}`.trim(),
+        grainTypes: allocation.storageDetails.items.map(i => i.description).join(', '),
+        weight: allocation.storageDetails.totalWeight || 0,
+        daysStored,
+        startDate: allocation.duration.startDate,
+        expectedEndDate: allocation.duration.endDate,
+        location: `B${allocation.allocation.building}-Block${allocation.allocation.block}-${allocation.allocation.wing}-Box${allocation.allocation.box}`
+      };
+    });
+    
+    const previouslyStored = completedAllocations.map(allocation => {
+      const startDate = new Date(allocation.duration.startDate);
+      const endDate = new Date(allocation.duration.actualEndDate);
+      const daysStored = Math.floor((endDate - startDate) / (1000 * 60 * 60 * 24));
+      
+      return {
+        customer: `${allocation.customer.profile?.firstName || ''} ${allocation.customer.profile?.lastName || ''}`.trim(),
+        grainTypes: allocation.storageDetails.items.map(i => i.description).join(', '),
+        weight: allocation.storageDetails.totalWeight || 0,
+        daysStored,
+        startDate: allocation.duration.startDate,
+        endDate: allocation.duration.actualEndDate
+      };
+    });
+    
+    // Duration distribution
+    const durationRanges = {
+      '0-30 days': 0,
+      '31-60 days': 0,
+      '61-90 days': 0,
+      '91-180 days': 0,
+      '180+ days': 0
+    };
+    
+    [...currentlyStoring, ...previouslyStored].forEach(item => {
+      if (item.daysStored <= 30) durationRanges['0-30 days']++;
+      else if (item.daysStored <= 60) durationRanges['31-60 days']++;
+      else if (item.daysStored <= 90) durationRanges['61-90 days']++;
+      else if (item.daysStored <= 180) durationRanges['91-180 days']++;
+      else durationRanges['180+ days']++;
+    });
+    
+    res.json({
+      currentlyStoring,
+      previouslyStored,
+      durationRanges,
+      stats: {
+        activeCount: currentlyStoring.length,
+        completedCount: previouslyStored.length,
+        averageDuration: currentlyStoring.length > 0 
+          ? Math.round(currentlyStoring.reduce((sum, item) => sum + item.daysStored, 0) / currentlyStoring.length)
+          : 0
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error fetching storage duration analytics:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   GET /api/analytics/owner/customer-analytics
+// @desc    Get customer analytics (previous and current customers)
+// @access  Private (Owner only)
+router.get('/owner/customer-analytics', auth, authorize('owner'), async (req, res) => {
+  try {
+    const activeAllocations = await StorageAllocation.find({ status: 'active' })
+      .populate('customer', 'profile createdAt');
+    const allTransactions = await Transaction.find().populate('customer', 'profile');
+    
+    // Current customers (with active storage)
+    const activeCustomerIds = new Set(activeAllocations.map(a => a.customer._id.toString()));
+    
+    // Previous customers (no active storage but have history)
+    const allCustomers = await User.find({ role: 'customer' }).select('profile createdAt');
+    const previousCustomers = allCustomers.filter(c => !activeCustomerIds.has(c._id.toString()));
+    
+    // Customer lifetime value
+    const customerLTV = await Transaction.aggregate([
+      { $group: { 
+        _id: '$customer', 
+        totalSpent: { $sum: '$amount.finalAmount' },
+        transactionCount: { $sum: 1 }
+      }},
+      { $sort: { totalSpent: -1 } }
+    ]);
+    
+    const ltvWithDetails = await Promise.all(
+      customerLTV.map(async (ltv) => {
+        const customer = await User.findById(ltv._id).select('profile');
+        const hasActiveStorage = activeCustomerIds.has(ltv._id.toString());
+        
+        return {
+          customerId: ltv._id,
+          name: `${customer?.profile?.firstName || ''} ${customer?.profile?.lastName || ''}`.trim(),
+          totalSpent: ltv.totalSpent,
+          transactionCount: ltv.transactionCount,
+          status: hasActiveStorage ? 'active' : 'inactive',
+          phone: customer?.profile?.phone || 'N/A',
+          location: customer?.profile?.address?.city || 'N/A'
+        };
+      })
+    );
+    
+    // Customer flow over time (last 12 months)
+    const customerFlow = [];
+    for (let i = 11; i >= 0; i--) {
+      const date = new Date();
+      date.setMonth(date.getMonth() - i);
+      const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
+      const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+      
+      const inCount = await StorageAllocation.countDocuments({
+        'duration.startDate': { $gte: monthStart, $lte: monthEnd }
+      });
+      
+      const outCount = await StorageAllocation.countDocuments({
+        'duration.actualEndDate': { $gte: monthStart, $lte: monthEnd }
+      });
+      
+      customerFlow.push({
+        month: date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+        in: inCount,
+        out: outCount,
+        net: inCount - outCount
+      });
+    }
+    
+    // Customer segmentation (for bubble chart)
+    const segmentation = ltvWithDetails.map(customer => ({
+      name: customer.name,
+      totalSpent: customer.totalSpent,
+      transactionCount: customer.transactionCount,
+      avgTransactionValue: customer.transactionCount > 0 ? customer.totalSpent / customer.transactionCount : 0,
+      status: customer.status
+    }));
+    
+    res.json({
+      currentCustomers: {
+        count: activeCustomerIds.size,
+        list: ltvWithDetails.filter(c => c.status === 'active')
+      },
+      previousCustomers: {
+        count: previousCustomers.length,
+        list: ltvWithDetails.filter(c => c.status === 'inactive').slice(0, 20)
+      },
+      customerLifetimeValue: ltvWithDetails.slice(0, 10),
+      customerFlow,
+      segmentation: segmentation.slice(0, 20)
+    });
+    
+  } catch (error) {
+    console.error('Error fetching customer analytics:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   GET /api/analytics/owner/warehouse-capacity-viz
+// @desc    Get warehouse capacity visualization (block-wise grain storage)
+// @access  Private (Owner only)
+router.get('/owner/warehouse-capacity-viz', auth, authorize('owner'), async (req, res) => {
+  try {
+    const allocations = await StorageAllocation.find({ status: 'active' })
+      .populate('customer', 'profile');
+    
+    const capacityMap = {};
+    
+    // Initialize all blocks
+    for (let building = 1; building <= 2; building++) {
+      for (let block = 1; block <= 3; block++) {
+        const blockKey = `Building ${building} - Block ${block}`;
+        capacityMap[blockKey] = {
+          totalBoxes: 12, // 2 wings × 6 boxes
+          occupiedBoxes: 0,
+          grains: [],
+          totalWeight: 0,
+          customers: new Set()
+        };
+      }
+    }
+    
+    // Fill with actual data
+    allocations.forEach(allocation => {
+      const blockKey = `Building ${allocation.allocation.building} - Block ${allocation.allocation.block}`;
+      
+      if (capacityMap[blockKey]) {
+        capacityMap[blockKey].occupiedBoxes++;
+        capacityMap[blockKey].totalWeight += allocation.storageDetails.totalWeight || 0;
+        capacityMap[blockKey].customers.add(allocation.customer._id.toString());
+        
+        allocation.storageDetails.items.forEach(item => {
+          const existingGrain = capacityMap[blockKey].grains.find(g => g.type === item.description);
+          if (existingGrain) {
+            existingGrain.weight += item.weight || 0;
+            existingGrain.quantity += item.quantity || 0;
+          } else {
+            capacityMap[blockKey].grains.push({
+              type: item.description,
+              weight: item.weight || 0,
+              quantity: item.quantity || 0
+            });
+          }
+        });
+      }
+    });
+    
+    // Convert to array and calculate percentages
+    const capacityData = Object.keys(capacityMap).map(blockKey => {
+      const block = capacityMap[blockKey];
+      return {
+        blockName: blockKey,
+        totalBoxes: block.totalBoxes,
+        occupiedBoxes: block.occupiedBoxes,
+        availableBoxes: block.totalBoxes - block.occupiedBoxes,
+        occupancyRate: ((block.occupiedBoxes / block.totalBoxes) * 100).toFixed(1),
+        grains: block.grains,
+        totalWeight: block.totalWeight,
+        customerCount: block.customers.size
+      };
+    });
+    
+    res.json({
+      capacityData,
+      summary: {
+        totalBlocks: capacityData.length,
+        totalBoxes: capacityData.reduce((sum, b) => sum + b.totalBoxes, 0),
+        totalOccupied: capacityData.reduce((sum, b) => sum + b.occupiedBoxes, 0),
+        averageOccupancy: (capacityData.reduce((sum, b) => sum + parseFloat(b.occupancyRate), 0) / capacityData.length).toFixed(1)
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error fetching warehouse capacity visualization:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
 module.exports = router;
