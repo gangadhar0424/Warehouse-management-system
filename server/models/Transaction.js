@@ -14,7 +14,7 @@ const transactionSchema = new mongoose.Schema({
   customer: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true
+    required: false  // Optional for weighbridge-only transactions
   },
   vehicle: {
     type: mongoose.Schema.Types.ObjectId,

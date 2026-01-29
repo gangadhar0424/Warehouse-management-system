@@ -52,6 +52,7 @@ const PaymentModule = ({ userRole = 'customer' }) => {
   const [paymentDialog, setPaymentDialog] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [paymentDetailsDialog, setPaymentDetailsDialog] = useState(false);
+  const [paymentTypeFilter, setPaymentTypeFilter] = useState('all');
   
   const [paymentForm, setPaymentForm] = useState({
     amount: '',
@@ -209,6 +210,32 @@ const PaymentModule = ({ userRole = 'customer' }) => {
     }
   };
 
+  const getPaymentTypeLabel = (type) => {
+    switch (type) {
+      case 'weighbridge_fee': return 'Weighbridge Fee';
+      case 'grain_storage_rent': return 'Storage Rent';
+      case 'loan_repayment': return 'Loan Repayment';
+      case 'grain_loan': return 'Grain Loan';
+      case 'grain_release': return 'Grain Release';
+      default: return type?.replace(/_/g, ' ').toUpperCase() || 'Payment';
+    }
+  };
+
+  const getPaymentTypeColor = (type) => {
+    switch (type) {
+      case 'weighbridge_fee': return 'primary';
+      case 'grain_storage_rent': return 'success';
+      case 'loan_repayment': return 'warning';
+      case 'grain_loan': return 'info';
+      case 'grain_release': return 'secondary';
+      default: return 'default';
+    }
+  };
+
+  const filteredPaymentHistory = paymentTypeFilter === 'all' 
+    ? paymentHistory 
+    : paymentHistory.filter(t => t.type === paymentTypeFilter);
+
   return (
     <Box>
       {/* Stats Cards */}
@@ -339,24 +366,42 @@ const PaymentModule = ({ userRole = 'customer' }) => {
       {/* Payment History */}
       <Card>
         <CardContent>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
             <Typography variant="h6">Payment History</Typography>
-            <IconButton onClick={fetchPaymentData} disabled={loading}>
-              <Refresh />
-            </IconButton>
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+              <FormControl size="small" sx={{ minWidth: 200 }}>
+                <InputLabel>Filter by Type</InputLabel>
+                <Select
+                  value={paymentTypeFilter}
+                  label="Filter by Type"
+                  onChange={(e) => setPaymentTypeFilter(e.target.value)}
+                >
+                  <MenuItem value="all">All Payments</MenuItem>
+                  <MenuItem value="weighbridge_fee">⚖️ Weighbridge Fees</MenuItem>
+                  <MenuItem value="grain_storage_rent">🏢 Storage Rent</MenuItem>
+                  <MenuItem value="loan_repayment">💰 Loan Repayments</MenuItem>
+                  <MenuItem value="grain_loan">🌾 Grain Loans</MenuItem>
+                  <MenuItem value="grain_release">📦 Grain Release</MenuItem>
+                </Select>
+              </FormControl>
+              <IconButton onClick={fetchPaymentData} disabled={loading}>
+                <Refresh />
+              </IconButton>
+            </Box>
           </Box>
 
           {loading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
               <CircularProgress />
             </Box>
-          ) : paymentHistory.length > 0 ? (
+          ) : filteredPaymentHistory.length > 0 ? (
             <TableContainer>
               <Table>
                 <TableHead>
                   <TableRow>
                     <TableCell>Date</TableCell>
-                    <TableCell>Type</TableCell>
+                    <TableCell>Payment Type</TableCell>
+                    <TableCell>Details</TableCell>
                     <TableCell>Method</TableCell>
                     <TableCell>Amount</TableCell>
                     <TableCell>Status</TableCell>
@@ -364,15 +409,63 @@ const PaymentModule = ({ userRole = 'customer' }) => {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {paymentHistory.map((transaction) => (
+                  {filteredPaymentHistory.map((transaction) => (
                     <TableRow key={transaction._id}>
-                      <TableCell>{formatDate(transaction.createdAt || transaction.payment?.date)}</TableCell>
+                      <TableCell>
+                        <Typography variant="body2">
+                          {formatDate(transaction.createdAt || transaction.payment?.date)}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {new Date(transaction.createdAt || transaction.payment?.date).toLocaleTimeString()}
+                        </Typography>
+                      </TableCell>
                       <TableCell>
                         <Chip 
-                          label={transaction.type?.replace(/_/g, ' ').toUpperCase() || 'Payment'} 
+                          label={getPaymentTypeLabel(transaction.type)} 
                           size="small"
-                          variant="outlined"
+                          color={getPaymentTypeColor(transaction.type)}
                         />
+                      </TableCell>
+                      <TableCell>
+                        {transaction.vehicle ? (
+                          <Box>
+                            <Typography variant="body2" fontWeight="600">
+                              {transaction.vehicle.vehicleNumber || 'N/A'}
+                            </Typography>
+                            <Chip 
+                              label={transaction.vehicle.visitPurpose === 'weighing_only' ? 'Weight Check' : 'Loading/Unloading'}
+                              size="small"
+                              color={transaction.vehicle.visitPurpose === 'weighing_only' ? 'primary' : 'secondary'}
+                              sx={{ mt: 0.5 }}
+                            />
+                          </Box>
+                        ) : transaction.type === 'loan_repayment' ? (
+                          <Box>
+                            <Typography variant="body2" fontWeight="600" color="warning.main">
+                              💰 Loan Payment
+                            </Typography>
+                            {transaction.loanDetails && (
+                              <Typography variant="caption" color="text.secondary">
+                                Outstanding: ₹{transaction.loanDetails.outstandingAmount?.toLocaleString()}
+                              </Typography>
+                            )}
+                          </Box>
+                        ) : transaction.type === 'grain_storage_rent' ? (
+                          <Box>
+                            <Typography variant="body2" fontWeight="600" color="success.main">
+                              🏢 Storage Rent
+                            </Typography>
+                            {transaction.grainDetails && (
+                              <Typography variant="caption" color="text.secondary">
+                                {transaction.grainDetails.grainType?.toUpperCase()} - {transaction.grainDetails.numberOfBags} bags
+                              </Typography>
+                            )}
+                          </Box>
+                        ) : (
+                          <Typography variant="body2" color="text.secondary">
+                            {transaction.customer?.username || 'N/A'}
+                          </Typography>
+                        )}
                       </TableCell>
                       <TableCell>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

@@ -18,6 +18,7 @@ import TransactionManagement from './pages/TransactionManagement';
 import UserProfile from './pages/UserProfile';
 import WorkerBagTracking from './pages/WorkerBagTracking';
 import CustomerGrainManagement from './pages/CustomerGrainManagement';
+import PaymentManagement from './pages/PaymentManagement';
 import './App.css';
 
 // Create Material-UI theme
@@ -142,7 +143,7 @@ function App() {
                 <Route path="/payments" element={
                   <ProtectedRoute>
                     <Navbar />
-                    <WeighBridge />
+                    <PaymentManagement />
                   </ProtectedRoute>
                 } />
                 

@@ -89,7 +89,10 @@ const DynamicWarehouseLayoutManager = () => {
   
   const fetchCustomers = async () => {
     try {
-      const response = await axios.get('/api/customers');
+      const token = localStorage.getItem('token');
+      const response = await axios.get('/api/customers', {
+        headers: { 'x-auth-token': token }
+      });
       console.log('Customers fetched:', response.data.customers);
       setCustomers(response.data.customers || []);
     } catch (error) {
@@ -101,7 +104,10 @@ const DynamicWarehouseLayoutManager = () => {
   const fetchLayouts = async () => {
     try {
       setLoading(true);
-      const response = await axios.get('/api/dynamic-warehouse/layouts');
+      const token = localStorage.getItem('token');
+      const response = await axios.get('/api/dynamic-warehouse/layouts', {
+        headers: { 'x-auth-token': token }
+      });
       setLayouts(response.data.layouts || []);
     } catch (error) {
       console.error('Error fetching layouts:', error);
@@ -114,7 +120,10 @@ const DynamicWarehouseLayoutManager = () => {
   const handleCreateLayout = async () => {
     try {
       setLoading(true);
-      const response = await axios.post('/api/dynamic-warehouse/layout', formData);
+      const token = localStorage.getItem('token');
+      const response = await axios.post('/api/dynamic-warehouse/layout', formData, {
+        headers: { 'x-auth-token': token }
+      });
       
       setSuccess(`Warehouse layout "${formData.name}" created successfully!`);
       setCreateDialogOpen(false);
@@ -136,8 +145,10 @@ const DynamicWarehouseLayoutManager = () => {
 
   const handleDownloadJSON = async (layoutId, layoutName) => {
     try {
+      const token = localStorage.getItem('token');
       const response = await axios.get(`/api/dynamic-warehouse/layout/${layoutId}/download-json`, {
-        responseType: 'blob'
+        responseType: 'blob',
+        headers: { 'x-auth-token': token }
       });
       
       const url = window.URL.createObjectURL(new Blob([response.data]));
@@ -157,7 +168,10 @@ const DynamicWarehouseLayoutManager = () => {
   const handleViewLayout = async (layoutId) => {
     try {
       setLoading(true);
-      const response = await axios.get(`/api/dynamic-warehouse/layout/${layoutId}`);
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`/api/dynamic-warehouse/layout/${layoutId}`, {
+        headers: { 'x-auth-token': token }
+      });
       setSelectedLayout(response.data);
       setViewDialogOpen(true);
     } catch (error) {
@@ -170,7 +184,10 @@ const DynamicWarehouseLayoutManager = () => {
   const handleDeleteLayout = async (layoutId) => {
     if (window.confirm('Are you sure you want to delete this warehouse layout?')) {
       try {
-        await axios.delete(`/api/dynamic-warehouse/layout/${layoutId}`);
+        const token = localStorage.getItem('token');
+        await axios.delete(`/api/dynamic-warehouse/layout/${layoutId}`, {
+          headers: { 'x-auth-token': token }
+        });
         setSuccess('Warehouse layout deleted successfully!');
         fetchLayouts();
         
@@ -265,6 +282,7 @@ const DynamicWarehouseLayoutManager = () => {
       
       setLoading(true);
       const selectedCustomer = customers.find(c => c._id === allocationForm.customerId);
+      const token = localStorage.getItem('token');
       
       await axios.post('/api/dynamic-warehouse/allocate-bags', {
         layoutId: selectedSlot.layoutId,
@@ -277,6 +295,8 @@ const DynamicWarehouseLayoutManager = () => {
         grainType: allocationForm.grainType,
         weight: parseFloat(allocationForm.weight) || 0,
         notes: allocationForm.notes
+      }, {
+        headers: { 'x-auth-token': token }
       });
       
       setSuccess(`Successfully allocated ${allocationForm.bags} bags to ${selectedSlot.slotLabel}`);
@@ -297,6 +317,7 @@ const DynamicWarehouseLayoutManager = () => {
 
     try {
       setLoading(true);
+      const token = localStorage.getItem('token');
       await axios.post('/api/dynamic-warehouse/deallocate-bags', {
         layoutId: selectedSlot.layoutId,
         building: selectedSlot.building,
@@ -304,6 +325,8 @@ const DynamicWarehouseLayoutManager = () => {
         slotLabel: selectedSlot.slotLabel,
         customerId: customerId,
         bags: parseInt(bags)
+      }, {
+        headers: { 'x-auth-token': token }
       });
 
       setSuccess(`Successfully deallocated ${bags} bags from ${customerName}`);
@@ -972,19 +995,19 @@ const DynamicWarehouseLayoutManager = () => {
           {selectedSlot && (
             <>
               <Alert severity="info" sx={{ mb: 3 }}>
-                <Typography variant="body2">
+                <Typography variant="body2" component="div">
                   <strong>Location:</strong> {selectedSlot.building} - {selectedSlot.block} - Row {selectedSlot.row}, Col {selectedSlot.col}
                 </Typography>
-                <Typography variant="body2">
+                <Typography variant="body2" component="div">
                   <strong>Total Capacity:</strong> {selectedSlot.capacity || 2000} bags
                 </Typography>
-                <Typography variant="body2">
+                <Typography variant="body2" component="div">
                   <strong>Filled:</strong> {selectedSlot.filledBags || 0} bags ({((selectedSlot.filledBags || 0) / (selectedSlot.capacity || 2000) * 100).toFixed(1)}%)
                 </Typography>
-                <Typography variant="body2">
+                <Typography variant="body2" component="div">
                   <strong>Available:</strong> {(selectedSlot.capacity || 2000) - (selectedSlot.filledBags || 0)} bags
                 </Typography>
-                <Typography variant="body2">
+                <Typography variant="body2" component="div">
                   <strong>Status:</strong> <Chip size="small" label={selectedSlot.status?.toUpperCase() || 'EMPTY'} 
                     color={selectedSlot.status === 'full' ? 'error' : selectedSlot.status === 'partially-filled' ? 'warning' : 'success'} 
                   />
@@ -1086,7 +1109,11 @@ const DynamicWarehouseLayoutManager = () => {
                               variant="outlined"
                               color="error"
                               size="small"
-                              onClick={() => handleDeallocateBags(allocation.customer, allocation.customerName, allocation.bags)}
+                              onClick={() => handleDeallocateBags(
+                                allocation.customer._id || allocation.customer, 
+                                allocation.customerName, 
+                                allocation.bags
+                              )}
                             >
                               Deallocate All ({allocation.bags} bags)
                             </Button>

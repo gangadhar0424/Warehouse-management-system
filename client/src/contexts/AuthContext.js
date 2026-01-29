@@ -59,11 +59,13 @@ const authReducer = (state, action) => {
   }
 };
 
-// Set default axios headers
+// Set default axios headers - using x-auth-token for compatibility
 const setAuthToken = (token) => {
   if (token) {
+    axios.defaults.headers.common['x-auth-token'] = token;
     axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
   } else {
+    delete axios.defaults.headers.common['x-auth-token'];
     delete axios.defaults.headers.common['Authorization'];
   }
 };
@@ -73,6 +75,46 @@ export const AuthProvider = ({ children }) => {
 
   // Set axios base URL (removed /api suffix as routes include it)
   axios.defaults.baseURL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+  // Setup axios interceptor to always include auth token
+  useEffect(() => {
+    const requestInterceptor = axios.interceptors.request.use(
+      (config) => {
+        const token = localStorage.getItem('token');
+        if (token) {
+          config.headers['x-auth-token'] = token;
+          config.headers['Authorization'] = `Bearer ${token}`;
+          console.log('🔐 Auth token attached to request:', config.url);
+        } else {
+          console.log('⚠️ No token found for request:', config.url);
+        }
+        return config;
+      },
+      (error) => {
+        return Promise.reject(error);
+      }
+    );
+
+    // Setup response interceptor to handle 401 errors
+    const responseInterceptor = axios.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (error.response?.status === 401) {
+          // Token expired or invalid
+          localStorage.removeItem('token');
+          dispatch({ type: 'LOGOUT' });
+          window.location.href = '/login';
+        }
+        return Promise.reject(error);
+      }
+    );
+
+    // Cleanup interceptors on unmount
+    return () => {
+      axios.interceptors.request.eject(requestInterceptor);
+      axios.interceptors.response.eject(responseInterceptor);
+    };
+  }, []);
 
   // Load user on app start
   useEffect(() => {

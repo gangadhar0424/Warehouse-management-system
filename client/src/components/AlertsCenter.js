@@ -70,10 +70,35 @@ const AlertsCenter = () => {
     try {
       setRefreshing(true);
       const token = localStorage.getItem('token');
-      const response = await axios.get('/api/analytics/owner/alerts', {
-        headers: { 'x-auth-token': token }
-      });
-      setAlerts(response.data);
+      
+      // Fetch both regular alerts and prediction alerts
+      const [alertsResponse, predictionsResponse] = await Promise.all([
+        axios.get('/api/analytics/owner/alerts', {
+          headers: { 'x-auth-token': token }
+        }),
+        axios.get('/api/predictions/dashboard-predictions', {
+          headers: { 'x-auth-token': token }
+        }).catch(() => ({ data: { alerts: [] } })) // Fallback if predictions service is down
+      ]);
+      
+      // Merge alerts from both sources
+      const combinedAlerts = {
+        ...alertsResponse.data,
+        predictiveAlerts: predictionsResponse.data.alerts || [],
+        marketAlerts: []
+      };
+      
+      // Fetch market alerts
+      try {
+        const marketResponse = await axios.get('/api/predictions/market-alerts', {
+          headers: { 'x-auth-token': token }
+        });
+        combinedAlerts.marketAlerts = marketResponse.data.alerts || [];
+      } catch (err) {
+        console.log('Market alerts unavailable');
+      }
+      
+      setAlerts(combinedAlerts);
       setError(null);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to fetch alerts');
@@ -365,7 +390,84 @@ const AlertsCenter = () => {
             </Box>
           </Box>
         </Paper>
+
+        <Paper sx={{ p: 2, flex: 1, minWidth: 200, backgroundColor: '#f3e5f5', borderLeft: '4px solid #9c27b0' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Warning sx={{ fontSize: 32, color: '#9c27b0' }} />
+            <Box>
+              <Typography variant="h4" fontWeight="bold" sx={{ color: '#9c27b0' }}>
+                {(alerts.predictiveAlerts?.length || 0) + (alerts.marketAlerts?.length || 0)}
+              </Typography>
+              <Typography variant="body2" color="textSecondary">
+                ML Predictions
+              </Typography>
+            </Box>
+          </Box>
+        </Paper>
       </Box>
+
+      {/* Prediction & Market Alerts Section */}
+      {((alerts.predictiveAlerts && alerts.predictiveAlerts.length > 0) || 
+        (alerts.marketAlerts && alerts.marketAlerts.length > 0)) && (
+        <Card sx={{ mb: 3, bgcolor: '#f3e5f5' }}>
+          <CardContent>
+            <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, color: '#9c27b0' }}>
+              <Warning /> AI-Powered Predictions & Market Alerts
+            </Typography>
+            <Divider sx={{ my: 2 }} />
+            
+            {/* Market Alerts */}
+            {alerts.marketAlerts && alerts.marketAlerts.length > 0 && (
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold' }}>
+                  Market Trends
+                </Typography>
+                {alerts.marketAlerts.map((alert, index) => (
+                  <Alert 
+                    key={index} 
+                    severity={alert.severity === 'high' ? 'error' : alert.severity === 'medium' ? 'warning' : 'info'}
+                    sx={{ mb: 1 }}
+                  >
+                    <Typography variant="subtitle2" fontWeight="bold">
+                      {alert.title}
+                    </Typography>
+                    <Typography variant="body2">
+                      {alert.message}
+                    </Typography>
+                  </Alert>
+                ))}
+              </Box>
+            )}
+
+            {/* Predictive Alerts */}
+            {alerts.predictiveAlerts && alerts.predictiveAlerts.length > 0 && (
+              <Box>
+                <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 'bold' }}>
+                  Customer Risk Predictions
+                </Typography>
+                {alerts.predictiveAlerts.slice(0, 5).map((alert, index) => (
+                  <Alert 
+                    key={index} 
+                    severity={alert.severity === 'high' ? 'error' : alert.severity === 'medium' ? 'warning' : 'info'}
+                    sx={{ mb: 1 }}
+                  >
+                    <Typography variant="subtitle2" fontWeight="bold">
+                      {alert.title}
+                    </Typography>
+                    <Typography variant="body2">
+                      {alert.message}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                      Customer: {alert.customerName}
+                    </Typography>
+                  </Alert>
+                ))}
+              </Box>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
 
       {/* Tabs for filtering */}
       <Card sx={{ mb: 3 }}>
@@ -457,7 +559,7 @@ const AlertsCenter = () => {
                     <ListItemText
                       primary={
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Typography variant="body1" fontWeight={alert.read ? 'normal' : 'bold'}>
+                          <Typography variant="body1" fontWeight={alert.read ? 'normal' : 'bold'} component="div">
                             {alert.message}
                           </Typography>
                           {!alert.read && (
@@ -467,7 +569,7 @@ const AlertsCenter = () => {
                       }
                       secondary={
                         <Box sx={{ mt: 1 }}>
-                          <Typography variant="caption" color="textSecondary">
+                          <Typography variant="caption" color="textSecondary" component="span">
                             {alert.timestamp ? new Date(alert.timestamp).toLocaleString() : 'Just now'}
                           </Typography>
                           {alert.category && (

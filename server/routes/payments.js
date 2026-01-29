@@ -288,7 +288,7 @@ router.get('/', auth, async (req, res) => {
 
     const transactions = await Transaction.find(query)
       .populate('customer', 'username email profile')
-      .populate('vehicle', 'vehicleNumber driverName')
+      .populate('vehicle', 'vehicleNumber driverName visitPurpose')
       .populate('processedBy', 'username')
       .sort({ createdAt: -1 })
       .limit(limit * 1)
@@ -323,7 +323,7 @@ router.get('/pending', auth, async (req, res) => {
 
     const pendingPayments = await Transaction.find(query)
       .populate('customer', 'username email profile')
-      .populate('vehicle', 'vehicleNumber driverName')
+      .populate('vehicle', 'vehicleNumber driverName visitPurpose')
       .populate('processedBy', 'username')
       .sort({ createdAt: -1 });
 
@@ -349,7 +349,7 @@ router.get('/history', auth, async (req, res) => {
 
     const paymentHistory = await Transaction.find(query)
       .populate('customer', 'username email profile')
-      .populate('vehicle', 'vehicleNumber driverName')
+      .populate('vehicle', 'vehicleNumber driverName visitPurpose')
       .populate('processedBy', 'username')
       .sort({ createdAt: -1 })
       .limit(50); // Limit to last 50 completed payments
