@@ -127,26 +127,30 @@ const UserManagementPanel = () => {
     return userList;
   };
 
-  const handleExport = () => {
-    const csvContent = [
-      ['Username', 'Email', 'Role', 'Name', 'Phone', 'Status', 'Created'],
-      ...getUsersForTab().map(user => [
-        user.username,
-        user.email,
-        user.role,
-        `${user.profile?.firstName || ''} ${user.profile?.lastName || ''}`,
-        user.profile?.phone || '',
-        user.isActive ? 'Active' : 'Inactive',
-        new Date(user.createdAt).toLocaleDateString()
-      ])
-    ].map(row => row.join(',')).join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `users_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
+  const handleExport = async () => {
+    try {
+      setLoading(true);
+      const token = localStorage.getItem('token');
+      const response = await axios.get('/api/exports/users-excel', {
+        headers: { 'x-auth-token': token },
+        responseType: 'blob'
+      });
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `users_export_${new Date().toISOString().split('T')[0]}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      
+      setSuccess('Users exported to Excel successfully!');
+    } catch (err) {
+      console.error('Export failed:', err);
+      setError('Failed to export users data');
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (loading) {

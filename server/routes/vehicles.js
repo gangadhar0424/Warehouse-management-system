@@ -428,16 +428,23 @@ router.get('/stats/dashboard', [auth, authorize('owner')], async (req, res) => {
     const startOfDay = new Date(today.setHours(0, 0, 0, 0));
     const endOfDay = new Date(today.setHours(23, 59, 59, 999));
 
+    // Total vehicles that came for loading/unloading AND weighing
+    const totalVehicles = await Vehicle.countDocuments();
+    
+    // Currently inside: vehicles that came for loading or unloading
+    const currentlyInside = await Vehicle.countDocuments({
+      visitPurpose: 'grain_loading',
+      status: { $ne: 'exited' }
+    });
+    
+    // Total entries: all vehicles that entered and exited for any reason
+    const totalEntries = await Vehicle.countDocuments({ exitTime: { $exists: true } });
+
     const stats = await Vehicle.aggregate([
       {
         $facet: {
-          totalVehicles: [{ $count: "count" }],
           todayEntries: [
             { $match: { entryTime: { $gte: startOfDay, $lte: endOfDay } } },
-            { $count: "count" }
-          ],
-          currentlyInside: [
-            { $match: { status: { $in: ['entered', 'loaded', 'weighed'] } } },
             { $count: "count" }
           ],
           byStatus: [
@@ -445,17 +452,22 @@ router.get('/stats/dashboard', [auth, authorize('owner')], async (req, res) => {
           ],
           byVehicleType: [
             { $group: { _id: "$vehicleType", count: { $sum: 1 } } }
-          ]
+          ],
+          byPurpose: [
+            { $group: { _id: "$visitPurpose", count: { $sum: 1 } } }
+       ]
         }
       }
     ]);
 
     const result = {
-      totalVehicles: stats[0].totalVehicles[0]?.count || 0,
+      totalVehicles,
+      currentlyInside,
+      totalEntries,
       todayEntries: stats[0].todayEntries[0]?.count || 0,
-      currentlyInside: stats[0].currentlyInside[0]?.count || 0,
       statusBreakdown: stats[0].byStatus,
-      vehicleTypeBreakdown: stats[0].byVehicleType
+      vehicleTypeBreakdown: stats[0].byVehicleType,
+      purposeBreakdown: stats[0].byPurpose
     };
 
     res.json(result);
