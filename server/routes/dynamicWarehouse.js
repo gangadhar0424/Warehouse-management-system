@@ -528,6 +528,39 @@ router.post('/allocate-bags', [auth, authorize('owner')], async (req, res) => {
 
     await warehouse.save();
 
+    // Create StorageAllocation entry for customer dashboard
+    try {
+      const allocation = new StorageAllocation({
+        customer: customerId,
+        warehouse: layoutId,
+        owner: warehouse.owner,
+        storage: {
+          building: building,
+          block: block,
+          slot: slotLabel,
+          capacity: slot.capacity,
+          used: bags
+        },
+        grainDetails: {
+          type: grainType || 'Not specified',
+          quantity: bags,
+          weight: parseFloat(weight) || 0,
+          qualityGrade: 'A'
+        },
+        duration: {
+          startDate: new Date(),
+          endDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000) // 90 days default
+        },
+        status: 'active',
+        notes: notes || ''
+      });
+      await allocation.save();
+      console.log('✅ StorageAllocation created for customer dashboard');
+    } catch (allocError) {
+      console.error('⚠️ Error creating StorageAllocation:', allocError.message);
+      // Don't fail the main operation if allocation creation fails
+    }
+
     // Emit real-time update
     if (req.io) {
       req.io.emit('slot_allocated', {
@@ -667,6 +700,77 @@ router.post('/deallocate-bags', [auth, authorize('owner')], async (req, res) => 
 
   } catch (error) {
     console.error('Error deallocating bags:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   GET /api/dynamic-warehouse/my-grain-locations
+// @desc    Get customer's grain storage locations from dynamic warehouse
+// @access  Private (Customer only)
+router.get('/my-grain-locations', auth, async (req, res) => {
+  // Allow both customers and owners to access
+  if (!['customer', 'owner'].includes(req.user.role)) {
+    return res.status(403).json({ message: 'Access denied' });
+  }
+  try {
+    const customerId = req.user.id;
+    
+    // Find all warehouses that have allocations for this customer
+    const warehouses = await DynamicWarehouseLayout.find({
+      'layout.blocks.slots.allocations.customer': customerId,
+      isActive: true
+    }).populate('owner', 'username profile');
+
+    const grainLocations = [];
+
+    // Extract all allocations for this customer from all warehouses
+    warehouses.forEach(warehouse => {
+      warehouse.layout.forEach(building => {
+        building.blocks.forEach(block => {
+          block.slots.forEach(slot => {
+            const customerAllocations = slot.allocations.filter(
+              alloc => alloc.customer.toString() === customerId
+            );
+
+            customerAllocations.forEach(allocation => {
+              grainLocations.push({
+                warehouseName: warehouse.name,
+                warehouseId: warehouse._id,
+                owner: warehouse.owner,
+                location: {
+                  building: building.building,
+                  block: block.block,
+                  slotLabel: slot.slotLabel,
+                  row: slot.row,
+                  col: slot.col
+                },
+                allocation: {
+                  bags: allocation.bags,
+                  grainType: allocation.grainType,
+                  weight: allocation.weight,
+                  entryDate: allocation.entryDate,
+                  notes: allocation.notes
+                },
+                slotInfo: {
+                  capacity: slot.capacity,
+                  filledBags: slot.filledBags,
+                  status: slot.status
+                }
+              });
+            });
+          });
+        });
+      });
+    });
+
+    res.json({
+      success: true,
+      grainLocations: grainLocations,
+      totalAllocations: grainLocations.length
+    });
+
+  } catch (error) {
+    console.error('Error fetching customer grain locations:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });

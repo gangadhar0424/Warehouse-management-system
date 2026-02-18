@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Card,
@@ -20,16 +20,22 @@ import {
   TableCell,
   TableContainer,
   TableHead,
-  TableRow
+  TableRow,
+  CircularProgress
 } from '@mui/material';
 import {
   Calculate,
   AttachMoney,
   Grain,
-  AccountBalance
+  AccountBalance,
+  Refresh
 } from '@mui/icons-material';
+import axios from 'axios';
 
 const LoanCalculator = () => {
+  const [loading, setLoading] = useState(false);
+  const [grainData, setGrainData] = useState(null);
+  const [error, setError] = useState('');
   const [formData, setFormData] = useState({
     numberOfBags: '',
     weightPerBag: 50, // Default 50 kg
@@ -38,6 +44,81 @@ const LoanCalculator = () => {
   });
 
   const [calculationResult, setCalculationResult] = useState(null);
+
+  useEffect(() => {
+    fetchCustomerGrainData();
+  }, []);
+
+  const fetchCustomerGrainData = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      const response = await axios.get('/api/dynamic-warehouse/my-grain-locations');
+      const grainLocations = response.data.grainLocations || [];
+      
+      if (grainLocations.length > 0) {
+        // Calculate total bags and grain value
+        let totalBags = 0;
+        let totalValue = 0;
+        const grainTypeMap = {};
+        
+        grainLocations.forEach(location => {
+          const bags = location.allocation?.bags || 0;
+          const grainType = location.allocation?.grainType || 'other';
+          const weight = location.allocation?.weight || (bags * 50); // Assume 50kg per bag if not specified
+          
+          totalBags += bags;
+          
+          // Group by grain type
+          if (!grainTypeMap[grainType]) {
+            grainTypeMap[grainType] = { bags: 0, weight: 0 };
+          }
+          grainTypeMap[grainType].bags += bags;
+          grainTypeMap[grainType].weight += weight;
+        });
+        
+        // Get dominant grain type (type with most bags)
+        const dominantGrain = Object.keys(grainTypeMap).reduce((a, b) => 
+          grainTypeMap[a].bags > grainTypeMap[b].bags ? a : b
+        );
+        
+        // Calculate total weight in quintals
+        const totalWeightKg = Object.values(grainTypeMap).reduce((sum, g) => sum + g.weight, 0);
+        const totalQuintals = totalWeightKg / 100;
+        
+        // Get market price for dominant grain
+        const grainInfo = grainTypes.find(g => g.value === dominantGrain) || grainTypes.find(g => g.value === 'other');
+        const marketValuePerQuintal = grainInfo.avgPrice;
+        const totalMarketValue = totalQuintals * marketValuePerQuintal;
+        const maxLoanAmount = totalMarketValue * 0.60;
+        
+        setGrainData({
+          totalBags,
+          totalWeightKg: totalWeightKg.toFixed(2),
+          totalQuintals: totalQuintals.toFixed(2),
+          dominantGrain,
+          marketValuePerQuintal,
+          totalMarketValue: totalMarketValue.toFixed(2),
+          maxLoanAmount: maxLoanAmount.toFixed(2),
+          grainTypeMap
+        });
+        
+        // Auto-fill form with grain data
+        setFormData(prev => ({
+          ...prev,
+          numberOfBags: totalBags.toString(),
+          grainType: dominantGrain,
+          marketValuePerQuintal: marketValuePerQuintal.toString(),
+          weightPerBag: (totalWeightKg / totalBags).toFixed(0)
+        }));
+      }
+    } catch (err) {
+      console.error('Error fetching grain data:', err);
+      setError('Unable to fetch your grain data. You can still calculate manually.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const grainTypes = [
     { value: 'rice', label: 'Rice', avgPrice: 1500 },
@@ -138,6 +219,21 @@ const LoanCalculator = () => {
         </Typography>
       </Box>
 
+      {error && (
+        <Alert severity="warning" sx={{ mb: 3 }}>
+          {error}
+        </Alert>
+      )}
+
+      {grainData && (
+        <Alert severity="success" sx={{ mb: 3 }}>
+          <Typography variant="body2">
+            <strong>Your Grain Value:</strong> Total {grainData.totalBags} bags ({grainData.totalWeightKg} kg) worth ₹{grainData.totalMarketValue}. 
+            <strong> Maximum Loan Available: ₹{grainData.maxLoanAmount} (60% of grain value)</strong>
+          </Typography>
+        </Alert>
+      )}
+
       <Alert severity="info" sx={{ mb: 3 }}>
         <Typography variant="body2">
           <strong>Loan Terms:</strong> Customers receive 60% loan on grain market value. 
@@ -149,10 +245,20 @@ const LoanCalculator = () => {
         {/* Input Section */}
         <Grid item xs={12} md={6}>
           <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-              <Grain sx={{ mr: 1 }} />
-              Grain Details
-            </Typography>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center' }}>
+                <Grain sx={{ mr: 1 }} />
+                Grain Details
+              </Typography>
+              <Button
+                size="small"
+                startIcon={loading ? <CircularProgress size={16} /> : <Refresh />}
+                onClick={fetchCustomerGrainData}
+                disabled={loading}
+              >
+                Refresh
+              </Button>
+            </Box>
             <Divider sx={{ mb: 3 }} />
 
             <Grid container spacing={2}>

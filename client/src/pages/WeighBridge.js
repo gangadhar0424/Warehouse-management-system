@@ -81,6 +81,9 @@ const WeighBridge = () => {
     visitPurpose: '', // 'weighing_only' or 'grain_loading'
     weighingOption: '', // 'empty_now', 'loaded_now', 'will_return'
     emptyWeight: '', // Weight if vehicle is empty now
+    loadedWeight: '', // Weight when vehicle is loaded
+    emptyWeightForLoaded: '', // Empty vehicle weight (for loaded_now and will_return)
+    grainWeight: '', // Calculated grain weight
     capacity: {
       weight: '',
       volume: ''
@@ -109,6 +112,24 @@ const WeighBridge = () => {
   useEffect(() => {
     fetchVehicles();
   }, []);
+
+  // Calculate grain weight automatically
+  useEffect(() => {
+    if (vehicleForm.loadedWeight && vehicleForm.emptyWeightForLoaded) {
+      const loaded = parseFloat(vehicleForm.loadedWeight) || 0;
+      const empty = parseFloat(vehicleForm.emptyWeightForLoaded) || 0;
+      const grain = loaded - empty;
+      setVehicleForm(prev => ({
+        ...prev,
+        grainWeight: grain > 0 ? grain.toFixed(2) : ''
+      }));
+    } else {
+      setVehicleForm(prev => ({
+        ...prev,
+        grainWeight: ''
+      }));
+    }
+  }, [vehicleForm.loadedWeight, vehicleForm.emptyWeightForLoaded]);
 
   // Debug: Log form state changes
   useEffect(() => {
@@ -201,7 +222,25 @@ const WeighBridge = () => {
           firstWeighTime: new Date()
         };
         vehicleData.weighingStatus = 'partial';
-      } else if (vehicleForm.weighingOption === 'loaded_now') {
+      } else if (vehicleForm.weighingOption === 'loaded_now' && vehicleForm.loadedWeight && vehicleForm.emptyWeightForLoaded) {
+        vehicleData.weighBridgeData = {
+          grossWeight: parseFloat(vehicleForm.loadedWeight),
+          tareWeight: parseFloat(vehicleForm.emptyWeightForLoaded),
+          netWeight: parseFloat(vehicleForm.grainWeight),
+          firstWeighTime: new Date(),
+          secondWeighTime: new Date()
+        };
+        vehicleData.weighingStatus = 'completed';
+      } else if (vehicleForm.weighingOption === 'will_return' && vehicleForm.loadedWeight && vehicleForm.emptyWeightForLoaded) {
+        vehicleData.weighBridgeData = {
+          grossWeight: parseFloat(vehicleForm.loadedWeight),
+          tareWeight: parseFloat(vehicleForm.emptyWeightForLoaded),
+          netWeight: parseFloat(vehicleForm.grainWeight),
+          firstWeighTime: new Date(),
+          secondWeighTime: new Date()
+        };
+        vehicleData.weighingStatus = 'completed';
+      } else if (vehicleForm.weighingOption === 'loaded_now' || vehicleForm.weighingOption === 'will_return') {
         vehicleData.weighingStatus = 'not_started';
       }
 
@@ -241,6 +280,9 @@ const WeighBridge = () => {
         visitPurpose: '',
         weighingOption: '',
         emptyWeight: '',
+        loadedWeight: '',
+        emptyWeightForLoaded: '',
+        grainWeight: '',
         capacity: { weight: '', volume: '' },
         cargo: { description: '', quantity: '', unit: 'kg' }
       });
@@ -803,6 +845,83 @@ const WeighBridge = () => {
                                 helperText="Enter the current empty weight of the vehicle"
                               />
                             </Grid>
+                          )}
+
+                          {(vehicleForm.weighingOption === 'loaded_now' || vehicleForm.weighingOption === 'will_return') && (
+                            <>
+                              <Grid item xs={12} md={4}>
+                                <TextField
+                                  fullWidth
+                                  required
+                                  type="number"
+                                  label="Loaded Vehicle Weight (kg)"
+                                  name="loadedWeight"
+                                  value={vehicleForm.loadedWeight}
+                                  onChange={handleVehicleFormChange}
+                                  InputProps={{
+                                    startAdornment: (
+                                      <InputAdornment position="start">
+                                        <Scale color="action" />
+                                      </InputAdornment>
+                                    ),
+                                    endAdornment: (
+                                      <InputAdornment position="end">kg</InputAdornment>
+                                    ),
+                                  }}
+                                  helperText="Total weight of loaded vehicle"
+                                />
+                              </Grid>
+                              <Grid item xs={12} md={4}>
+                                <TextField
+                                  fullWidth
+                                  required
+                                  type="number"
+                                  label="Empty Vehicle Weight (kg)"
+                                  name="emptyWeightForLoaded"
+                                  value={vehicleForm.emptyWeightForLoaded}
+                                  onChange={handleVehicleFormChange}
+                                  InputProps={{
+                                    startAdornment: (
+                                      <InputAdornment position="start">
+                                        <Scale color="action" />
+                                      </InputAdornment>
+                                    ),
+                                    endAdornment: (
+                                      <InputAdornment position="end">kg</InputAdornment>
+                                    ),
+                                  }}
+                                  helperText="Weight of empty vehicle"
+                                />
+                              </Grid>
+                              <Grid item xs={12} md={4}>
+                                <TextField
+                                  fullWidth
+                                  type="number"
+                                  label="Grain Weight (kg)"
+                                  name="grainWeight"
+                                  value={vehicleForm.grainWeight}
+                                  disabled
+                                  InputProps={{
+                                    startAdornment: (
+                                      <InputAdornment position="start">
+                                        <Inventory color="action" />
+                                      </InputAdornment>
+                                    ),
+                                    endAdornment: (
+                                      <InputAdornment position="end">kg</InputAdornment>
+                                    ),
+                                  }}
+                                  helperText="Automatically calculated"
+                                  sx={{
+                                    '& .MuiInputBase-input': {
+                                      fontWeight: 'bold',
+                                      fontSize: '1.1rem',
+                                      color: 'primary.main'
+                                    }
+                                  }}
+                                />
+                              </Grid>
+                            </>
                           )}
                         </>
                       )}

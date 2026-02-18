@@ -43,8 +43,10 @@ const CustomerGrainLocationView = () => {
       setLoading(true);
       setError('');
       
-      const response = await axios.get('/api/warehouse/allocations/my-locations');
-      setAllocations(response.data.allocations || []);
+      // Try the dynamic warehouse endpoint first
+      const response = await axios.get('/api/dynamic-warehouse/my-grain-locations');
+      console.log('Grain locations response:', response.data);
+      setAllocations(response.data.grainLocations || []);
     } catch (err) {
       console.error('Error fetching grain locations:', err);
       setError(err.response?.data?.message || 'Failed to fetch grain locations');
@@ -116,32 +118,28 @@ const CustomerGrainLocationView = () => {
         </Paper>
       ) : (
         <Grid container spacing={3}>
-          {allocations.map((allocation, index) => {
-            const daysRemaining = calculateDaysRemaining(allocation.endDate);
-            
-            return (
-              <Grid item xs={12} key={allocation._id}>
+          {allocations.map((item, index) => (
+              <Grid item xs={12} key={index}>
                 <Card elevation={3}>
                   <CardContent>
                     <Grid container spacing={2}>
-                      {/* Allocation Header */}
+                      {/* Header */}
                       <Grid item xs={12}>
                         <Box display="flex" justifyContent="space-between" alignItems="center">
                           <Box display="flex" alignItems="center" gap={2}>
                             <Grain sx={{ fontSize: 32, color: 'primary.main' }} />
                             <Box>
                               <Typography variant="h6" fontWeight="bold">
-                                Allocation #{index + 1}
+                                {item.warehouseName}
                               </Typography>
                               <Typography variant="body2" color="text.secondary">
-                                Storage ID: {allocation._id?.slice(-8).toUpperCase()}
+                                Slot: {item.location?.slotLabel}
                               </Typography>
                             </Box>
                           </Box>
                           <Chip
-                            label={allocation.status}
-                            color={getStatusColor(allocation.status)}
-                            icon={<CheckCircle />}
+                            label={item.slotInfo?.status || 'active'}
+                            color={item.slotInfo?.status === 'full' ? 'error' : item.slotInfo?.status === 'partially-filled' ? 'warning' : 'success'}
                             sx={{ textTransform: 'capitalize' }}
                           />
                         </Box>
@@ -151,242 +149,99 @@ const CustomerGrainLocationView = () => {
                         <Divider />
                       </Grid>
 
-                      {/* Location Details */}
+                      {/* Location */}
                       <Grid item xs={12} md={6}>
-                        <Paper sx={{ p: 2, bgcolor: 'primary.50', border: '1px solid', borderColor: 'primary.200' }}>
-                          <Typography variant="subtitle2" color="primary.main" fontWeight="bold" gutterBottom>
-                            <LocationOn sx={{ fontSize: 18, mr: 1, verticalAlign: 'middle' }} />
-                            Warehouse Location
+                        <Paper sx={{ p: 2, bgcolor: 'primary.50' }}>
+                          <Typography variant="subtitle2" color="primary.main" fontWeight="bold">
+                            <LocationOn sx={{ mr: 1, verticalAlign: 'middle' }} />
+                            Location
                           </Typography>
-                          
-                          <Box sx={{ mt: 2 }}>
-                            <Grid container spacing={1.5}>
-                              <Grid item xs={6}>
-                                <Box>
-                                  <Typography variant="caption" color="text.secondary">
-                                    Building
-                                  </Typography>
-                                  <Typography variant="body1" fontWeight="bold">
-                                    {allocation.allocation?.building || 'N/A'}
-                                  </Typography>
-                                </Box>
-                              </Grid>
-                              <Grid item xs={6}>
-                                <Box>
-                                  <Typography variant="caption" color="text.secondary">
-                                    Block
-                                  </Typography>
-                                  <Typography variant="body1" fontWeight="bold">
-                                    {allocation.allocation?.block || 'N/A'}
-                                  </Typography>
-                                </Box>
-                              </Grid>
-                              <Grid item xs={6}>
-                                <Box>
-                                  <Typography variant="caption" color="text.secondary">
-                                    Wing
-                                  </Typography>
-                                  <Typography variant="body1" fontWeight="bold" sx={{ textTransform: 'capitalize' }}>
-                                    {allocation.allocation?.wing || 'N/A'}
-                                  </Typography>
-                                </Box>
-                              </Grid>
-                              <Grid item xs={6}>
-                                <Box>
-                                  <Typography variant="caption" color="text.secondary">
-                                    Box Number
-                                  </Typography>
-                                  <Typography variant="body1" fontWeight="bold">
-                                    {allocation.allocation?.box || 'N/A'}
-                                  </Typography>
-                                </Box>
-                              </Grid>
-                            </Grid>
-
-                            <Box sx={{ mt: 2, p: 1.5, bgcolor: 'background.paper', borderRadius: 1 }}>
-                              <Typography variant="caption" color="text.secondary">
-                                Full Location Path
-                              </Typography>
-                              <Typography variant="body2" fontWeight="bold" color="primary.main">
-                                Building {allocation.allocation?.building} → 
-                                Block {allocation.allocation?.block} → 
-                                {allocation.allocation?.wing ? ` ${allocation.allocation.wing.charAt(0).toUpperCase() + allocation.allocation.wing.slice(1)} Wing →` : ''} 
-                                Box {allocation.allocation?.box}
-                              </Typography>
+                          <Stack spacing={1} sx={{ mt: 2 }}>
+                            <Box display="flex" justifyContent="space-between">
+                              <Typography variant="body2">Building:</Typography>
+                              <Typography variant="body2" fontWeight="bold">{item.location?.building}</Typography>
                             </Box>
-                          </Box>
+                            <Box display="flex" justifyContent="space-between">
+                              <Typography variant="body2">Block:</Typography>
+                              <Typography variant="body2" fontWeight="bold">{item.location?.block}</Typography>
+                            </Box>
+                            <Box display="flex" justifyContent="space-between">
+                              <Typography variant="body2">Slot:</Typography>
+                              <Typography variant="body2" fontWeight="bold">{item.location?.slotLabel}</Typography>
+                            </Box>
+                            <Box display="flex" justifyContent="space-between">
+                              <Typography variant="body2">Position:</Typography>
+                              <Typography variant="body2" fontWeight="bold">Row {item.location?.row}, Col {item.location?.col}</Typography>
+                            </Box>
+                          </Stack>
                         </Paper>
                       </Grid>
 
-                      {/* Storage Details */}
+                      {/* Storage Info */}
                       <Grid item xs={12} md={6}>
-                        <Paper sx={{ p: 2, bgcolor: 'success.50', border: '1px solid', borderColor: 'success.200' }}>
-                          <Typography variant="subtitle2" color="success.main" fontWeight="bold" gutterBottom>
-                            <Warehouse sx={{ fontSize: 18, mr: 1, verticalAlign: 'middle' }} />
-                            Storage Information
+                        <Paper sx={{ p: 2, bgcolor: 'success.50' }}>
+                          <Typography variant="subtitle2" color="success.main" fontWeight="bold">
+                            <Grain sx={{ mr: 1, verticalAlign: 'middle' }} />
+                            Storage Details
                           </Typography>
-                          
-                          <Box sx={{ mt: 2 }}>
-                            <Stack spacing={1.5}>
+                          <Stack spacing={1} sx={{ mt: 2 }}>
+                            <Box display="flex" justifyContent="space-between">
+                              <Typography variant="body2">Bags:</Typography>
+                              <Typography variant="body2" fontWeight="bold">{item.allocation?.bags} bags</Typography>
+                            </Box>
+                            <Box display="flex" justifyContent="space-between">
+                              <Typography variant="body2">Grain Type:</Typography>
+                              <Typography variant="body2" fontWeight="bold">{item.allocation?.grainType || 'Not specified'}</Typography>
+                            </Box>
+                            {item.allocation?.weight > 0 && (
                               <Box display="flex" justifyContent="space-between">
-                                <Typography variant="body2" color="text.secondary">
-                                  Storage Type:
-                                </Typography>
-                                <Chip
-                                  label={allocation.storageDetails?.type || 'Dry'}
-                                  size="small"
-                                  sx={{ textTransform: 'capitalize' }}
-                                />
+                                <Typography variant="body2">Weight:</Typography>
+                                <Typography variant="body2" fontWeight="bold">{item.allocation?.weight} kg</Typography>
                               </Box>
-                              
-                              <Box display="flex" justifyContent="space-between">
-                                <Typography variant="body2" color="text.secondary">
-                                  Total Weight:
-                                </Typography>
-                                <Typography variant="body2" fontWeight="bold">
-                                  {allocation.storageDetails?.totalWeight || 0} kg
-                                </Typography>
-                              </Box>
-                              
-                              <Box display="flex" justifyContent="space-between">
-                                <Typography variant="body2" color="text.secondary">
-                                  Total Value:
-                                </Typography>
-                                <Typography variant="body2" fontWeight="bold" color="success.main">
-                                  ₹{(allocation.storageDetails?.totalValue || 0).toLocaleString('en-IN')}
-                                </Typography>
-                              </Box>
-
-                              <Divider />
-                              
-                              <Box display="flex" justifyContent="space-between">
-                                <Typography variant="body2" color="text.secondary">
-                                  Start Date:
-                                </Typography>
-                                <Typography variant="body2" fontWeight="bold">
-                                  {formatDate(allocation.startDate)}
-                                </Typography>
-                              </Box>
-                              
-                              <Box display="flex" justifyContent="space-between">
-                                <Typography variant="body2" color="text.secondary">
-                                  End Date:
-                                </Typography>
-                                <Typography variant="body2" fontWeight="bold">
-                                  {formatDate(allocation.endDate)}
-                                </Typography>
-                              </Box>
-
-                              {daysRemaining !== null && (
-                                <Box
-                                  sx={{
-                                    p: 1,
-                                    bgcolor: daysRemaining <= 7 ? 'error.50' : 'info.50',
-                                    borderRadius: 1,
-                                    border: '1px solid',
-                                    borderColor: daysRemaining <= 7 ? 'error.200' : 'info.200'
-                                  }}
-                                >
-                                  <Typography
-                                    variant="caption"
-                                    fontWeight="bold"
-                                    color={daysRemaining <= 7 ? 'error.main' : 'info.main'}
-                                  >
-                                    <Schedule sx={{ fontSize: 14, mr: 0.5, verticalAlign: 'middle' }} />
-                                    {daysRemaining > 0
-                                      ? `${daysRemaining} days remaining`
-                                      : daysRemaining === 0
-                                      ? 'Expires today'
-                                      : `Expired ${Math.abs(daysRemaining)} days ago`}
-                                  </Typography>
-                                </Box>
-                              )}
-                            </Stack>
-                          </Box>
+                            )}
+                            <Box display="flex" justifyContent="space-between">
+                              <Typography variant="body2">Entry Date:</Typography>
+                              <Typography variant="body2" fontWeight="bold">{formatDate(item.allocation?.entryDate)}</Typography>
+                            </Box>
+                          </Stack>
                         </Paper>
                       </Grid>
 
-                      {/* Stored Items */}
-                      {allocation.storageDetails?.items && allocation.storageDetails.items.length > 0 && (
-                        <Grid item xs={12}>
-                          <Typography variant="subtitle2" fontWeight="bold" gutterBottom sx={{ mt: 1 }}>
-                            Stored Items
-                          </Typography>
-                          <TableContainer component={Paper} variant="outlined">
-                            <Table size="small">
-                              <TableHead>
-                                <TableRow>
-                                  <TableCell><strong>Description</strong></TableCell>
-                                  <TableCell align="right"><strong>Quantity</strong></TableCell>
-                                  <TableCell align="right"><strong>Weight (kg)</strong></TableCell>
-                                  <TableCell align="right"><strong>Value (₹)</strong></TableCell>
-                                  <TableCell align="center"><strong>Entry Date</strong></TableCell>
-                                </TableRow>
-                              </TableHead>
-                              <TableBody>
-                                {allocation.storageDetails.items.map((item, idx) => (
-                                  <TableRow key={idx} hover>
-                                    <TableCell>{item.description || 'N/A'}</TableCell>
-                                    <TableCell align="right">{item.quantity || 0}</TableCell>
-                                    <TableCell align="right">{item.weight || 0}</TableCell>
-                                    <TableCell align="right">₹{(item.value || 0).toLocaleString('en-IN')}</TableCell>
-                                    <TableCell align="center">{formatDate(item.entryDate)}</TableCell>
-                                  </TableRow>
-                                ))}
-                              </TableBody>
-                            </Table>
-                          </TableContainer>
-                        </Grid>
-                      )}
-
-                      {/* Financial Summary */}
+                      {/* Slot Capacity */}
                       <Grid item xs={12}>
-                        <Paper sx={{ p: 2, bgcolor: 'warning.50', border: '1px solid', borderColor: 'warning.200' }}>
-                          <Typography variant="subtitle2" color="warning.main" fontWeight="bold" gutterBottom>
-                            Financial Details
+                        <Paper sx={{ p: 2, bgcolor: 'info.50' }}>
+                          <Typography variant="subtitle2" color="info.main" fontWeight="bold">
+                            Slot Capacity Status
                           </Typography>
                           <Grid container spacing={2} sx={{ mt: 0.5 }}>
-                            <Grid item xs={6} md={3}>
-                              <Typography variant="caption" color="text.secondary">
-                                Rent Rate
-                              </Typography>
-                              <Typography variant="body2" fontWeight="bold">
-                                ₹{allocation.rentDetails?.ratePerBag || 0}/bag
-                              </Typography>
+                            <Grid item xs={4}>
+                              <Typography variant="caption">Total Capacity</Typography>
+                              <Typography variant="body2" fontWeight="bold">{item.slotInfo?.capacity} bags</Typography>
                             </Grid>
-                            <Grid item xs={6} md={3}>
-                              <Typography variant="caption" color="text.secondary">
-                                Total Rent
-                              </Typography>
-                              <Typography variant="body2" fontWeight="bold">
-                                ₹{(allocation.rentDetails?.totalRent || 0).toLocaleString('en-IN')}
-                              </Typography>
+                            <Grid item xs={4}>
+                              <Typography variant="caption">Filled</Typography>
+                              <Typography variant="body2" fontWeight="bold">{item.slotInfo?.filledBags} bags</Typography>
                             </Grid>
-                            <Grid item xs={6} md={3}>
-                              <Typography variant="caption" color="text.secondary">
-                                Rent Paid
-                              </Typography>
-                              <Typography variant="body2" fontWeight="bold" color="success.main">
-                                ₹{(allocation.rentDetails?.paidRent || 0).toLocaleString('en-IN')}
-                              </Typography>
-                            </Grid>
-                            <Grid item xs={6} md={3}>
-                              <Typography variant="caption" color="text.secondary">
-                                Rent Due
-                              </Typography>
-                              <Typography variant="body2" fontWeight="bold" color="error.main">
-                                ₹{(allocation.rentDetails?.dueRent || 0).toLocaleString('en-IN')}
-                              </Typography>
+                            <Grid item xs={4}>
+                              <Typography variant="caption">Available</Typography>
+                              <Typography variant="body2" fontWeight="bold">{item.slotInfo?.capacity - item.slotInfo?.filledBags} bags</Typography>
                             </Grid>
                           </Grid>
                         </Paper>
                       </Grid>
+
+                      {item.allocation?.notes && (
+                        <Grid item xs={12}>
+                          <Alert severity="info">
+                            <Typography variant="body2"><strong>Notes:</strong> {item.allocation.notes}</Typography>
+                          </Alert>
+                        </Grid>
+                      )}
                     </Grid>
                   </CardContent>
                 </Card>
               </Grid>
-            );
-          })}
+            ))}
         </Grid>
       )}
     </Box>

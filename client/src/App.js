@@ -77,61 +77,63 @@ function App() {
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
                 
-                {/* Protected Routes */}
+                {/* Owner Only Routes */}
+                <Route path="/owner-dashboard" element={
+                  <ProtectedRoute allowedRoles={['owner']}>
+                    <Navbar />
+                    <OwnerDashboard />
+                  </ProtectedRoute>
+                } />
+                <Route path="/weigh-bridge" element={
+                  <ProtectedRoute allowedRoles={['owner']}>
+                    <Navbar />
+                    <WeighBridge />
+                  </ProtectedRoute>
+                } />
+                <Route path="/vehicles" element={
+                  <ProtectedRoute allowedRoles={['owner']}>
+                    <Navbar />
+                    <VehicleManagement />
+                  </ProtectedRoute>
+                } />
+                <Route path="/transactions" element={
+                  <ProtectedRoute allowedRoles={['owner']}>
+                    <Navbar />
+                    <TransactionManagement />
+                  </ProtectedRoute>
+                } />
+                
+                {/* Customer Only Routes */}
+                <Route path="/customer-dashboard" element={
+                  <ProtectedRoute allowedRoles={['customer']}>
+                    <Navbar />
+                    <CustomerDashboard />
+                  </ProtectedRoute>
+                } />
+                <Route path="/customer-grain" element={
+                  <ProtectedRoute allowedRoles={['customer']}>
+                    <Navbar />
+                    <CustomerGrainManagement />
+                  </ProtectedRoute>
+                } />
+                <Route path="/payments" element={
+                  <ProtectedRoute allowedRoles={['customer']}>
+                    <Navbar />
+                    <PaymentManagement />
+                  </ProtectedRoute>
+                } />
+                
+                {/* Shared Routes */}
                 <Route path="/dashboard" element={
                   <ProtectedRoute>
                     <Navbar />
                     <Dashboard />
                   </ProtectedRoute>
                 } />
-                <Route path="/weigh-bridge" element={
-                  <ProtectedRoute>
-                    <Navbar />
-                    <WeighBridge />
-                  </ProtectedRoute>
-                } />
-                <Route path="/owner-dashboard" element={
-                  <ProtectedRoute>
-                    <Navbar />
-                    <OwnerDashboard />
-                  </ProtectedRoute>
-                } />
-                <Route path="/customer-dashboard" element={
-                  <ProtectedRoute>
-                    <Navbar />
-                    <CustomerDashboard />
-                  </ProtectedRoute>
-                } />
-
-                <Route path="/vehicles" element={
-                  <ProtectedRoute>
-                    <Navbar />
-                    <VehicleManagement />
-                  </ProtectedRoute>
-                } />
-                <Route path="/transactions" element={
-                  <ProtectedRoute>
-                    <Navbar />
-                    <TransactionManagement />
-                  </ProtectedRoute>
-                } />
-
-                <Route path="/customer-grain" element={
-                  <ProtectedRoute>
-                    <Navbar />
-                    <CustomerGrainManagement />
-                  </ProtectedRoute>
-                } />
                 <Route path="/profile" element={
                   <ProtectedRoute>
                     <Navbar />
                     <UserProfile />
-                  </ProtectedRoute>
-                } />
-                <Route path="/payments" element={
-                  <ProtectedRoute>
-                    <Navbar />
-                    <PaymentManagement />
                   </ProtectedRoute>
                 } />
                 
