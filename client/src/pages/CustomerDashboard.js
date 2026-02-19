@@ -46,18 +46,20 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
+import { useTranslation } from '../i18n/LanguageContext';
 import CustomerContactForm from '../components/CustomerContactForm';
 import axios from 'axios';
 
 // Import enhanced customer components
 import CustomerGrainLocationView from '../components/CustomerGrainLocationView';
-import CustomerPaymentOptions from '../components/CustomerPaymentOptions';
 import CustomerMarketPricesAndPredictions from '../components/CustomerMarketPricesAndPredictions';
 import CustomerLoanAlerts from '../components/CustomerLoanAlerts';
 import CustomerLoanCalculatorAndRequest from '../components/CustomerLoanCalculatorAndRequest';
 import CustomerRequestForm from '../components/CustomerRequestForm';
+import AILoanRecommendations from '../components/AILoanRecommendations';
 
 const CustomerDashboard = () => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState(0);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -144,7 +146,7 @@ const CustomerDashboard = () => {
               <Warehouse color="primary" sx={{ fontSize: 40, mr: 2 }} />
               <Box>
                 <Typography color="text.secondary" gutterBottom>
-                  Active Storage
+                  {t('dashboard.activeStorage')}
                 </Typography>
                 <Typography variant="h4">
                   {stats?.activeStorage || 0}
@@ -162,7 +164,7 @@ const CustomerDashboard = () => {
               <AccountBalance color="success" sx={{ fontSize: 40, mr: 2 }} />
               <Box>
                 <Typography color="text.secondary" gutterBottom>
-                  Total Spent
+                  {t('dashboard.totalSpent')}
                 </Typography>
                 <Typography variant="h4">
                   ₹{stats?.totalSpent || 0}
@@ -198,7 +200,7 @@ const CustomerDashboard = () => {
               <Payment color="warning" sx={{ fontSize: 40, mr: 2 }} />
               <Box>
                 <Typography color="text.secondary" gutterBottom>
-                  Pending Payments
+                  {t('dashboard.pendingPayments')}
                 </Typography>
                 <Typography variant="h4">
                   ₹{stats?.pendingPayments || 0}
@@ -223,7 +225,7 @@ const CustomerDashboard = () => {
     <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
         <Typography variant="h4" component="h1" sx={{ fontWeight: 600 }}>
-          Customer Dashboard
+          {t('dashboard.customerDashboard')}
         </Typography>
         <Box sx={{ display: 'flex', gap: 2 }}>
           <Button
@@ -232,7 +234,7 @@ const CustomerDashboard = () => {
             startIcon={<Lock />}
             onClick={() => setPasswordDialog(true)}
           >
-            Change Password
+            {t('dashboard.changePassword')}
           </Button>
           <Button
             variant="contained"
@@ -240,7 +242,7 @@ const CustomerDashboard = () => {
             startIcon={<ContactSupport />}
             onClick={() => setContactDialog(true)}
           >
-            Contact Us
+            {t('dashboard.contactUs')}
           </Button>
           <Button
             variant="outlined"
@@ -265,24 +267,27 @@ const CustomerDashboard = () => {
       )}
 
       <StatsCards />
+      
+      {/* AI Loan Recommendations - Show prominently at top */}
+      <Box sx={{ mb: 3 }}>
+        <AILoanRecommendations customerId={user?._id} />
+      </Box>
 
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
         <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)} variant="scrollable" scrollButtons="auto">
-          <Tab icon={<LocationOn />} label="Grain Locations" />
-          <Tab icon={<Payment />} label="Payment Options" />
-          <Tab icon={<ShowChart />} label="Market & Predictions" />
-          <Tab icon={<NotificationsActive />} label="Loan Alerts" />
-          <Tab icon={<Calculate />} label="Loan Calculator" />
-          <Tab icon={<Send />} label="My Requests" />
+          <Tab icon={<LocationOn />} label={t('customer.grainLocations')} />
+          <Tab icon={<ShowChart />} label={t('customer.marketPredictions')} />
+          <Tab icon={<NotificationsActive />} label={t('customer.loanAlerts')} />
+          <Tab icon={<Calculate />} label={t('customer.loanCalculator')} />
+          <Tab icon={<Send />} label={t('customer.myRequests')} />
         </Tabs>
       </Box>
 
       {activeTab === 0 && <CustomerGrainLocationView />}
-      {activeTab === 1 && <CustomerPaymentOptions />}
-      {activeTab === 2 && <CustomerMarketPricesAndPredictions />}
-      {activeTab === 3 && <CustomerLoanAlerts />}
-      {activeTab === 4 && <CustomerLoanCalculatorAndRequest />}
-      {activeTab === 5 && <CustomerRequestForm />}
+      {activeTab === 1 && <CustomerMarketPricesAndPredictions />}
+      {activeTab === 2 && <CustomerLoanAlerts />}
+      {activeTab === 3 && <CustomerLoanCalculatorAndRequest />}
+      {activeTab === 4 && <CustomerRequestForm />}
 
       {/* Customer Contact Form */}
       <CustomerContactForm 
@@ -299,19 +304,19 @@ const CustomerDashboard = () => {
         disableEscapeKeyDown={user?.needsPasswordChange}
       >
         <DialogTitle>
-          {user?.needsPasswordChange ? 'Set Your Password' : 'Change Password'}
+          {user?.needsPasswordChange ? t('auth.setPassword') : t('dashboard.changePassword')}
         </DialogTitle>
         <DialogContent>
           <Box sx={{ mt: 2 }}>
             {user?.needsPasswordChange ? (
               <Alert severity="info" sx={{ mb: 3 }}>
-                Welcome! Please create your own password to secure your account.
+                {t('auth.welcomeSetPassword')}
               </Alert>
             ) : (
               <TextField
                 fullWidth
                 type="password"
-                label="Current Password"
+                label={t('auth.currentPassword')}
                 value={passwordForm.currentPassword}
                 onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
                 sx={{ mb: 2 }}
@@ -321,23 +326,23 @@ const CustomerDashboard = () => {
             <TextField
               fullWidth
               type="password"
-              label="New Password"
+              label={t('auth.newPassword')}
               value={passwordForm.newPassword}
               onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
-              helperText="Minimum 6 characters"
+              helperText={t('auth.minimumChars')}
               sx={{ mb: 2 }}
             />
             
             <TextField
               fullWidth
               type="password"
-              label="Confirm New Password"
+              label={t('auth.confirmPassword')}
               value={passwordForm.confirmPassword}
               onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
               error={passwordForm.newPassword !== passwordForm.confirmPassword && passwordForm.confirmPassword !== ''}
               helperText={
                 passwordForm.newPassword !== passwordForm.confirmPassword && passwordForm.confirmPassword !== ''
-                  ? 'Passwords do not match'
+                  ? t('auth.passwordMismatch')
                   : ''
               }
             />
@@ -345,14 +350,14 @@ const CustomerDashboard = () => {
         </DialogContent>
         <DialogActions>
           {!user?.needsPasswordChange && (
-            <Button onClick={() => setPasswordDialog(false)}>Cancel</Button>
+            <Button onClick={() => setPasswordDialog(false)}>{t('common.cancel')}</Button>
           )}
           <Button 
             onClick={handlePasswordChange} 
             variant="contained"
             disabled={loading || !passwordForm.newPassword || passwordForm.newPassword !== passwordForm.confirmPassword}
           >
-            {loading ? <CircularProgress size={24} /> : 'Change Password'}
+            {loading ? <CircularProgress size={24} /> : t('dashboard.changePassword')}
           </Button>
         </DialogActions>
       </Dialog>

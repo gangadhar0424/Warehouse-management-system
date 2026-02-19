@@ -143,6 +143,150 @@ router.get('/layout/:id', auth, async (req, res) => {
   }
 });
 
+// @route   GET /api/dynamic-warehouse/inventory-summary
+// @desc    Get comprehensive filled/empty space summary across all warehouses
+// @access  Private (Owner only)
+router.get('/inventory-summary', [auth, authorize('owner')], async (req, res) => {
+  try {
+    const layouts = await DynamicWarehouseLayout.find({
+      owner: req.user.id,
+      isActive: true
+    });
+
+    if (!layouts || layouts.length === 0) {
+      return res.json({
+        success: true,
+        summary: {
+          totalWarehouses: 0,
+          totalSlots: 0,
+          filledSlots: 0,
+          partiallyFilledSlots: 0,
+          emptySlots: 0,
+          totalCapacityBags: 0,
+          totalFilledBags: 0,
+          overallUtilization: 0,
+          warehouses: [],
+          grainDistribution: {},
+          customerDistribution: {}
+        }
+      });
+    }
+
+    let totalSlots = 0;
+    let filledSlots = 0;
+    let partiallyFilledSlots = 0;
+    let emptySlots = 0;
+    let totalCapacityBags = 0;
+    let totalFilledBags = 0;
+    const grainDistribution = {};
+    const customerDistribution = {};
+    const warehouseDetails = [];
+
+    for (const layout of layouts) {
+      const warehouseInfo = {
+        id: layout._id,
+        name: layout.name,
+        buildings: [],
+        totalSlots: layout.totalSlots,
+        filledSlots: 0,
+        partiallyFilledSlots: 0,
+        emptySlots: 0,
+        totalCapacityBags: 0,
+        totalFilledBags: 0
+      };
+
+      for (const building of layout.layout) {
+        const buildingInfo = {
+          name: building.building,
+          blocks: []
+        };
+
+        for (const block of building.blocks) {
+          const blockInfo = {
+            name: block.block,
+            totalSlots: block.slots.length,
+            filledSlots: [],
+            partiallyFilledSlots: [],
+            emptySlots: []
+          };
+
+          for (const slot of block.slots) {
+            const slotInfo = {
+              label: slot.slotLabel,
+              capacity: slot.capacity,
+              filledBags: slot.filledBags,
+              status: slot.status,
+              utilization: slot.capacity > 0 ? ((slot.filledBags / slot.capacity) * 100).toFixed(1) : 0,
+              allocations: (slot.allocations || []).map(a => ({
+                customerName: a.customerName || 'Unknown',
+                bags: a.bags,
+                grainType: a.grainType || 'Unknown',
+                weight: a.weight,
+                entryDate: a.entryDate
+              }))
+            };
+
+            totalCapacityBags += slot.capacity;
+            totalFilledBags += slot.filledBags;
+            warehouseInfo.totalCapacityBags += slot.capacity;
+            warehouseInfo.totalFilledBags += slot.filledBags;
+
+            // Track grain distribution
+            for (const alloc of (slot.allocations || [])) {
+              const grain = alloc.grainType || 'Unknown';
+              grainDistribution[grain] = (grainDistribution[grain] || 0) + (alloc.bags || 0);
+              const custName = alloc.customerName || 'Unknown';
+              customerDistribution[custName] = (customerDistribution[custName] || 0) + (alloc.bags || 0);
+            }
+
+            if (slot.status === 'full') {
+              blockInfo.filledSlots.push(slotInfo);
+              filledSlots++;
+              warehouseInfo.filledSlots++;
+            } else if (slot.status === 'partially-filled') {
+              blockInfo.partiallyFilledSlots.push(slotInfo);
+              partiallyFilledSlots++;
+              warehouseInfo.partiallyFilledSlots++;
+            } else {
+              blockInfo.emptySlots.push(slotInfo);
+              emptySlots++;
+              warehouseInfo.emptySlots++;
+            }
+            totalSlots++;
+          }
+
+          buildingInfo.blocks.push(blockInfo);
+        }
+
+        warehouseInfo.buildings.push(buildingInfo);
+      }
+
+      warehouseDetails.push(warehouseInfo);
+    }
+
+    res.json({
+      success: true,
+      summary: {
+        totalWarehouses: layouts.length,
+        totalSlots,
+        filledSlots,
+        partiallyFilledSlots,
+        emptySlots,
+        totalCapacityBags,
+        totalFilledBags,
+        overallUtilization: totalCapacityBags > 0 ? ((totalFilledBags / totalCapacityBags) * 100).toFixed(1) : 0,
+        warehouses: warehouseDetails,
+        grainDistribution,
+        customerDistribution
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching inventory summary:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
 // @route   GET /api/dynamic-warehouse/layout/:id/download-json
 // @desc    Download warehouse layout as JSON
 // @access  Private (Owner only)

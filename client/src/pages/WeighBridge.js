@@ -54,19 +54,33 @@ import {
   Inventory,
   Badge,
   DirectionsCar,
-  Close
+  Close,
+  SmartToy
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
+import { useTranslation } from '../i18n/LanguageContext';
+import AnomalyDetectionAlert from '../components/AnomalyDetectionAlert';
 import axios from 'axios';
 
 const WeighBridge = () => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState(0);
   const [vehicles, setVehicles] = useState([]);
   const [selectedVehicle, setSelectedVehicle] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  
+  // AI Anomaly Detection
+  const [anomalyVehicle, setAnomalyVehicle] = useState(null);
+  const [showAnomalyAlert, setShowAnomalyAlert] = useState(false);
+
+  // AI Anomaly Check Manual
+  const [aiAnomalyLoading, setAiAnomalyLoading] = useState(false);
+  const [aiAnomalyResult, setAiAnomalyResult] = useState(null);
+  const [aiAnomalyError, setAiAnomalyError] = useState('');
+  const [aiAnomalyVehicleId, setAiAnomalyVehicleId] = useState(null);
 
   // Vehicle Entry Form
   const [vehicleForm, setVehicleForm] = useState({
@@ -180,6 +194,29 @@ const WeighBridge = () => {
     }
   };
 
+  const handleAiAnomalyCheck = async (vehicle) => {
+    try {
+      setAiAnomalyLoading(true);
+      setAiAnomalyVehicleId(vehicle._id);
+      setAiAnomalyResult(null);
+      setAiAnomalyError('');
+      const response = await axios.post('http://localhost:8001/anomaly/detect', {
+        vehicle_number: vehicle.vehicleNumber,
+        gross_weight: vehicle.weighBridgeData?.grossWeight || 0,
+        tare_weight: vehicle.weighBridgeData?.tareWeight || 0,
+        net_weight: vehicle.weighBridgeData?.netWeight || 0,
+        vehicle_type: vehicle.vehicleType || 'truck',
+        timestamp: new Date().toISOString()
+      });
+      setAiAnomalyResult(response.data);
+    } catch (err) {
+      console.error('AI Anomaly Check error:', err);
+      setAiAnomalyError(err.response?.data?.error || err.response?.data?.detail || 'Failed to run anomaly check. Is the AI Engine running?');
+    } finally {
+      setAiAnomalyLoading(false);
+    }
+  };
+
   const handleVehicleEntry = async (e) => {
     e.preventDefault();
     setError('');
@@ -188,20 +225,20 @@ const WeighBridge = () => {
     try {
       // Validate required fields before sending
       if (!vehicleForm.visitPurpose) {
-        setError('Please select Visit Purpose');
+        setError(t('vehicles.selectVisitPurpose'));
         setLoading(false);
         return;
       }
       
       if (!vehicleForm.weighingOption) {
-        setError('Please select Vehicle Current Status (Empty/Loaded/Will Return)');
+        setError(t('vehicles.selectWeighingOption'));
         setLoading(false);
         return;
       }
 
       if (vehicleForm.visitPurpose === 'grain_loading') {
         if (!vehicleForm.customerName || !vehicleForm.customerPhone || !vehicleForm.customerEmail) {
-          setError('Customer details are required for Grain Loading/Unloading');
+          setError(t('vehicles.customerDetailsRequired'));
           setLoading(false);
           return;
         }
@@ -306,7 +343,7 @@ const WeighBridge = () => {
   const handleWeighVehicle = async (vehicle) => {
     const weight = prompt('Enter vehicle weight (kg):');
     if (!weight || isNaN(weight)) {
-      setError('Invalid weight entered');
+      setError(t('vehicles.invalidWeight'));
       return;
     }
 
@@ -333,6 +370,12 @@ const WeighBridge = () => {
           : `Net weight: ${response.data.vehicle.weighBridgeData.netWeight} kg`,
         timestamp: new Date()
       });
+
+      // Trigger AI anomaly detection when weighing is completed
+      if (!isPartial && response.data.vehicle.weighingStatus === 'completed') {
+        setAnomalyVehicle(response.data.vehicle);
+        setShowAnomalyAlert(true);
+      }
 
       fetchVehicles();
       
@@ -469,14 +512,95 @@ const WeighBridge = () => {
     <Card>
       <CardContent>
         <Typography variant="h6" gutterBottom>
-          Active Vehicles
+          {t('vehicles.activeVehicles')}
         </Typography>
+        
+        {/* AI Anomaly Detection Alert */}
+        {showAnomalyAlert && anomalyVehicle && (
+          <AnomalyDetectionAlert 
+            vehicleData={anomalyVehicle}
+            onClose={() => {
+              setShowAnomalyAlert(false);
+              setAnomalyVehicle(null);
+            }}
+          />
+        )}
+
+        {/* AI Anomaly Check Result */}
+        {aiAnomalyResult && (
+          <Paper sx={{ p: 2, mb: 2, border: 2, borderColor: aiAnomalyResult.anomaly_detected ? 'error.main' : 'success.main', borderRadius: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <SmartToy color={aiAnomalyResult.anomaly_detected ? 'error' : 'success'} />
+                <Typography variant="h6" fontWeight="bold">
+                  AI Anomaly Check Result
+                </Typography>
+              </Box>
+              <IconButton size="small" onClick={() => { setAiAnomalyResult(null); setAiAnomalyVehicleId(null); }}>
+                <Close />
+              </IconButton>
+            </Box>
+            
+            <Alert severity={aiAnomalyResult.anomaly_detected ? 'error' : 'success'} sx={{ mb: 2, fontWeight: 600, fontSize: '1rem' }}>
+              {aiAnomalyResult.anomaly_detected ? '⚠️ ANOMALY DETECTED' : '✅ No Anomaly - All Clear'}
+            </Alert>
+
+            <Grid container spacing={2} sx={{ mb: 2 }}>
+              <Grid item xs={6} sm={3}>
+                <Paper sx={{ p: 1.5, textAlign: 'center', bgcolor: aiAnomalyResult.anomaly_detected ? 'error.50' : 'success.50' }}>
+                  <Typography variant="caption" color="text.secondary">Status</Typography>
+                  <Typography variant="h6" fontWeight="bold" color={aiAnomalyResult.anomaly_detected ? 'error.main' : 'success.main'}>
+                    {aiAnomalyResult.anomaly_detected ? 'ALERT' : 'CLEAN'}
+                  </Typography>
+                </Paper>
+              </Grid>
+              <Grid item xs={6} sm={3}>
+                <Paper sx={{ p: 1.5, textAlign: 'center', bgcolor: 'warning.50' }}>
+                  <Typography variant="caption" color="text.secondary">Severity</Typography>
+                  <Typography variant="h6" fontWeight="bold">{aiAnomalyResult.severity || 'N/A'}</Typography>
+                </Paper>
+              </Grid>
+              <Grid item xs={6} sm={3}>
+                <Paper sx={{ p: 1.5, textAlign: 'center', bgcolor: 'info.50' }}>
+                  <Typography variant="caption" color="text.secondary">Confidence</Typography>
+                  <Typography variant="h6" fontWeight="bold">{typeof aiAnomalyResult.confidence === 'number' ? `${(aiAnomalyResult.confidence * 100).toFixed(1)}%` : (aiAnomalyResult.confidence || 'N/A')}</Typography>
+                </Paper>
+              </Grid>
+              <Grid item xs={6} sm={3}>
+                <Paper sx={{ p: 1.5, textAlign: 'center', bgcolor: 'grey.100' }}>
+                  <Typography variant="caption" color="text.secondary">Vehicle</Typography>
+                  <Typography variant="body2" fontWeight="bold">{aiAnomalyResult.vehicle_number || 'N/A'}</Typography>
+                </Paper>
+              </Grid>
+            </Grid>
+
+            {aiAnomalyResult.issues && aiAnomalyResult.issues.length > 0 && (
+              <Box sx={{ mb: 1 }}>
+                <Typography variant="subtitle2" fontWeight="bold" gutterBottom>Issues Found:</Typography>
+                {aiAnomalyResult.issues.map((issue, idx) => (
+                  <Alert key={idx} severity="warning" sx={{ mb: 0.5, py: 0 }}>{issue}</Alert>
+                ))}
+              </Box>
+            )}
+            {aiAnomalyResult.recommendations && aiAnomalyResult.recommendations.length > 0 && (
+              <Box>
+                <Typography variant="subtitle2" fontWeight="bold" gutterBottom>Recommendations:</Typography>
+                {aiAnomalyResult.recommendations.map((rec, idx) => (
+                  <Alert key={idx} severity="info" sx={{ mb: 0.5, py: 0 }}>{rec}</Alert>
+                ))}
+              </Box>
+            )}
+          </Paper>
+        )}
+        {aiAnomalyError && (
+          <Alert severity="error" sx={{ mb: 2 }} onClose={() => setAiAnomalyError('')}>{aiAnomalyError}</Alert>
+        )}
         
         {loading && <CircularProgress />}
         
         {vehicles.length === 0 && !loading && (
           <Alert severity="info" sx={{ mt: 2 }}>
-            No vehicles registered yet. Register a vehicle in the "Vehicle Entry" tab.
+            {t('vehicles.noVehiclesRegistered')}
           </Alert>
         )}
         
@@ -484,14 +608,14 @@ const WeighBridge = () => {
           <Table>
             <TableHead>
               <TableRow>
-                <TableCell><strong>Vehicle #</strong></TableCell>
-                <TableCell><strong>Type</strong></TableCell>
-                <TableCell><strong>Driver</strong></TableCell>
-                <TableCell><strong>Purpose</strong></TableCell>
-                <TableCell><strong>Weighing Status</strong></TableCell>
-                <TableCell><strong>Weight Info</strong></TableCell>
-                <TableCell><strong>Payment</strong></TableCell>
-                <TableCell><strong>Actions</strong></TableCell>
+                <TableCell><strong>{t('vehicles.vehicleNumber')}</strong></TableCell>
+                <TableCell><strong>{t('vehicles.type')}</strong></TableCell>
+                <TableCell><strong>{t('vehicles.driver')}</strong></TableCell>
+                <TableCell><strong>{t('vehicles.purpose')}</strong></TableCell>
+                <TableCell><strong>{t('vehicles.weighingStatus')}</strong></TableCell>
+                <TableCell><strong>{t('vehicles.weightInfo')}</strong></TableCell>
+                <TableCell><strong>{t('vehicles.payment')}</strong></TableCell>
+                <TableCell><strong>{t('common.actions')}</strong></TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -516,7 +640,7 @@ const WeighBridge = () => {
                   </TableCell>
                   <TableCell>
                     <Chip 
-                      label={vehicle.visitPurpose === 'weighing_only' ? 'Weighing Only' : 'Grain Loading'}
+                      label={vehicle.visitPurpose === 'weighing_only' ? t('vehicles.weighingOnly') : t('vehicles.grainLoading')}
                       color={vehicle.visitPurpose === 'weighing_only' ? 'info' : 'primary'}
                       size="small"
                     />
@@ -524,9 +648,9 @@ const WeighBridge = () => {
                   <TableCell>
                     <Chip 
                       label={
-                        vehicle.weighingStatus === 'completed' ? 'Completed' :
-                        vehicle.weighingStatus === 'partial' ? 'Partial (1/2)' :
-                        'Not Started'
+                        vehicle.weighingStatus === 'completed' ? t('vehicles.completed') :
+                        vehicle.weighingStatus === 'partial' ? t('vehicles.partial') :
+                        t('vehicles.notStarted')
                       }
                       color={
                         vehicle.weighingStatus === 'completed' ? 'success' :
@@ -539,23 +663,23 @@ const WeighBridge = () => {
                   <TableCell>
                     {vehicle.weighBridgeData?.tareWeight && (
                       <Typography variant="caption" display="block">
-                        Empty: {vehicle.weighBridgeData.tareWeight} kg
+                        {t('vehicles.empty')}: {(vehicle.weighBridgeData.tareWeight).toFixed(2)} tons
                       </Typography>
                     )}
                     {vehicle.weighBridgeData?.grossWeight && (
                       <Typography variant="caption" display="block">
-                        Loaded: {vehicle.weighBridgeData.grossWeight} kg
+                        {t('vehicles.loaded')}: {(vehicle.weighBridgeData.grossWeight).toFixed(2)} tons
                       </Typography>
                     )}
                     {vehicle.weighBridgeData?.netWeight && (
                       <Typography variant="caption" display="block" fontWeight="600" color="primary">
-                        Net: {vehicle.weighBridgeData.netWeight} kg
+                        {t('vehicles.net')}: {(vehicle.weighBridgeData.netWeight).toFixed(2)} tons
                       </Typography>
                     )}
                   </TableCell>
                   <TableCell>
                     <Chip 
-                      label={vehicle.paymentStatus === 'paid' ? 'Paid' : 'Pending'}
+                      label={vehicle.paymentStatus === 'paid' ? t('vehicles.paid') : t('vehicles.pending')}
                       color={vehicle.paymentStatus === 'paid' ? 'success' : 'error'}
                       size="small"
                       icon={vehicle.paymentStatus === 'paid' ? <CheckCircle /> : <Payment />}
@@ -570,7 +694,7 @@ const WeighBridge = () => {
                           startIcon={<Scale />}
                           onClick={() => handleWeighVehicle(vehicle)}
                         >
-                          {vehicle.weighingStatus === 'partial' ? '2nd Weigh' : 'Weigh'}
+                          {vehicle.weighingStatus === 'partial' ? t('vehicles.secondWeigh') : t('vehicles.weigh')}
                         </Button>
                       )}
                       
@@ -585,7 +709,21 @@ const WeighBridge = () => {
                             setPaymentDialog(true);
                           }}
                         >
-                          Pay
+                          {t('vehicles.pay')}
+                        </Button>
+                      )}
+
+                      {vehicle.weighBridgeData?.grossWeight && vehicle.weighBridgeData?.tareWeight && (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="secondary"
+                          startIcon={aiAnomalyLoading && aiAnomalyVehicleId === vehicle._id ? <CircularProgress size={16} /> : <SmartToy />}
+                          onClick={() => handleAiAnomalyCheck(vehicle)}
+                          disabled={aiAnomalyLoading && aiAnomalyVehicleId === vehicle._id}
+                          sx={{ fontWeight: 600 }}
+                        >
+                          🤖 AI Anomaly Check
                         </Button>
                       )}
                     </Box>
@@ -604,10 +742,10 @@ const WeighBridge = () => {
       <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
         <Typography variant="h4" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <Scale fontSize="large" color="primary" />
-          Weigh Bridge Module
+          {t('vehicles.title')}
         </Typography>
         <Typography variant="body2" color="text.secondary">
-          Register vehicles, record weights, and process weighbridge payments
+          {t('vehicles.description')}
         </Typography>
       </Paper>
 
@@ -625,8 +763,8 @@ const WeighBridge = () => {
 
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
         <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)}>
-          <Tab label="Vehicle Entry" icon={<LocalShipping />} iconPosition="start" />
-          <Tab label="Active Vehicles" icon={<Inventory />} iconPosition="start" />
+          <Tab label={t('vehicles.vehicleEntry')} icon={<LocalShipping />} iconPosition="start" />
+          <Tab label={t('vehicles.activeVehicles')} icon={<Inventory />} iconPosition="start" />
         </Tabs>
       </Box>
 
@@ -635,7 +773,7 @@ const WeighBridge = () => {
           <CardContent>
             <Typography variant="h6" gutterBottom>
               <LocalShipping sx={{ mr: 1, verticalAlign: 'middle' }} />
-              Register New Vehicle
+              {t('vehicles.registerNewVehicle')}
             </Typography>
             
             <Box component="form" onSubmit={handleVehicleEntry} sx={{ mt: 3 }}>
@@ -645,7 +783,7 @@ const WeighBridge = () => {
                   <Paper elevation={2} sx={{ p: 3, bgcolor: '#f5f5f5' }}>
                     <Typography variant="subtitle1" fontWeight="600" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <DirectionsCar color="primary" />
-                      Vehicle Information
+                      {t('vehicles.vehicleInformation')}
                     </Typography>
                     <Divider sx={{ mb: 2 }} />
                     
@@ -654,7 +792,7 @@ const WeighBridge = () => {
                         <TextField
                           fullWidth
                           required
-                          label="Vehicle Number"
+                          label={t('vehicles.vehicleNumber')}
                           name="vehicleNumber"
                           value={vehicleForm.vehicleNumber}
                           onChange={handleVehicleFormChange}
@@ -671,7 +809,7 @@ const WeighBridge = () => {
                       </Grid>
                       <Grid item xs={12} md={6}>
                         <FormControl fullWidth required>
-                          <InputLabel>Vehicle Type</InputLabel>
+                          <InputLabel>{t('vehicles.vehicleType')}</InputLabel>
                           <Select
                             name="vehicleType"
                             value={vehicleForm.vehicleType}
@@ -695,7 +833,7 @@ const WeighBridge = () => {
                   <Paper elevation={2} sx={{ p: 3, bgcolor: '#f5f5f5' }}>
                     <Typography variant="subtitle1" fontWeight="600" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <Person color="primary" />
-                      Driver Information
+                      {t('vehicles.driverInformation')}
                     </Typography>
                     <Divider sx={{ mb: 2 }} />
                     
@@ -704,7 +842,7 @@ const WeighBridge = () => {
                         <TextField
                           fullWidth
                           required
-                          label="Driver Name"
+                          label={t('vehicles.driverName')}
                           name="driverName"
                           value={vehicleForm.driverName}
                           onChange={handleVehicleFormChange}
@@ -721,7 +859,7 @@ const WeighBridge = () => {
                         <TextField
                           fullWidth
                           required
-                          label="Driver Phone"
+                          label={t('vehicles.driverPhone')}
                           name="driverPhone"
                           value={vehicleForm.driverPhone}
                           onChange={handleVehicleFormChange}
@@ -737,7 +875,7 @@ const WeighBridge = () => {
                       <Grid item xs={12} md={4}>
                         <TextField
                           fullWidth
-                          label="Driver License (Optional)"
+                          label={t('vehicles.driverLicense')}
                           name="driverLicense"
                           value={vehicleForm.driverLicense}
                           onChange={handleVehicleFormChange}
@@ -759,14 +897,14 @@ const WeighBridge = () => {
                   <Paper elevation={2} sx={{ p: 3, bgcolor: '#f5f5f5' }}>
                     <Typography variant="subtitle1" fontWeight="600" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <Info color="primary" />
-                      Visit Purpose & Weighing Details
+                      {t('vehicles.visitPurposeWeighingDetails')}
                     </Typography>
                     <Divider sx={{ mb: 2 }} />
                     
                     <Grid container spacing={3}>
                       <Grid item xs={12}>
                         <FormControl component="fieldset" required>
-                          <FormLabel component="legend">Purpose of Visit</FormLabel>
+                          <FormLabel component="legend">{t('vehicles.purposeOfVisit')}</FormLabel>
                           <RadioGroup
                             row
                             name="visitPurpose"
@@ -776,12 +914,12 @@ const WeighBridge = () => {
                             <FormControlLabel 
                               value="weighing_only" 
                               control={<Radio />} 
-                              label="Weighing Only (Pay & Leave)" 
+                              label={t('vehicles.weighingOnly')} 
                             />
                             <FormControlLabel 
                               value="grain_loading" 
                               control={<Radio />} 
-                              label="Grain Loading/Unloading" 
+                              label={t('vehicles.grainLoading')} 
                             />
                           </RadioGroup>
                         </FormControl>
@@ -793,7 +931,7 @@ const WeighBridge = () => {
                           <Grid item xs={12}>
                             <FormControl component="fieldset" required error={!vehicleForm.weighingOption}>
                               <FormLabel component="legend">
-                                Vehicle Current Status <span style={{ color: 'red' }}>*</span>
+                                {t('vehicles.vehicleCurrentStatus')} <span style={{ color: 'red' }}>*</span>
                               </FormLabel>
                               <RadioGroup
                                 name="weighingOption"
@@ -803,21 +941,21 @@ const WeighBridge = () => {
                                 <FormControlLabel 
                                   value="empty_now" 
                                   control={<Radio />} 
-                                  label="Vehicle is EMPTY now (will record empty weight and vehicle can return loaded)" 
+                                  label={t('vehicles.vehicleEmptyNow')} 
                                 />
                                 <FormControlLabel 
                                   value="loaded_now" 
                                   control={<Radio />} 
-                                  label="Vehicle is LOADED now (will weigh loaded vehicle)" 
+                                  label={t('vehicles.vehicleLoadedNow')} 
                                 />
                                 <FormControlLabel 
                                   value="will_return" 
                                   control={<Radio />} 
-                                  label="Vehicle will return later for weighing" 
+                                  label={t('vehicles.vehicleWillReturn')} 
                                 />
                               </RadioGroup>
                               {!vehicleForm.weighingOption && (
-                                <FormHelperText error>Please select vehicle status</FormHelperText>
+                                <FormHelperText error>{t('vehicles.selectVehicleStatus')}</FormHelperText>
                               )}
                             </FormControl>
                           </Grid>
@@ -828,7 +966,7 @@ const WeighBridge = () => {
                                 fullWidth
                                 required
                                 type="number"
-                                label="Empty Vehicle Weight (kg)"
+                                label={t('vehicles.emptyVehicleWeight')}
                                 name="emptyWeight"
                                 value={vehicleForm.emptyWeight}
                                 onChange={handleVehicleFormChange}
@@ -839,10 +977,10 @@ const WeighBridge = () => {
                                     </InputAdornment>
                                   ),
                                   endAdornment: (
-                                    <InputAdornment position="end">kg</InputAdornment>
+                                    <InputAdornment position="end">tons</InputAdornment>
                                   ),
                                 }}
-                                helperText="Enter the current empty weight of the vehicle"
+                                helperText={t('vehicles.emptyWeightHelper')}
                               />
                             </Grid>
                           )}
@@ -854,7 +992,7 @@ const WeighBridge = () => {
                                   fullWidth
                                   required
                                   type="number"
-                                  label="Loaded Vehicle Weight (kg)"
+                                  label={t('vehicles.loadedVehicleWeight')}
                                   name="loadedWeight"
                                   value={vehicleForm.loadedWeight}
                                   onChange={handleVehicleFormChange}
@@ -865,10 +1003,10 @@ const WeighBridge = () => {
                                       </InputAdornment>
                                     ),
                                     endAdornment: (
-                                      <InputAdornment position="end">kg</InputAdornment>
+                                      <InputAdornment position="end">tons</InputAdornment>
                                     ),
                                   }}
-                                  helperText="Total weight of loaded vehicle"
+                                  helperText={t('vehicles.loadedWeightHelper')}
                                 />
                               </Grid>
                               <Grid item xs={12} md={4}>
@@ -876,7 +1014,7 @@ const WeighBridge = () => {
                                   fullWidth
                                   required
                                   type="number"
-                                  label="Empty Vehicle Weight (kg)"
+                                  label={t('vehicles.emptyVehicleWeight')}
                                   name="emptyWeightForLoaded"
                                   value={vehicleForm.emptyWeightForLoaded}
                                   onChange={handleVehicleFormChange}
@@ -887,19 +1025,19 @@ const WeighBridge = () => {
                                       </InputAdornment>
                                     ),
                                     endAdornment: (
-                                      <InputAdornment position="end">kg</InputAdornment>
+                                      <InputAdornment position="end">tons</InputAdornment>
                                     ),
                                   }}
-                                  helperText="Weight of empty vehicle"
+                                  helperText={t('vehicles.emptyWeightHelper')}
                                 />
                               </Grid>
                               <Grid item xs={12} md={4}>
                                 <TextField
                                   fullWidth
                                   type="number"
-                                  label="Grain Weight (kg)"
+                                  label={t('vehicles.grainWeight')}
                                   name="grainWeight"
-                                  value={vehicleForm.grainWeight}
+                                  value={(parseFloat(vehicleForm.grainWeight) * 10 || 0).toFixed(2)}
                                   disabled
                                   InputProps={{
                                     startAdornment: (
@@ -908,10 +1046,10 @@ const WeighBridge = () => {
                                       </InputAdornment>
                                     ),
                                     endAdornment: (
-                                      <InputAdornment position="end">kg</InputAdornment>
+                                      <InputAdornment position="end">quintals</InputAdornment>
                                     ),
                                   }}
-                                  helperText="Automatically calculated"
+                                  helperText="Automatically calculated (1 ton = 10 quintals)"
                                   sx={{
                                     '& .MuiInputBase-input': {
                                       fontWeight: 'bold',
@@ -934,11 +1072,11 @@ const WeighBridge = () => {
                   <Grid item xs={12}>
                     <Paper elevation={2} sx={{ p: 3, bgcolor: '#f5f5f5' }}>
                       <Typography variant="subtitle1" fontWeight="600" gutterBottom>
-                        Customer Information {vehicleForm.visitPurpose === 'grain_loading' && <span style={{ color: 'red' }}>*</span>}
+                        {t('vehicles.customerInformation')} {vehicleForm.visitPurpose === 'grain_loading' && <span style={{ color: 'red' }}>*</span>}
                       </Typography>
                       {vehicleForm.visitPurpose === 'grain_loading' && (
                         <Alert severity="info" sx={{ mb: 2 }}>
-                          Customer details are required for grain loading/unloading operations
+                          {t('vehicles.customerDetailsRequiredAlert')}
                         </Alert>
                       )}
                       <Divider sx={{ mb: 2 }} />
@@ -948,7 +1086,7 @@ const WeighBridge = () => {
                           <TextField
                             fullWidth
                             required={vehicleForm.visitPurpose === 'grain_loading'}
-                            label="Customer Name"
+                            label={t('vehicles.customerName')}
                             name="customerName"
                             value={vehicleForm.customerName}
                             onChange={handleVehicleFormChange}
@@ -958,7 +1096,7 @@ const WeighBridge = () => {
                           <TextField
                             fullWidth
                             required={vehicleForm.visitPurpose === 'grain_loading'}
-                            label="Customer Phone"
+                            label={t('vehicles.customerPhone')}
                             name="customerPhone"
                             value={vehicleForm.customerPhone}
                             onChange={handleVehicleFormChange}
@@ -968,7 +1106,7 @@ const WeighBridge = () => {
                           <TextField
                             fullWidth
                             required={vehicleForm.visitPurpose === 'grain_loading'}
-                            label="Customer Email"
+                            label={t('vehicles.customerEmail')}
                             name="customerEmail"
                             type="email"
                             value={vehicleForm.customerEmail}
@@ -989,7 +1127,7 @@ const WeighBridge = () => {
                       disabled={loading}
                       startIcon={<CheckCircle />}
                     >
-                      {loading ? <CircularProgress size={24} /> : 'Register Vehicle'}
+                      {loading ? <CircularProgress size={24} /> : t('vehicles.registerVehicle')}
                     </Button>
                   </Box>
                 </Grid>
@@ -1012,7 +1150,7 @@ const WeighBridge = () => {
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Payment color="primary" />
-              <Typography variant="h6">Weighbridge Payment</Typography>
+              <Typography variant="h6">{t('vehicles.weighbridgePayment')}</Typography>
             </Box>
             <IconButton onClick={() => setPaymentDialog(false)} size="small">
               <Close />
@@ -1023,12 +1161,12 @@ const WeighBridge = () => {
           {registeredVehicle && (
             <Box sx={{ mb: 3 }}>
               <Alert severity="info" sx={{ mb: 2 }}>
-                Vehicle: <strong>{registeredVehicle.vehicleNumber}</strong>
+                {t('vehicles.vehicle')}: <strong>{registeredVehicle.vehicleNumber}</strong>
               </Alert>
               
               <Paper elevation={0} sx={{ p: 2, bgcolor: '#f5f5f5', mb: 3 }}>
                 <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                  Weighing Fee
+                  {t('vehicles.weighingFee')}
                 </Typography>
                 <Typography variant="h4" color="primary" fontWeight="600">
                   ₹{paymentForm.weighingFee}
@@ -1036,7 +1174,7 @@ const WeighBridge = () => {
               </Paper>
 
               <FormControl component="fieldset" fullWidth>
-                <FormLabel component="legend">Select Payment Method</FormLabel>
+                <FormLabel component="legend">{t('vehicles.selectPaymentMethod')}</FormLabel>
                 <RadioGroup
                   name="paymentMethod"
                   value={paymentForm.paymentMethod}
@@ -1048,7 +1186,7 @@ const WeighBridge = () => {
                     label={
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <MonetizationOn color="success" />
-                        <Typography>Cash Payment</Typography>
+                        <Typography>{t('vehicles.cashPayment')}</Typography>
                       </Box>
                     }
                   />
@@ -1058,7 +1196,7 @@ const WeighBridge = () => {
                     label={
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <QrCode color="primary" />
-                        <Typography>UPI Payment</Typography>
+                        <Typography>{t('vehicles.upiPayment')}</Typography>
                       </Box>
                     }
                   />
@@ -1069,7 +1207,7 @@ const WeighBridge = () => {
         </DialogContent>
         <DialogActions sx={{ p: 3 }}>
           <Button onClick={() => setPaymentDialog(false)} variant="outlined">
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button 
             onClick={handlePayment} 
@@ -1078,7 +1216,7 @@ const WeighBridge = () => {
             startIcon={paymentForm.paymentMethod === 'cash' ? <CheckCircle /> : <QrCode />}
           >
             {loading ? <CircularProgress size={24} /> : 
-             paymentForm.paymentMethod === 'cash' ? 'Payment Received' : 'Generate UPI QR'}
+             paymentForm.paymentMethod === 'cash' ? t('vehicles.paymentReceived') : t('vehicles.generateUPIQR')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -1093,7 +1231,7 @@ const WeighBridge = () => {
         <DialogTitle>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <QrCode color="primary" />
-            <Typography variant="h6">Scan QR Code for Payment</Typography>
+            <Typography variant="h6">{t('vehicles.scanQRForPayment')}</Typography>
           </Box>
         </DialogTitle>
         <DialogContent>
@@ -1105,7 +1243,7 @@ const WeighBridge = () => {
                   ₹{paymentForm.weighingFee}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Scan with any UPI app to pay
+                  {t('vehicles.scanWithUPIApp')}
                 </Typography>
               </Box>
             )}
@@ -1113,7 +1251,7 @@ const WeighBridge = () => {
         </DialogContent>
         <DialogActions sx={{ p: 3 }}>
           <Button onClick={() => setUpiQrDialog(false)} variant="outlined">
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button 
             onClick={confirmUPIPayment} 
@@ -1122,7 +1260,7 @@ const WeighBridge = () => {
             disabled={loading}
             startIcon={<CheckCircle />}
           >
-            {loading ? <CircularProgress size={24} /> : 'Payment Done - Confirm'}
+            {loading ? <CircularProgress size={24} /> : t('vehicles.paymentDoneConfirm')}
           </Button>
         </DialogActions>
       </Dialog>

@@ -16,7 +16,7 @@ router.post('/', auth, async (req, res) => {
     const { type, message, allocationDetails, loanDetails } = req.body;
 
     const request = new Request({
-      customer: req.user.userId,
+      customer: req.user.id,
       type,
       message,
       allocationDetails,
@@ -40,7 +40,7 @@ router.get('/my-requests', auth, async (req, res) => {
       return res.status(403).json({ message: 'Only customers can view their requests' });
     }
 
-    const requests = await Request.find({ customer: req.user.userId })
+    const requests = await Request.find({ customer: req.user.id })
       .populate('processedBy', 'name')
       .populate('createdLoan')
       .sort({ createdAt: -1 });
@@ -118,7 +118,7 @@ router.put('/:requestId/process', auth, async (req, res) => {
 
     if (action === 'approve') {
       request.status = 'approved';
-      request.processedBy = req.user.userId;
+      request.processedBy = req.user.id;
       request.processedAt = new Date();
 
       // Handle vacate warehouse request
@@ -164,17 +164,33 @@ router.put('/:requestId/process', auth, async (req, res) => {
           amount: loanData.amount,
           interestRate: loanData.interestRate,
           duration: loanData.duration,
-          purpose: request.loanDetails.purpose,
-          collateral: request.loanDetails.collateral || loanData.collateral,
+          purpose: request.loanDetails?.purpose || request.message || 'Loan request',
+          collateral: loanData.collateral || request.loanDetails?.collateral || 'Not specified',
           status: 'active',
-          disbursementDate: new Date(),
-          repaymentDate: new Date(Date.now() + loanData.duration * 30 * 24 * 60 * 60 * 1000),
-          monthlyEMI: loanData.monthlyEMI || (loanData.amount * (1 + loanData.interestRate / 100)) / loanData.duration,
-          outstandingAmount: loanData.amount
+          disbursementDate: loanData.startDate ? new Date(loanData.startDate) : new Date(),
+          dueDate: loanData.endDate ? new Date(loanData.endDate) : new Date(Date.now() + loanData.duration * 30 * 24 * 60 * 60 * 1000),
+          createdBy: req.user.id,
+          approvedBy: req.user.id,
+          approvedDate: new Date()
         });
 
         await loan.save();
         request.createdLoan = loan._id;
+        
+        // Send real-time notification to customer
+        if (req.io) {
+          req.io.emit('loan_approved', {
+            customerId: request.customer._id.toString(),
+            customerName: request.customer.name,
+            loanAmount: loanData.amount,
+            interestRate: loanData.interestRate,
+            duration: loanData.duration,
+            startDate: loanData.startDate,
+            endDate: loanData.endDate,
+            monthlyEMI: loan.monthlyPayment,
+            timestamp: new Date()
+          });
+        }
       }
 
       await request.save();
@@ -188,7 +204,7 @@ router.put('/:requestId/process', auth, async (req, res) => {
     } else if (action === 'reject') {
       request.status = 'rejected';
       request.rejectionReason = rejectionReason || 'No reason provided';
-      request.processedBy = req.user.userId;
+      request.processedBy = req.user.id;
       request.processedAt = new Date();
 
       await request.save();

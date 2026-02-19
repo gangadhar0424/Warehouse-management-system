@@ -100,10 +100,12 @@ export const AuthProvider = ({ children }) => {
       (response) => response,
       (error) => {
         if (error.response?.status === 401) {
-          // Token expired or invalid
+          // Token expired or invalid - let React Router handle redirect
           localStorage.removeItem('token');
           dispatch({ type: 'LOGOUT' });
-          window.location.href = '/login';
+          // Don't use window.location.href as it causes a full page reload
+          // and resets all React state (including LanguageGate), creating a refresh loop.
+          // ProtectedRoute will redirect to /login via React Router.
         }
         return Promise.reject(error);
       }

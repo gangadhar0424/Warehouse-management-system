@@ -38,7 +38,9 @@ import {
   Work,
   MonetizationOn,
   Assessment,
-  Grain
+  Grain,
+  Lock,
+  ContactSupport
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
@@ -74,6 +76,11 @@ const UserProfile = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState('');
+  const [contactForm, setContactForm] = useState({ subject: '', message: '' });
+  const [contactSuccess, setContactSuccess] = useState('');
 
   useEffect(() => {
     if (user) {
@@ -135,6 +142,47 @@ const UserProfile = () => {
       console.error('Error updating profile:', error);
       setError(error.response?.data?.message || 'Failed to update profile');
       setTimeout(() => setError(''), 3000);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    setPasswordError('');
+    setPasswordSuccess('');
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      setPasswordError('New passwords do not match');
+      return;
+    }
+    if (passwordData.newPassword.length < 6) {
+      setPasswordError('Password must be at least 6 characters');
+      return;
+    }
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post('/api/auth/change-password', {
+        currentPassword: passwordData.currentPassword,
+        newPassword: passwordData.newPassword
+      }, { headers: { Authorization: `Bearer ${token}` } });
+      setPasswordSuccess('Password changed successfully');
+      setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      setTimeout(() => setPasswordSuccess(''), 3000);
+    } catch (err) {
+      setPasswordError(err.response?.data?.message || 'Failed to change password');
+    }
+  };
+
+  const handleContactSubmit = async () => {
+    try {
+      await axios.post('/api/contact', {
+        name: user.name,
+        email: user.email,
+        subject: contactForm.subject,
+        message: contactForm.message
+      });
+      setContactSuccess('Your message has been sent! We will get back to you soon.');
+      setContactForm({ subject: '', message: '' });
+      setTimeout(() => setContactSuccess(''), 5000);
+    } catch (err) {
+      setError('Failed to send message. Please try again.');
     }
   };
 
@@ -234,6 +282,8 @@ const UserProfile = () => {
             <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)}>
               <Tab label="Personal Info" />
               {user.role === 'customer' && <Tab label="Transactions" />}
+              {user.role === 'customer' && <Tab label="Change Password" icon={<Lock fontSize="small" />} iconPosition="start" />}
+              {user.role === 'customer' && <Tab label="Contact Us" icon={<ContactSupport fontSize="small" />} iconPosition="start" />}
               {user.role === 'owner' && <Tab label="Dashboard" />}
               {user.role === 'owner' && <Tab label="Settings" />}
             </Tabs>
@@ -352,6 +402,113 @@ const UserProfile = () => {
               </TableContainer>
             </TabPanel>
           )}
+
+        {/* Customer Change Password Tab */}
+        {user.role === 'customer' && (
+          <TabPanel value={tabValue} index={2}>
+            <Grid container spacing={3} sx={{ maxWidth: 500 }}>
+              {passwordError && (
+                <Grid item xs={12}>
+                  <Alert severity="error">{passwordError}</Alert>
+                </Grid>
+              )}
+              {passwordSuccess && (
+                <Grid item xs={12}>
+                  <Alert severity="success">{passwordSuccess}</Alert>
+                </Grid>
+              )}
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Current Password"
+                  type="password"
+                  value={passwordData.currentPassword}
+                  onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="New Password"
+                  type="password"
+                  value={passwordData.newPassword}
+                  onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Confirm New Password"
+                  type="password"
+                  value={passwordData.confirmPassword}
+                  onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <Button variant="contained" color="primary" onClick={handleChangePassword} startIcon={<Lock />}>
+                  Change Password
+                </Button>
+              </Grid>
+            </Grid>
+          </TabPanel>
+        )}
+
+        {/* Customer Contact Us Tab */}
+        {user.role === 'customer' && (
+          <TabPanel value={tabValue} index={3}>
+            <Grid container spacing={3} sx={{ maxWidth: 600 }}>
+              {contactSuccess && (
+                <Grid item xs={12}>
+                  <Alert severity="success">{contactSuccess}</Alert>
+                </Grid>
+              )}
+              <Grid item xs={12}>
+                <Typography variant="h6" gutterBottom>
+                  <ContactSupport sx={{ verticalAlign: 'middle', mr: 1 }} />
+                  Get in Touch
+                </Typography>
+                <Typography variant="body2" color="text.secondary" gutterBottom>
+                  Have a question or issue? Send us a message and we'll respond as soon as possible.
+                </Typography>
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Subject"
+                  value={contactForm.subject}
+                  onChange={(e) => setContactForm({ ...contactForm, subject: e.target.value })}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  fullWidth
+                  label="Message"
+                  multiline
+                  rows={5}
+                  value={contactForm.message}
+                  onChange={(e) => setContactForm({ ...contactForm, message: e.target.value })}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <Button
+                  variant="contained"
+                  color="primary"
+                  onClick={handleContactSubmit}
+                  disabled={!contactForm.subject || !contactForm.message}
+                >
+                  Send Message
+                </Button>
+              </Grid>
+              <Grid item xs={12}>
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="subtitle2" gutterBottom>Warehouse Contact Info</Typography>
+                <Typography variant="body2">Email: support@warehouse.com</Typography>
+                <Typography variant="body2">Phone: +91 9876543210</Typography>
+                <Typography variant="body2">Address: Warehouse Management Office, Hyderabad, Telangana</Typography>
+              </Grid>
+            </Grid>
+          </TabPanel>
+        )}
 
         {/* Owner Dashboard Tab */}
         {user.role === 'owner' && (

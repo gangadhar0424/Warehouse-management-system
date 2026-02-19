@@ -1,11 +1,14 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import { AuthProvider } from './contexts/AuthContext';
 import { SocketProvider } from './contexts/SocketContext';
+import { LanguageProvider, useTranslation } from './i18n/LanguageContext';
+import LanguageSelector from './components/LanguageSelector';
 import ProtectedRoute from './components/ProtectedRoute';
 import Navbar from './components/Navbar';
+import AIChat from './components/AIChat';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
@@ -15,7 +18,6 @@ import CustomerDashboard from './pages/CustomerDashboard';
 import VehicleManagement from './pages/VehicleManagement';
 import TransactionManagement from './pages/TransactionManagement';
 import UserProfile from './pages/UserProfile';
-import CustomerGrainManagement from './pages/CustomerGrainManagement';
 import PaymentManagement from './pages/PaymentManagement';
 import './App.css';
 
@@ -64,11 +66,29 @@ const theme = createTheme({
   }
 });
 
+function LanguageGate({ children }) {
+  const [languageSelected, setLanguageSelected] = useState(false);
+  const { changeLanguage } = useTranslation();
+
+  const handleLanguageSelect = (lang) => {
+    changeLanguage(lang);
+    setLanguageSelected(true);
+  };
+
+  if (!languageSelected) {
+    return <LanguageSelector onSelect={handleLanguageSelect} open={true} />;
+  }
+
+  return children;
+}
+
 function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <AuthProvider>
+        <LanguageProvider>
+        <LanguageGate>
         <SocketProvider>
           <Router>
             <div className="App">
@@ -110,12 +130,6 @@ function App() {
                     <CustomerDashboard />
                   </ProtectedRoute>
                 } />
-                <Route path="/customer-grain" element={
-                  <ProtectedRoute allowedRoles={['customer']}>
-                    <Navbar />
-                    <CustomerGrainManagement />
-                  </ProtectedRoute>
-                } />
                 <Route path="/payments" element={
                   <ProtectedRoute allowedRoles={['customer']}>
                     <Navbar />
@@ -140,9 +154,14 @@ function App() {
                 {/* Default Route - Redirect to login */}
                 <Route path="/" element={<Login />} />
               </Routes>
+              
+              {/* AI Chat - Available on all pages */}
+              <AIChat />
             </div>
           </Router>
         </SocketProvider>
+        </LanguageGate>
+        </LanguageProvider>
       </AuthProvider>
     </ThemeProvider>
   );

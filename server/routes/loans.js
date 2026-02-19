@@ -16,16 +16,58 @@ router.get('/eligibility', auth, async (req, res) => {
   try {
     const customerId = req.user.id;
 
-    // Get all active grain storage allocations
-    const allocations = await StorageAllocation.find({
-      customer: customerId,
-      status: 'active'
+    // Get grain locations from dynamic warehouse system
+    const DynamicWarehouseLayout = require('../models/DynamicWarehouseLayout');
+    const warehouses = await DynamicWarehouseLayout.find({
+      'layout.blocks.slots.allocations.customer': customerId,
+      isActive: true
     });
 
-    // Calculate total grain value
-    const totalGrainValue = allocations.reduce((sum, allocation) => {
-      return sum + (allocation.storageDetails.totalValue || 0);
-    }, 0);
+    // Get market prices for grain valuation
+    const marketPrices = {
+      'Wheat': 2500,
+      'Rice': 3200,
+      'Corn': 1800,
+      'Barley': 2200,
+      'Sorghum': 2000,
+      'Millet': 1900
+    };
+
+    let totalGrainValue = 0;
+    const grainDetails = [];
+
+    // Calculate total grain value from all customer's allocations
+    warehouses.forEach(warehouse => {
+      warehouse.layout.forEach(building => {
+        building.blocks.forEach(block => {
+          block.slots.forEach(slot => {
+            const customerAllocations = slot.allocations.filter(
+              alloc => alloc.customer.toString() === customerId
+            );
+
+            customerAllocations.forEach(allocation => {
+              const grainType = allocation.grainType || 'Rice';
+              const weightKg = allocation.weight || 0;
+              const weightQuintals = weightKg / 100;
+              const pricePerQuintal = marketPrices[grainType] || 2000;
+              const grainValue = weightQuintals * pricePerQuintal;
+
+              totalGrainValue += grainValue;
+
+              grainDetails.push({
+                warehouseName: warehouse.name,
+                location: slot.slotLabel,
+                grainType: grainType,
+                weightKg: weightKg,
+                weightQuintals: weightQuintals.toFixed(2),
+                pricePerQuintal: pricePerQuintal,
+                value: grainValue.toFixed(2)
+              });
+            });
+          });
+        });
+      });
+    });
 
     // Maximum loan = 70% of grain value
     const maxLoanAmount = totalGrainValue * 0.70;
@@ -42,20 +84,11 @@ router.get('/eligibility', auth, async (req, res) => {
 
     const availableLoanAmount = Math.max(0, maxLoanAmount - totalActiveLoanAmount);
 
-    // Grain details
-    const grainDetails = allocations.map(a => ({
-      allocationId: a._id,
-      grainType: a.storageDetails.items.map(i => i.description).join(', '),
-      weight: a.storageDetails.totalWeight,
-      value: a.storageDetails.totalValue,
-      location: `B${a.allocation.building}-BL${a.allocation.block}-${a.allocation.wing}-B${a.allocation.box}`
-    }));
-
     res.json({
-      totalGrainValue,
-      maxLoanAmount,
-      totalActiveLoanAmount,
-      availableLoanAmount,
+      totalGrainValue: totalGrainValue.toFixed(2),
+      maxLoanAmount: maxLoanAmount.toFixed(2),
+      totalActiveLoanAmount: totalActiveLoanAmount.toFixed(2),
+      availableLoanAmount: availableLoanAmount.toFixed(2),
       grainDetails,
       loanToValueRatio: 0.70,
       eligibilityStatus: availableLoanAmount > 0 ? 'eligible' : 'not_eligible',

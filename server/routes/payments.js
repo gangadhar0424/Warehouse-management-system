@@ -784,24 +784,42 @@ router.post('/customer-payment', [auth, authorize('customer')], [
       }
     }
 
+    // Map payment type to transaction type enum
+    let transactionType;
+    switch(type) {
+      case 'weighbridge':
+        transactionType = 'weighbridge_fee';
+        break;
+      case 'rent':
+        transactionType = 'grain_storage_rent';
+        break;
+      case 'loan':
+        transactionType = 'loan_repayment';
+        break;
+      case 'custom':
+        transactionType = 'grain_release';
+        break;
+      default:
+        transactionType = 'grain_storage_rent';
+    }
+
+    const transactionId = razorpayPaymentId || `${method.toUpperCase()}_${Date.now()}`;
+    const amountValue = parseFloat(amount);
+
     // Create transaction record
     const transaction = new Transaction({
+      transactionId: transactionId,
       customer: customerId,
-      type: type === 'weighbridge' ? 'weigh_bridge' : type,
-      amount: parseFloat(amount),
-      paymentMethod: method,
-      status: 'completed',
-      description: description || `${type} payment`,
+      type: transactionType,
+      amount: {
+        baseAmount: amountValue,
+        totalAmount: amountValue
+      },
       payment: {
         method: method,
-        transactionId: razorpayPaymentId || `${method.toUpperCase()}_${Date.now()}`,
-        date: new Date()
-      },
-      metadata: {
-        loanId: loanId || undefined,
-        allocationId: allocationId || undefined,
-        paymentType: type,
-        notes: description
+        status: 'completed',
+        gatewayTransactionId: razorpayPaymentId,
+        paidAt: new Date()
       }
     });
 
@@ -847,7 +865,7 @@ router.post('/customer-payment', [auth, authorize('customer')], [
 
     // Update customer's payment history
     const User = require('../models/User');
-    await User.findByIdAndUpdate(customerId, {
+    const customer = await User.findByIdAndUpdate(customerId, {
       $push: {
         'customerGrainDetails.paymentHistory': {
           date: new Date(),
@@ -857,16 +875,29 @@ router.post('/customer-payment', [auth, authorize('customer')], [
           transactionId: razorpayPaymentId || transaction._id.toString()
         }
       }
-    });
+    }, { new: true });
+
+    // Emit real-time notification to owner
+    if (req.io) {
+      req.io.emit('payment_received', {
+        customerId: customerId,
+        customerName: customer?.name || 'Unknown Customer',
+        amount: parseFloat(amount),
+        type: type,
+        method: method,
+        transactionId: transaction._id,
+        timestamp: new Date()
+      });
+    }
 
     res.json({
       success: true,
       message: `${type.charAt(0).toUpperCase() + type.slice(1)} payment recorded successfully`,
       transaction: {
         _id: transaction._id,
-        amount: transaction.amount,
+        amount: transaction.amount.totalAmount,
         type: transaction.type,
-        method: transaction.paymentMethod,
+        method: transaction.payment.method,
         date: transaction.createdAt
       }
     });

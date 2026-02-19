@@ -7,7 +7,6 @@ import {
   Typography,
   CircularProgress,
   Alert,
-  Paper,
   Chip,
   IconButton,
   Tooltip,
@@ -24,33 +23,18 @@ import {
   TableHead,
   TableRow,
   Tabs,
-  Tab,
-  LinearProgress,
-  Divider
+  Tab
 } from '@mui/material';
 import {
   Refresh,
   AccountBalance,
   CheckCircle,
   Cancel,
-  Warning,
   Visibility,
-  TrendingUp,
-  AttachMoney,
-  Calculate
+  TrendingUp
 } from '@mui/icons-material';
-import {
-  PieChart,
-  Pie,
-  Cell,
-  ResponsiveContainer,
-  Tooltip as RechartsTooltip,
-  Legend
-} from 'recharts';
 import axios from 'axios';
 import LoanCalculator from './LoanCalculator';
-
-const COLORS = ['#4caf50', '#ff9800', '#f44336', '#2196f3'];
 
 const LoanPortfolioManager = () => {
   const [loading, setLoading] = useState(true);
@@ -174,23 +158,11 @@ const LoanPortfolioManager = () => {
   const {
     totalIssued,
     activeLoans,
-    completedLoans,
-    defaultedLoans,
     totalAmount,
     activeAmount,
     interestEarned,
-    pendingApprovals,
-    loanToValueRatio,
-    atRiskLoans,
-    healthyLoans
+    pendingApprovals
   } = loanData;
-
-  const portfolioBreakdown = [
-    { name: 'Active', value: activeLoans, color: '#4caf50' },
-    { name: 'Completed', value: completedLoans, color: '#2196f3' },
-    { name: 'At Risk', value: atRiskLoans, color: '#ff9800' },
-    { name: 'Defaulted', value: defaultedLoans, color: '#f44336' }
-  ];
 
   return (
     <Box sx={{ p: 3 }}>
@@ -292,7 +264,6 @@ const LoanPortfolioManager = () => {
           <Tab label={`Pending Approvals (${pendingApprovals?.length || 0})`} />
           <Tab label="Customer Loans" />
           <Tab label="Loan Calculator" />
-          <Tab label="Portfolio Analytics" />
         </Tabs>
       </Card>
 
@@ -492,254 +463,6 @@ const LoanPortfolioManager = () => {
       )}
 
       {activeTab === 2 && <LoanCalculator />}
-
-      {activeTab === 3 && (
-        <Grid container spacing={3}>
-          <Grid item xs={12} md={6}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom fontWeight="bold">
-                  Loan Health Status
-                </Typography>
-                <Grid container spacing={2} sx={{ mt: 2 }}>
-                  <Grid item xs={6}>
-                    <Paper sx={{ p: 2, textAlign: 'center', backgroundColor: '#e8f5e9' }}>
-                      <CheckCircle sx={{ fontSize: 40, color: '#4caf50', mb: 1 }} />
-                      <Typography variant="h4" fontWeight="bold" sx={{ color: '#4caf50' }}>
-                        {healthyLoans}
-                      </Typography>
-                      <Typography variant="body2" color="textSecondary">
-                        Healthy Loans
-                      </Typography>
-                      <Typography variant="caption" color="textSecondary">
-                        On-time payments
-                      </Typography>
-                    </Paper>
-                  </Grid>
-                  <Grid item xs={6}>
-                    <Paper sx={{ p: 2, textAlign: 'center', backgroundColor: '#fff3e0' }}>
-                      <Warning sx={{ fontSize: 40, color: '#ff9800', mb: 1 }} />
-                      <Typography variant="h4" fontWeight="bold" sx={{ color: '#ff9800' }}>
-                        {atRiskLoans}
-                      </Typography>
-                      <Typography variant="body2" color="textSecondary">
-                        At Risk Loans
-                      </Typography>
-                      <Typography variant="caption" color="textSecondary">
-                        Overdue by &gt;7 days
-                      </Typography>
-                    </Paper>
-                  </Grid>
-                </Grid>
-
-                <Divider sx={{ my: 3 }} />
-
-                <Box>
-                  <Typography variant="body2" color="textSecondary" gutterBottom>
-                    Loan-to-Value Ratio
-                  </Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Box sx={{ flex: 1 }}>
-                      <LinearProgress 
-                        variant="determinate" 
-                        value={loanToValueRatio * 100} 
-                        sx={{ height: 10, borderRadius: 5 }}
-                        color={loanToValueRatio > 0.65 ? 'warning' : 'primary'}
-                      />
-                    </Box>
-                    <Typography variant="body1" fontWeight="bold">
-                      {(loanToValueRatio * 100).toFixed(1)}%
-                    </Typography>
-                  </Box>
-                  <Typography variant="caption" color="textSecondary" sx={{ mt: 1, display: 'block' }}>
-                    Average loan amount vs grain collateral value
-                  </Typography>
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12} md={6}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom fontWeight="bold">
-                  Portfolio Distribution
-                </Typography>
-                <ResponsiveContainer width="100%" height={300}>
-                  <PieChart>
-                    <Pie
-                      data={portfolioBreakdown}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={(entry) => `${entry.name}: ${entry.value}`}
-                      outerRadius={100}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {portfolioBreakdown.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <RechartsTooltip />
-                    <Legend />
-                  </PieChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
-      )}
-
-      {activeTab === 3 && (
-        <Grid container spacing={3}>
-          <Grid item xs={12} md={6}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom fontWeight="bold">
-                  Loan Health Status
-                </Typography>
-                <Grid container spacing={2} sx={{ mt: 2 }}>
-                  <Grid item xs={6}>
-                    <Paper sx={{ p: 2, textAlign: 'center', backgroundColor: '#e8f5e9' }}>
-                      <CheckCircle sx={{ fontSize: 40, color: '#4caf50', mb: 1 }} />
-                      <Typography variant="h4" fontWeight="bold" sx={{ color: '#4caf50' }}>
-                        {healthyLoans}
-                      </Typography>
-                      <Typography variant="body2" color="textSecondary">
-                        Healthy Loans
-                      </Typography>
-                      <Typography variant="caption" color="textSecondary">
-                        On-time payments
-                      </Typography>
-                    </Paper>
-                  </Grid>
-                  <Grid item xs={6}>
-                    <Paper sx={{ p: 2, textAlign: 'center', backgroundColor: '#fff3e0' }}>
-                      <Warning sx={{ fontSize: 40, color: '#ff9800', mb: 1 }} />
-                      <Typography variant="h4" fontWeight="bold" sx={{ color: '#ff9800' }}>
-                        {atRiskLoans}
-                      </Typography>
-                      <Typography variant="body2" color="textSecondary">
-                        At Risk Loans
-                      </Typography>
-                      <Typography variant="caption" color="textSecondary">
-                        Overdue by &gt;7 days
-                      </Typography>
-                    </Paper>
-                  </Grid>
-                </Grid>
-
-                <Divider sx={{ my: 3 }} />
-
-                <Box>
-                  <Typography variant="body2" color="textSecondary" gutterBottom>
-                    Loan-to-Value Ratio
-                  </Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Box sx={{ flex: 1 }}>
-                      <LinearProgress 
-                        variant="determinate" 
-                        value={loanToValueRatio * 100} 
-                        sx={{ height: 10, borderRadius: 5 }}
-                        color={loanToValueRatio > 0.65 ? 'warning' : 'primary'}
-                      />
-                    </Box>
-                    <Typography variant="body1" fontWeight="bold">
-                      {(loanToValueRatio * 100).toFixed(1)}%
-                    </Typography>
-                  </Box>
-                  <Typography variant="caption" color="textSecondary" sx={{ mt: 1, display: 'block' }}>
-                    Average loan amount vs grain collateral value
-                  </Typography>
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12} md={6}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom fontWeight="bold">
-                  Portfolio Distribution
-                </Typography>
-                <ResponsiveContainer width="100%" height={300}>
-                  <PieChart>
-                    <Pie
-                      data={portfolioBreakdown}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={(entry) => `${entry.name}: ${entry.value}`}
-                      outerRadius={100}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {portfolioBreakdown.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <RechartsTooltip />
-                    <Legend />
-                  </PieChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12}>
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom fontWeight="bold">
-                  Loan Analytics & Insights
-                </Typography>
-                <Grid container spacing={3} sx={{ mt: 2 }}>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Paper sx={{ p: 2, textAlign: 'center' }}>
-                      <Typography variant="body2" color="textSecondary" gutterBottom>
-                        Avg Loan Amount
-                      </Typography>
-                      <Typography variant="h5" fontWeight="bold" color="primary">
-                        ₹{totalAmount && totalIssued ? (totalAmount / totalIssued).toFixed(0).toLocaleString() : 0}
-                      </Typography>
-                    </Paper>
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Paper sx={{ p: 2, textAlign: 'center' }}>
-                      <Typography variant="body2" color="textSecondary" gutterBottom>
-                        Approval Rate
-                      </Typography>
-                      <Typography variant="h5" fontWeight="bold" sx={{ color: '#4caf50' }}>
-                        {totalIssued ? ((activeLoans + completedLoans) / totalIssued * 100).toFixed(1) : 0}%
-                      </Typography>
-                    </Paper>
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Paper sx={{ p: 2, textAlign: 'center' }}>
-                      <Typography variant="body2" color="textSecondary" gutterBottom>
-                        Default Rate
-                      </Typography>
-                      <Typography variant="h5" fontWeight="bold" sx={{ color: '#f44336' }}>
-                        {totalIssued ? (defaultedLoans / totalIssued * 100).toFixed(1) : 0}%
-                      </Typography>
-                    </Paper>
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Paper sx={{ p: 2, textAlign: 'center' }}>
-                      <Typography variant="body2" color="textSecondary" gutterBottom>
-                        Completion Rate
-                      </Typography>
-                      <Typography variant="h5" fontWeight="bold" sx={{ color: '#2196f3' }}>
-                        {totalIssued ? (completedLoans / totalIssued * 100).toFixed(1) : 0}%
-                      </Typography>
-                    </Paper>
-                  </Grid>
-                </Grid>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
-      )}
 
       {/* Approval Dialog */}
       <Dialog open={approvalDialogOpen} onClose={() => setApprovalDialogOpen(false)} maxWidth="sm" fullWidth>

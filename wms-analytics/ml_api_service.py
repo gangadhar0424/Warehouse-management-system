@@ -37,7 +37,7 @@ except Exception as e:
 
 # Model 3: Storage Duration Prediction
 try:
-    with open(os.path.join(MODEL_DIR, 'model3_storage_duration_BEST.pkl'), 'rb') as f:
+    with open(os.path.join(MODEL_DIR, 'model3_duration_prediction_BEST.pkl'), 'rb') as f:
         duration_model = pickle.load(f)
     with open(os.path.join(MODEL_DIR, 'model3_label_encoders.pkl'), 'rb') as f:
         duration_encoders = pickle.load(f)
@@ -116,15 +116,23 @@ def predict_price():
         }])
         
         # Make prediction
-        predicted_price = price_model.predict(features)[0]
+        predicted_category = price_model.predict(features)[0]
         
-        # Calculate confidence based on model's R² score (simplified)
-        confidence = 'high' if predicted_price > 0 else 'medium'
+        # Get prediction probabilities for confidence
+        try:
+            probabilities = price_model.predict_proba(features)[0]
+            confidence = float(max(probabilities))
+        except:
+            confidence = 0.75  # Default confidence
         
         return jsonify({
-            'predicted_price': float(predicted_price),
+            'predicted_category': str(predicted_category),
             'confidence': confidence,
-            'unit': 'INR per kg'
+            'probabilities': {
+                'Low Price': float(probabilities[0]) if len(probabilities) > 0 else 0,
+                'Medium Price': float(probabilities[1]) if len(probabilities) > 1 else 0,
+                'High Price': float(probabilities[2]) if len(probabilities) > 2 else 0
+            } if 'probabilities' in locals() else {}
         })
     
     except Exception as e:
@@ -151,18 +159,20 @@ def predict_profit():
         }])
         
         # Make prediction
-        is_profitable = bool(profit_model.predict(features)[0])
+        predicted_profit = int(profit_model.predict(features)[0])
+        is_profitable = bool(predicted_profit)
         
         # Get probability if model supports it
         try:
             probabilities = profit_model.predict_proba(features)[0]
-            probability = float(probabilities[1] if is_profitable else probabilities[0])
+            confidence = float(probabilities[predicted_profit])
         except:
-            probability = 0.75  # Default probability
+            confidence = 0.75  # Default confidence
         
         return jsonify({
-            'is_profitable': is_profitable,
-            'probability': probability,
+            'is_profitable': predicted_profit,
+            'confidence': confidence,
+            'profitability_status': 'Profitable' if is_profitable else 'Loss',
             'recommendation': 'Good position - continue storage' if is_profitable else 'Consider selling soon to minimize losses'
         })
     
@@ -188,12 +198,30 @@ def predict_duration():
         }])
         
         # Make prediction
-        predicted_duration = float(duration_model.predict(features)[0])
+        predicted_category = duration_model.predict(features)[0]
+        
+        # Get prediction probabilities for confidence
+        try:
+            probabilities = duration_model.predict_proba(features)[0]
+            confidence = float(max(probabilities))
+        except:
+            confidence = 0.75  # Default confidence
+        
+        # Map category to days range
+        duration_mapping = {
+            'Short-term': {'days': 45, 'range': '0-90 days'},
+            'Medium-term': {'days': 135, 'range': '91-180 days'},
+            'Long-term': {'days': 270, 'range': '181-365 days'}
+        }
+        
+        duration_info = duration_mapping.get(str(predicted_category), {'days': 90, 'range': 'Unknown'})
         
         return jsonify({
-            'predicted_duration': predicted_duration,
-            'unit': 'days',
-            'estimated_months': round(predicted_duration / 30, 1)
+            'predicted_category': str(predicted_category),
+            'confidence': confidence,
+            'estimated_days': duration_info['days'],
+            'estimated_months': round(duration_info['days'] / 30, 1),
+            'range': duration_info['range']
         })
     
     except Exception as e:
@@ -253,6 +281,163 @@ def predict_batch():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
+@app.route('/api/owner/portfolio-health', methods=['POST'])
+def analyze_portfolio():
+    """Placeholder for portfolio health analysis"""
+    try:
+        return jsonify({
+            'success': True,
+            'portfolio_health_score': 75,
+            'message': 'Portfolio analysis endpoint - coming soon'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/owner/revenue-forecast', methods=['POST'])
+def forecast_revenue():
+    """
+    Forecast revenue using linear trend analysis
+    
+    Expected input:
+    {
+        "historical_revenue": [{"month": "2024-01", "revenue": 50000}, ...],
+        "forecast_months": 3
+    }
+    """
+    try:
+        data = request.json
+        historical = data.get('historical_revenue', [])
+        forecast_months = data.get('forecast_months', 3)
+        
+        if len(historical) < 2:
+            return jsonify({
+                'success': False,
+                'error': 'Need at least 2 months of historical data'
+            }), 400
+        
+        # Extract revenues
+        revenues = np.array([item['revenue'] for item in historical])
+        n = len(revenues)
+        x = np.arange(n)
+        
+        # Linear regression
+        x_mean = np.mean(x)
+        y_mean = np.mean(revenues)
+        slope = np.sum((x - x_mean) * (revenues - y_mean)) / np.sum((x - x_mean) ** 2)
+        intercept = y_mean - slope * x_mean
+        
+        # Generate forecasts
+        forecasts = []
+        std_dev = np.std(revenues)
+        
+        for i in range(1, forecast_months + 1):
+            next_month = n + i
+            forecast_value = slope * next_month + intercept
+            confidence_lower = max(0, forecast_value - 1.96 * std_dev)
+            confidence_upper = forecast_value + 1.96 * std_dev
+            
+            forecasts.append({
+                'month_offset': i,
+                'forecast': round(forecast_value, 2),
+                'lower_bound': round(confidence_lower, 2),
+                'upper_bound': round(confidence_upper, 2)
+            })
+        
+        trend = 'growing' if slope > 0 else 'declining' if slope < 0 else 'stable'
+        growth_rate = (slope / y_mean * 100) if y_mean > 0 else 0
+        
+        return jsonify({
+            'success': True,
+            'forecasts': forecasts,
+            'trend': trend,
+            'monthly_growth_rate': round(growth_rate, 2),
+            'current_avg_revenue': round(y_mean, 2)
+        })
+    
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/owner/churn-prediction', methods=['POST'])
+def predict_churn():
+    """
+    Predict customer churn risk
+    
+    Expected input:
+    {
+        "customers": [{
+            "customer_id": str,
+            "name": str,
+            "total_transactions": int,
+            "last_transaction_days_ago": int,
+            "total_value": float,
+            "grains_count": int
+        }, ...]
+    }
+    """
+    try:
+        data = request.json
+        customers = data.get('customers', [])
+        
+        at_risk_customers = []
+        
+        for customer in customers:
+            risk_score = 0
+            risk_factors = []
+            
+            # Recency factor
+            days_since_last = customer.get('last_transaction_days_ago', 0)
+            if days_since_last > 90:
+                risk_score += 40
+                risk_factors.append("No activity in 90+ days")
+            elif days_since_last > 60:
+                risk_score += 25
+                risk_factors.append("No activity in 60+ days")
+            elif days_since_last > 30:
+                risk_score += 10
+            
+            # Transaction frequency
+            if customer.get('total_transactions', 0) < 3:
+                risk_score += 20
+                risk_factors.append("Low transaction history")
+            
+            # Current engagement
+            if customer.get('grains_count', 0) == 0:
+                risk_score += 30
+                risk_factors.append("No active grains stored")
+            
+            # Value factor
+            if customer.get('total_value', 0) < 10000:
+                risk_score += 10
+            
+            risk_level = 'High' if risk_score >= 60 else 'Medium' if risk_score >= 30 else 'Low'
+            
+            if risk_score >= 30:
+                at_risk_customers.append({
+                    'customer_id': customer.get('customer_id'),
+                    'name': customer.get('name'),
+                    'risk_score': risk_score,
+                    'risk_level': risk_level,
+                    'risk_factors': risk_factors,
+                    'last_activity_days': days_since_last
+                })
+        
+        at_risk_customers.sort(key=lambda x: x['risk_score'], reverse=True)
+        
+        return jsonify({
+            'success': True,
+            'at_risk_customers': at_risk_customers,
+            'total_analyzed': len(customers),
+            'high_risk_count': len([c for c in at_risk_customers if c['risk_level'] == 'High']),
+            'medium_risk_count': len([c for c in at_risk_customers if c['risk_level'] == 'Medium'])
+        })
+    
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     print("\n" + "="*60)
     print("  WMS ML Prediction Service Starting...")
@@ -261,6 +446,10 @@ if __name__ == '__main__':
     print(f"  Price Model: {'✓ Loaded' if price_model else '✗ Not loaded'}")
     print(f"  Profit Model: {'✓ Loaded' if profit_model else '✗ Not loaded'}")
     print(f"  Duration Model: {'✓ Loaded' if duration_model else '✗ Not loaded'}")
+    print("\n  Owner Analytics Endpoints: ✓ Enabled")
+    print("    - /api/owner/portfolio-health")
+    print("    - /api/owner/revenue-forecast")
+    print("    - /api/owner/churn-prediction")
     print("\n" + "="*60)
     print("  Server running on http://localhost:8050")
     print("="*60 + "\n")

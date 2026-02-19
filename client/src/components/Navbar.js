@@ -39,10 +39,12 @@ import {
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
+import { useTranslation } from '../i18n/LanguageContext';
 import NotificationPanel from './NotificationPanel';
 import axios from 'axios';
 
 const Navbar = () => {
+  const { t } = useTranslation();
   const [anchorEl, setAnchorEl] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [notificationOpen, setNotificationOpen] = useState(false);
@@ -133,12 +135,11 @@ const Navbar = () => {
   };
 
   const menuItems = [
-    { text: 'Owner Dashboard', icon: <Settings />, path: '/owner-dashboard', roles: ['owner'] },
-    { text: 'Weighbridge', icon: <Dashboard />, path: '/weigh-bridge', roles: ['owner'] },
-    { text: 'Vehicles', icon: <LocalShipping />, path: '/vehicles', roles: ['owner'] },
-    { text: 'Customer Dashboard', icon: <AccountCircle />, path: '/customer-dashboard', roles: ['customer'] },
-    { text: 'My Grains', icon: <Grain />, path: '/customer-grain', roles: ['customer'] },
-    { text: 'Payments', icon: <Payment />, path: '/payments', roles: ['customer'] }
+    { text: t('dashboard.ownerDashboard'), icon: <Settings />, path: '/owner-dashboard', roles: ['owner'] },
+    { text: t('common.weighbridge'), icon: <Dashboard />, path: '/weigh-bridge', roles: ['owner'] },
+    { text: t('dashboard.vehicles'), icon: <LocalShipping />, path: '/vehicles', roles: ['owner'] },
+    { text: t('dashboard.customerDashboard'), icon: <AccountCircle />, path: '/customer-dashboard', roles: ['customer'] },
+    { text: t('common.profile'), icon: <AccountCircle />, path: '/profile', roles: ['customer'] }
   ];
 
   const filteredMenuItems = menuItems.filter(item => 
@@ -188,7 +189,7 @@ const Navbar = () => {
           )}
           
           <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            {user?.role === 'owner' ? 'Warehouse Management System - Owner' : 'Warehouse Management System - Customer'}
+            {user?.role === 'owner' ? t('common.appTitle') + ' - ' + t('auth.owner') : t('common.appTitle') + ' - ' + t('auth.customer')}
           </Typography>
 
           {/* Real-time Date and Time Display */}
@@ -267,11 +268,11 @@ const Navbar = () => {
               handleProfileMenuClose();
             }}>
               <AccountCircle sx={{ mr: 1 }} />
-              Profile
+              {t('common.profile')}
             </MenuItem>
             <MenuItem onClick={handleLogout}>
               <ExitToApp sx={{ mr: 1 }} />
-              Logout
+              {t('common.logout')}
             </MenuItem>
           </Menu>
         </Toolbar>

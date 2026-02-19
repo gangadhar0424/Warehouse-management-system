@@ -43,28 +43,31 @@ import {
   FilterList,
   MarkEmailRead,
   Delete,
-  Sms,
+  Email as EmailIcon,
   Send,
-  Phone
+  MailOutline
 } from '@mui/icons-material';
+import { useTranslation } from '../i18n/LanguageContext';
 import axios from 'axios';
 
 const AlertsCenter = () => {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [alerts, setAlerts] = useState(null);
   const [activeTab, setActiveTab] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
   const [filterAnchor, setFilterAnchor] = useState(null);
-  const [smsDialogOpen, setSmsDialogOpen] = useState(false);
+  const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [customersList, setCustomersList] = useState([]);
   const [selectedCustomers, setSelectedCustomers] = useState([]);
-  const [smsData, setSmsData] = useState({
+  const [emailData, setEmailData] = useState({
     alertType: 'info',
+    subject: '',
     message: ''
   });
-  const [sendingSMS, setSendingSMS] = useState(false);
-  const [smsResult, setSmsResult] = useState(null);
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [emailResult, setEmailResult] = useState(null);
 
   const fetchAlerts = async () => {
     try {
@@ -120,17 +123,17 @@ const AlertsCenter = () => {
     }
   };
 
-  const handleOpenSMSDialog = () => {
+  const handleOpenEmailDialog = () => {
     fetchCustomersList();
-    setSmsDialogOpen(true);
-    setSmsResult(null);
+    setEmailDialogOpen(true);
+    setEmailResult(null);
   };
 
-  const handleCloseSMSDialog = () => {
-    setSmsDialogOpen(false);
+  const handleCloseEmailDialog = () => {
+    setEmailDialogOpen(false);
     setSelectedCustomers([]);
-    setSmsData({ alertType: 'info', message: '' });
-    setSmsResult(null);
+    setEmailData({ alertType: 'info', subject: '', message: '' });
+    setEmailResult(null);
   };
 
   const handleCustomerToggle = (customerId) => {
@@ -142,16 +145,21 @@ const AlertsCenter = () => {
   };
 
   const handleSelectAll = () => {
-    if (selectedCustomers.length === customersList.filter(c => c.hasPhone).length) {
+    if (selectedCustomers.length === customersList.filter(c => c.email).length) {
       setSelectedCustomers([]);
     } else {
-      setSelectedCustomers(customersList.filter(c => c.hasPhone).map(c => c.id));
+      setSelectedCustomers(customersList.filter(c => c.email).map(c => c.id));
     }
   };
 
-  const handleSendSMS = async () => {
-    if (!smsData.message.trim()) {
+  const handleSendEmail = async () => {
+    if (!emailData.message.trim()) {
       alert('Please enter a message');
+      return;
+    }
+
+    if (!emailData.subject.trim()) {
+      alert('Please enter a subject');
       return;
     }
 
@@ -161,29 +169,46 @@ const AlertsCenter = () => {
     }
 
     try {
-      setSendingSMS(true);
+      setSendingEmail(true);
       const token = localStorage.getItem('token');
-      
-      const response = await axios.post('/api/analytics/owner/send-alert-sms', {
-        customerIds: selectedCustomers,
-        alertType: smsData.alertType,
-        message: smsData.message
-      }, {
-        headers: { 'x-auth-token': token }
-      });
 
-      setSmsResult(response.data);
-      
-      // Auto-close after 3 seconds if all successful
-      if (response.data.results.successful === response.data.results.total) {
-        setTimeout(() => {
-          handleCloseSMSDialog();
-        }, 3000);
+      const recipients = customersList
+        .filter(c => selectedCustomers.includes(c.id) && c.email)
+        .map(c => ({ email: c.email, name: c.name || c.username }));
+
+      if (selectedCustomers.length === 1) {
+        // Single email
+        const recipient = recipients[0];
+        const response = await axios.post('/api/email/send', {
+          to: recipient.email,
+          subject: emailData.subject,
+          text: emailData.message,
+          html: `<p>${emailData.message.replace(/\n/g, '<br/>')}</p>`
+        }, {
+          headers: { 'x-auth-token': token }
+        });
+        setEmailResult({ message: 'Email sent successfully', results: { successful: 1, failed: 0, total: 1, details: [{ customerName: recipient.name, email: recipient.email, success: true }] } });
+      } else {
+        // Bulk email
+        const response = await axios.post('/api/email/send-bulk', {
+          recipients,
+          subject: emailData.subject,
+          message: emailData.message
+        }, {
+          headers: { 'x-auth-token': token }
+        });
+        setEmailResult(response.data);
       }
+
+      // Auto-close after 3 seconds if all successful
+      const result = emailResult;
+      setTimeout(() => {
+        handleCloseEmailDialog();
+      }, 3000);
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to send SMS');
+      alert(err.response?.data?.message || 'Failed to send email');
     } finally {
-      setSendingSMS(false);
+      setSendingEmail(false);
     }
   };
 
@@ -313,22 +338,22 @@ const AlertsCenter = () => {
             <Notifications sx={{ fontSize: 32, color: 'primary.main' }} />
           </Badge>
           <Typography variant="h4" component="h1" fontWeight="bold">
-            Alerts & Notifications Center
+            {t('alerts.title')}
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
-          <Tooltip title="Send SMS Alert to Customers">
+          <Tooltip title="Send Email to Customers">
             <Button
               variant="contained"
               color="primary"
               size="small"
-              startIcon={<Sms />}
-              onClick={handleOpenSMSDialog}
+              startIcon={<EmailIcon />}
+              onClick={handleOpenEmailDialog}
             >
-              Send SMS
+              Send Email
             </Button>
           </Tooltip>
-          <Tooltip title="Mark all as read">
+          <Tooltip title={t('alerts.markAllReadTooltip')}>
             <Button
               variant="outlined"
               size="small"
@@ -336,10 +361,10 @@ const AlertsCenter = () => {
               onClick={handleMarkAllAsRead}
               disabled={unreadCount === 0}
             >
-              Mark All Read
+              {t('alerts.markAllRead')}
             </Button>
           </Tooltip>
-          <Tooltip title="Refresh">
+          <Tooltip title={t('common.refresh')}>
             <IconButton onClick={handleRefresh} disabled={refreshing}>
               <Refresh />
             </IconButton>
@@ -357,7 +382,7 @@ const AlertsCenter = () => {
                 {alerts.critical?.length || 0}
               </Typography>
               <Typography variant="body2" color="textSecondary">
-                Critical Alerts
+                {t('alerts.criticalAlerts')}
               </Typography>
             </Box>
           </Box>
@@ -371,7 +396,7 @@ const AlertsCenter = () => {
                 {alerts.warnings?.length || 0}
               </Typography>
               <Typography variant="body2" color="textSecondary">
-                Warnings
+                {t('alerts.warnings')}
               </Typography>
             </Box>
           </Box>
@@ -385,7 +410,7 @@ const AlertsCenter = () => {
                 {alerts.info?.length || 0}
               </Typography>
               <Typography variant="body2" color="textSecondary">
-                Information
+                {t('alerts.information')}
               </Typography>
             </Box>
           </Box>
@@ -399,7 +424,7 @@ const AlertsCenter = () => {
                 {(alerts.predictiveAlerts?.length || 0) + (alerts.marketAlerts?.length || 0)}
               </Typography>
               <Typography variant="body2" color="textSecondary">
-                ML Predictions
+                {t('alerts.mlPredictions')}
               </Typography>
             </Box>
           </Box>
@@ -417,7 +442,7 @@ const AlertsCenter = () => {
           <Tab 
             label={
               <Badge badgeContent={allAlerts.length} color="primary">
-                All Alerts
+                {t('alerts.allAlerts')}
               </Badge>
             } 
             value="all" 
@@ -425,7 +450,7 @@ const AlertsCenter = () => {
           <Tab 
             label={
               <Badge badgeContent={alerts.critical?.length || 0} color="error">
-                Critical
+                {t('alerts.critical')}
               </Badge>
             } 
             value="critical" 
@@ -433,7 +458,7 @@ const AlertsCenter = () => {
           <Tab 
             label={
               <Badge badgeContent={alerts.warnings?.length || 0} color="warning">
-                Warnings
+                {t('alerts.warningsTab')}
               </Badge>
             } 
             value="warning" 
@@ -441,7 +466,7 @@ const AlertsCenter = () => {
           <Tab 
             label={
               <Badge badgeContent={alerts.info?.length || 0} color="info">
-                Info
+                {t('alerts.info')}
               </Badge>
             } 
             value="info" 
@@ -468,7 +493,7 @@ const AlertsCenter = () => {
                     secondaryAction={
                       <Box>
                         {!alert.read && (
-                          <Tooltip title="Mark as read">
+                          <Tooltip title={t('alerts.markAsRead')}>
                             <IconButton 
                               edge="end" 
                               size="small"
@@ -479,7 +504,7 @@ const AlertsCenter = () => {
                             </IconButton>
                           </Tooltip>
                         )}
-                        <Tooltip title="Delete">
+                        <Tooltip title={t('common.delete')}>
                           <IconButton 
                             edge="end" 
                             size="small"
@@ -501,7 +526,7 @@ const AlertsCenter = () => {
                             {alert.message}
                           </Typography>
                           {!alert.read && (
-                            <Chip label="New" color="error" size="small" />
+                            <Chip label={t('alerts.new')} color="error" size="small" />
                           )}
                         </Box>
                       }
@@ -528,44 +553,44 @@ const AlertsCenter = () => {
           ) : (
             <Alert severity="success">
               <Typography variant="body1">
-                🎉 No {activeTab === 'all' ? '' : activeTab} alerts at this time. Everything is running smoothly!
+                🎉 {t('alerts.noAlerts')}
               </Typography>
             </Alert>
           )}
         </CardContent>
       </Card>
 
-      {/* SMS Alert Dialog */}
-      <Dialog open={smsDialogOpen} onClose={handleCloseSMSDialog} maxWidth="md" fullWidth>
+      {/* Email Alert Dialog */}
+      <Dialog open={emailDialogOpen} onClose={handleCloseEmailDialog} maxWidth="md" fullWidth>
         <DialogTitle>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Sms color="primary" />
-            <Typography variant="h6">Send SMS Alert to Customers</Typography>
+            <EmailIcon color="primary" />
+            <Typography variant="h6">Send Email to Customers</Typography>
           </Box>
         </DialogTitle>
         <DialogContent dividers>
-          {smsResult ? (
+          {emailResult ? (
             <Alert 
-              severity={smsResult.results.failed === 0 ? 'success' : 'warning'}
+              severity={emailResult.results.failed === 0 ? 'success' : 'warning'}
               sx={{ mb: 2 }}
             >
               <Typography variant="body1" fontWeight="bold">
-                {smsResult.message}
+                {emailResult.message}
               </Typography>
               <Typography variant="body2" sx={{ mt: 1 }}>
-                Successful: {smsResult.results.successful} | Failed: {smsResult.results.failed}
+                Successful: {emailResult.results.successful} | Failed: {emailResult.results.failed}
               </Typography>
-              {smsResult.results.failed > 0 && (
+              {emailResult.results.failed > 0 && (
                 <Box sx={{ mt: 2 }}>
                   <Typography variant="caption" fontWeight="bold">Failed Recipients:</Typography>
                   <List dense>
-                    {smsResult.results.details
+                    {emailResult.results.details
                       .filter(d => !d.success)
                       .map((detail, index) => (
                         <ListItem key={index}>
                           <ListItemText 
                             primary={detail.customerName}
-                            secondary={`${detail.phone} - ${detail.message}`}
+                            secondary={`${detail.email} - ${detail.message}`}
                           />
                         </ListItem>
                       ))}
@@ -578,28 +603,28 @@ const AlertsCenter = () => {
               <Grid container spacing={2} sx={{ mb: 3 }}>
                 <Grid item xs={12} md={6}>
                   <FormControl fullWidth>
-                    <InputLabel>Alert Type</InputLabel>
+                    <InputLabel>{t('alerts.alertType')}</InputLabel>
                     <Select
-                      value={smsData.alertType}
-                      onChange={(e) => setSmsData(prev => ({ ...prev, alertType: e.target.value }))}
-                      label="Alert Type"
+                      value={emailData.alertType}
+                      onChange={(e) => setEmailData(prev => ({ ...prev, alertType: e.target.value }))}
+                      label={t('alerts.alertType')}
                     >
                       <MenuItem value="critical">
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           <ErrorIcon sx={{ color: '#f44336' }} />
-                          Critical
+                          {t('alerts.critical')}
                         </Box>
                       </MenuItem>
                       <MenuItem value="warning">
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           <Warning sx={{ color: '#ff9800' }} />
-                          Warning
+                          {t('alerts.warning')}
                         </Box>
                       </MenuItem>
                       <MenuItem value="info">
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           <Info sx={{ color: '#2196f3' }} />
-                          Information
+                          {t('alerts.information')}
                         </Box>
                       </MenuItem>
                     </Select>
@@ -607,9 +632,9 @@ const AlertsCenter = () => {
                 </Grid>
                 <Grid item xs={12} md={6}>
                   <Paper sx={{ p: 2, backgroundColor: 'grey.100' }}>
-                    <Typography variant="caption" color="text.secondary">Selected</Typography>
+                    <Typography variant="caption" color="text.secondary">{t('alerts.selected')}</Typography>
                     <Typography variant="h6" fontWeight="bold">
-                      {selectedCustomers.length} of {customersList.filter(c => c.hasPhone).length} customers
+                      {selectedCustomers.length} {t('alerts.of')} {customersList.filter(c => c.email).length} {t('alerts.customers')}
                     </Typography>
                   </Paper>
                 </Grid>
@@ -617,26 +642,34 @@ const AlertsCenter = () => {
 
               <TextField
                 fullWidth
+                label="Subject"
+                placeholder="Enter email subject"
+                value={emailData.subject}
+                onChange={(e) => setEmailData(prev => ({ ...prev, subject: e.target.value }))}
+                sx={{ mb: 2 }}
+              />
+
+              <TextField
+                fullWidth
                 multiline
                 rows={4}
-                label="SMS Message"
-                placeholder="Enter your alert message here..."
-                value={smsData.message}
-                onChange={(e) => setSmsData(prev => ({ ...prev, message: e.target.value }))}
+                label="Email Message"
+                placeholder="Enter your email message here..."
+                value={emailData.message}
+                onChange={(e) => setEmailData(prev => ({ ...prev, message: e.target.value }))}
                 sx={{ mb: 3 }}
-                helperText={`${smsData.message.length}/160 characters`}
               />
 
               <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Typography variant="h6">Select Customers</Typography>
+                <Typography variant="h6">{t('alerts.selectCustomers')}</Typography>
                 <Button
                   size="small"
                   onClick={handleSelectAll}
                   startIcon={<CheckCircle />}
                 >
-                  {selectedCustomers.length === customersList.filter(c => c.hasPhone).length 
-                    ? 'Deselect All' 
-                    : 'Select All'}
+                  {selectedCustomers.length === customersList.filter(c => c.email).length 
+                    ? t('alerts.deselectAll') 
+                    : t('alerts.selectAll')}
                 </Button>
               </Box>
 
@@ -645,25 +678,22 @@ const AlertsCenter = () => {
                   {customersList.map((customer) => (
                     <ListItemButton
                       key={customer.id}
-                      onClick={() => customer.hasPhone && handleCustomerToggle(customer.id)}
-                      disabled={!customer.hasPhone}
+                      onClick={() => customer.email && handleCustomerToggle(customer.id)}
+                      disabled={!customer.email}
                     >
                       <Checkbox
                         checked={selectedCustomers.includes(customer.id)}
-                        disabled={!customer.hasPhone}
+                        disabled={!customer.email}
                       />
                       <ListItemIcon>
-                        <Phone color={customer.hasPhone ? 'primary' : 'disabled'} />
+                        <MailOutline color={customer.email ? 'primary' : 'disabled'} />
                       </ListItemIcon>
                       <ListItemText
                         primary={customer.name || customer.username}
                         secondary={
                           <Box>
-                            <Typography variant="caption" display="block">
-                              {customer.email}
-                            </Typography>
-                            <Typography variant="caption" color={customer.hasPhone ? 'success.main' : 'error'}>
-                              {customer.phone}
+                            <Typography variant="caption" display="block" color={customer.email ? 'success.main' : 'error'}>
+                              {customer.email || 'No email address'}
                             </Typography>
                           </Box>
                         }
@@ -674,7 +704,7 @@ const AlertsCenter = () => {
                 {customersList.length === 0 && (
                   <Box sx={{ p: 3, textAlign: 'center' }}>
                     <Typography variant="body2" color="text.secondary">
-                      No customers found
+                      {t('alerts.noCustomersFound')}
                     </Typography>
                   </Box>
                 )}
@@ -683,17 +713,17 @@ const AlertsCenter = () => {
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseSMSDialog}>
-            {smsResult ? 'Close' : 'Cancel'}
+          <Button onClick={handleCloseEmailDialog}>
+            {emailResult ? t('common.close') : t('common.cancel')}
           </Button>
-          {!smsResult && (
+          {!emailResult && (
             <Button
               variant="contained"
-              onClick={handleSendSMS}
-              disabled={sendingSMS || selectedCustomers.length === 0 || !smsData.message.trim()}
-              startIcon={sendingSMS ? <CircularProgress size={20} /> : <Send />}
+              onClick={handleSendEmail}
+              disabled={sendingEmail || selectedCustomers.length === 0 || !emailData.message.trim() || !emailData.subject.trim()}
+              startIcon={sendingEmail ? <CircularProgress size={20} /> : <Send />}
             >
-              {sendingSMS ? 'Sending...' : `Send to ${selectedCustomers.length} Customer(s)`}
+              {sendingEmail ? t('alerts.sending') : `Send to ${selectedCustomers.length} customer(s)`}
             </Button>
           )}
         </DialogActions>

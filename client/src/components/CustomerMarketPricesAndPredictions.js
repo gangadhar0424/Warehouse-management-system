@@ -29,23 +29,36 @@ import {
   Refresh,
   Info,
   CalendarToday,
-  AttachMoney,
+  CurrencyRupee,
   Speed
 } from '@mui/icons-material';
 import axios from 'axios';
+import { useTranslation } from '../i18n/LanguageContext';
+import AIPricePredictions from './AIPricePredictions';
+import AIGrainPriceForecast from './AIGrainPriceForecast';
 
 const CustomerMarketPricesAndPredictions = () => {
+  const { t } = useTranslation();
   const [marketPrices, setMarketPrices] = useState([]);
   const [predictions, setPredictions] = useState([]);
   const [customerGrains, setCustomerGrains] = useState([]);
   const [loading, setLoading] = useState(true);
   const [predictionsLoading, setPredictionsLoading] = useState(false);
+  const [aiPredictions, setAiPredictions] = useState([]);
+  const [aiPredictionsLoading, setAiPredictionsLoading] = useState(false);
   const [error, setError] = useState('');
   const [lastUpdate, setLastUpdate] = useState(null);
+  const [selectedGrain, setSelectedGrain] = useState('Rice');
 
   useEffect(() => {
     fetchMarketData();
     fetchCustomerGrains();
+    // Auto-refresh every 5 minutes
+    const interval = setInterval(() => {
+      fetchMarketData();
+      fetchCustomerGrains();
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
   }, []);
 
   const fetchMarketData = async () => {
@@ -58,7 +71,7 @@ const CustomerMarketPricesAndPredictions = () => {
       setLastUpdate(new Date());
     } catch (err) {
       console.error('Error fetching market prices:', err);
-      setError(err.response?.data?.message || 'Failed to fetch market prices');
+      setError(err.response?.data?.message || t('market.errorFetchingPrices'));
     } finally {
       setLoading(false);
     }
@@ -72,22 +85,38 @@ const CustomerMarketPricesAndPredictions = () => {
       // Extract grain types from allocations
       const grains = [];
       allocations.forEach(allocation => {
-        if (allocation.storageDetails?.items) {
-          allocation.storageDetails.items.forEach(item => {
-            if (item.description && !grains.some(g => g.name === item.description)) {
-              grains.push({
-                name: item.description,
-                weight: item.weight || 0,
-                quantity: item.quantity || 0,
-                entryDate: item.entryDate,
-                currentValue: item.value || 0
-              });
-            }
-          });
+        // Check allocation object for grain data
+        if (allocation.allocation && allocation.allocation.grainType && allocation.allocation.weight) {
+          const grainType = allocation.allocation.grainType;
+          const weightKg = allocation.allocation.weight;
+          const entryDate = allocation.duration?.startDate || allocation.createdAt;
+          
+          // Check if grain already exists in array
+          const existingGrain = grains.find(g => g.name === grainType);
+          
+          if (existingGrain) {
+            // Add to existing grain
+            existingGrain.weight += weightKg;
+            existingGrain.quantity += 1; // Count allocations
+          } else {
+            // Add new grain
+            grains.push({
+              name: grainType,
+              weight: weightKg,
+              quantity: 1,
+              entryDate: entryDate,
+              currentValue: (weightKg / 100) * 3200 // Estimated value: weight in quintals * price
+            });
+          }
         }
       });
       
       setCustomerGrains(grains);
+      
+      // Set selected grain to first grain if available
+      if (grains.length > 0 && !selectedGrain) {
+        setSelectedGrain(grains[0].name);
+      }
     } catch (err) {
       console.error('Error fetching customer grains:', err);
     }
@@ -95,24 +124,29 @@ const CustomerMarketPricesAndPredictions = () => {
 
   const fetchPredictions = async () => {
     try {
-      setPredictionsLoading(true);
+      setAiPredictionsLoading(true);
       setError('');
 
-      // Get predictions from ML service
-      const response = await axios.post('/api/predictions/grain-prices', {
-        grains: customerGrains.map(g => ({
-          type: g.name,
-          weight: g.weight,
-          storageDuration: calculateStorageDays(g.entryDate)
-        }))
+      // Get AI predictions from new ML API backend
+      const batchItems = customerGrains.map(g => ({
+        grain_type: g.name,
+        total_bags: g.quantity || 100,
+        total_weight_kg: g.weight || 5000,
+        monthly_rent_per_bag: 50
+      }));
+
+      const response = await axios.post('/api/ai/analyze-batch', {
+        items: batchItems
       });
 
-      setPredictions(response.data.predictions || []);
+      if (response.data.success) {
+        setAiPredictions(response.data.results || []);
+      }
     } catch (err) {
-      console.error('Error fetching predictions:', err);
-      setError(err.response?.data?.message || 'Failed to fetch price predictions');
+      console.error('Error fetching AI predictions:', err);
+      setError(err.response?.data?.message || t('market.errorFetchingPredictions') || 'Failed to fetch AI predictions');
     } finally {
-      setPredictionsLoading(false);
+      setAiPredictionsLoading(false);
     }
   };
 
@@ -157,9 +191,9 @@ const CustomerMarketPricesAndPredictions = () => {
 
   const getRecommendationLabel = (recommendation) => {
     const labels = {
-      'sell_now': 'Sell Now - High Price',
-      'hold': 'Hold - Moderate Price',
-      'wait': 'Wait - Price May Rise'
+      'sell_now': t('market.sellNow'),
+      'hold': t('market.hold'),
+      'wait': t('market.wait')
     };
     return labels[recommendation] || recommendation;
   };
@@ -179,23 +213,30 @@ const CustomerMarketPricesAndPredictions = () => {
           <ShowChart sx={{ fontSize: 32, color: 'primary.main' }} />
           <Box>
             <Typography variant="h5" fontWeight="bold">
-              Market Prices & Predictions
+              {t('market.title')}
             </Typography>
             {lastUpdate && (
               <Typography variant="caption" color="text.secondary">
-                Last updated: {formatDate(lastUpdate)}
+                {t('market.lastUpdated')}: {formatDate(lastUpdate)}
               </Typography>
             )}
           </Box>
         </Box>
-        <Button
-          variant="outlined"
-          startIcon={<Refresh />}
-          onClick={fetchMarketData}
-          disabled={loading}
-        >
-          Refresh Prices
-        </Button>
+        <Stack direction="row" spacing={2}>
+          <AIGrainPriceForecast
+            defaultGrain={selectedGrain || 'Rice'}
+            buttonVariant="contained"
+            buttonSize="medium"
+          />
+          <Button
+            variant="outlined"
+            startIcon={<Refresh />}
+            onClick={fetchMarketData}
+            disabled={loading}
+          >
+            {t('market.refreshPrices')}
+          </Button>
+        </Stack>
       </Box>
 
       {error && (
@@ -203,6 +244,14 @@ const CustomerMarketPricesAndPredictions = () => {
           {error}
         </Alert>
       )}
+      
+      {/* AI Price Predictions - Prominent Display */}
+      <Box sx={{ mb: 3 }}>
+        <AIPricePredictions 
+          grainType={selectedGrain}
+          currentPrice={marketPrices.find(p => p.grainType === selectedGrain)?.currentPrice}
+        />
+      </Box>
 
       <Grid container spacing={3}>
         {/* Live Market Prices */}
@@ -210,9 +259,9 @@ const CustomerMarketPricesAndPredictions = () => {
           <Card>
             <CardContent>
               <Box display="flex" alignItems="center" gap={1} mb={2}>
-                <AttachMoney color="success" />
+                <CurrencyRupee color="success" />
                 <Typography variant="h6" fontWeight="bold">
-                  Live Market Prices
+                  {t('market.livePrices')}
                 </Typography>
               </Box>
 
@@ -220,20 +269,21 @@ const CustomerMarketPricesAndPredictions = () => {
                 <Table>
                   <TableHead>
                     <TableRow>
-                      <TableCell><strong>Grain Type</strong></TableCell>
-                      <TableCell align="right"><strong>Current Price (₹/Quintal)</strong></TableCell>
-                      <TableCell align="right"><strong>Previous Price</strong></TableCell>
-                      <TableCell align="center"><strong>Change</strong></TableCell>
-                      <TableCell align="center"><strong>Trend</strong></TableCell>
-                      <TableCell align="right"><strong>Market</strong></TableCell>
+                      <TableCell><strong>{t('grainLocations.grainType')}</strong></TableCell>
+                      <TableCell align="right"><strong>{t('market.currentPrice')}</strong></TableCell>
+                      <TableCell align="right"><strong>{t('market.previousPrice')}</strong></TableCell>
+                      <TableCell align="center"><strong>{t('market.change')}</strong></TableCell>
+                      <TableCell align="center"><strong>{t('market.trend')}</strong></TableCell>
+                      <TableCell align="right"><strong>{t('market.marketType')}</strong></TableCell>
+                      <TableCell align="center"><strong>AI Forecast</strong></TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {marketPrices.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} align="center">
+                        <TableCell colSpan={7} align="center">
                           <Typography color="text.secondary">
-                            No market data available
+                            {t('market.noMarketData')}
                           </Typography>
                         </TableCell>
                       </TableRow>
@@ -277,8 +327,16 @@ const CustomerMarketPricesAndPredictions = () => {
                             </TableCell>
                             <TableCell align="right">
                               <Typography variant="body2" color="text.secondary">
-                                {price.market || 'Local'}
+                                {price.market || t('market.localMarket')}
                               </Typography>
+                            </TableCell>
+                            <TableCell align="center">
+                              <AIGrainPriceForecast
+                                defaultGrain={price.grainType}
+                                buttonVariant="outlined"
+                                buttonSize="small"
+                                buttonText="Predict"
+                              />
                             </TableCell>
                           </TableRow>
                         );
@@ -292,51 +350,61 @@ const CustomerMarketPricesAndPredictions = () => {
         </Grid>
 
         {/* Customer's Stored Grains */}
-        {customerGrains.length > 0 && (
-          <Grid item xs={12}>
-            <Card sx={{ bgcolor: 'info.50', border: '1px solid', borderColor: 'info.200' }}>
-              <CardContent>
-                <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
-                  <Box display="flex" alignItems="center" gap={1}>
-                    <Speed color="info" />
-                    <Typography variant="h6" fontWeight="bold">
-                      Your Stored Grains - AI Predictions
-                    </Typography>
-                  </Box>
-                  <Button
-                    variant="contained"
-                    size="small"
-                    onClick={fetchPredictions}
-                    disabled={predictionsLoading}
-                    startIcon={predictionsLoading ? <CircularProgress size={16} /> : <ShowChart />}
-                  >
-                    Get Predictions
-                  </Button>
+        <Grid item xs={12}>
+          <Card sx={{ bgcolor: 'info.50', border: '1px solid', borderColor: 'info.200' }}>
+            <CardContent>
+              <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
+                <Box display="flex" alignItems="center" gap={1}>
+                  <Speed color="info" />
+                  <Typography variant="h6" fontWeight="bold">
+                    AI-Powered Price Predictions
+                  </Typography>
                 </Box>
+                <Button
+                  variant="contained"
+                  size="small"
+                  onClick={fetchPredictions}
+                  disabled={aiPredictionsLoading || customerGrains.length === 0}
+                  startIcon={aiPredictionsLoading ? <CircularProgress size={16} /> : <ShowChart />}
+                >
+                  {aiPredictionsLoading ? 'Getting AI Insights...' : 'Get AI Price Predictions'}
+                </Button>
+              </Box>
 
-                <TableContainer component={Paper}>
-                  <Table>
+                {customerGrains.length === 0 ? (
+                  <Paper sx={{ p: 4, textAlign: 'center' }}>
+                    <Speed sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
+                    <Typography variant="h6" color="text.secondary" gutterBottom>
+                      No Stored Grains Found
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Add grains to your warehouse to get AI-powered price predictions and market insights.
+                    </Typography>
+                  </Paper>
+                ) : (
+                  <>
+                    <TableContainer component={Paper}>
+                      <Table>
                     <TableHead>
                       <TableRow>
-                        <TableCell><strong>Grain Type</strong></TableCell>
-                        <TableCell align="right"><strong>Quantity</strong></TableCell>
-                        <TableCell align="right"><strong>Weight (kg)</strong></TableCell>
-                        <TableCell align="center"><strong>Storage Days</strong></TableCell>
-                        <TableCell align="right"><strong>Current Value</strong></TableCell>
-                        {predictions.length > 0 && (
+                        <TableCell><strong>{t('grainLocations.grainType')}</strong></TableCell>
+                        <TableCell align="right"><strong>{t('market.quantity')}</strong></TableCell>
+                        <TableCell align="right"><strong>{t('grainLocations.weight')} (kg)</strong></TableCell>
+                        <TableCell align="center"><strong>{t('market.storageDays')}</strong></TableCell>
+                        <TableCell align="right"><strong>{t('market.currentValue')}</strong></TableCell>
+                        {aiPredictions.length > 0 && (
                           <>
-                            <TableCell align="right"><strong>Predicted Price</strong></TableCell>
-                            <TableCell align="center"><strong>Recommendation</strong></TableCell>
-                            <TableCell align="right"><strong>Confidence</strong></TableCell>
+                            <TableCell align="center"><strong>AI Price Category</strong></TableCell>
+                            <TableCell align="center"><strong>AI Profit Outlook</strong></TableCell>
+                            <TableCell align="center"><strong>Storage Duration</strong></TableCell>
+                            <TableCell align="center"><strong>AI Confidence</strong></TableCell>
                           </>
                         )}
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       {customerGrains.map((grain, index) => {
-                        const prediction = predictions.find(p => 
-                          p.grainType?.toLowerCase() === grain.name?.toLowerCase()
-                        );
+                        const aiPrediction = aiPredictions[index];
                         const storageDays = calculateStorageDays(grain.entryDate);
                         
                         return (
@@ -351,7 +419,7 @@ const CustomerMarketPricesAndPredictions = () => {
                             <TableCell align="center">
                               <Chip
                                 icon={<CalendarToday />}
-                                label={`${storageDays} days`}
+                                label={`${storageDays} ${t('payments.days')}`}
                                 size="small"
                                 color={storageDays > 90 ? 'warning' : 'default'}
                               />
@@ -362,44 +430,52 @@ const CustomerMarketPricesAndPredictions = () => {
                               </Typography>
                             </TableCell>
                             
-                            {prediction && (
+                            {aiPrediction && aiPrediction.success && (
                               <>
-                                <TableCell align="right">
-                                  <Typography fontWeight="bold" color="primary.main">
-                                    ₹{prediction.predictedPrice?.toLocaleString('en-IN')}
-                                  </Typography>
-                                  {prediction.priceChange && (
-                                    <Typography variant="caption" color="text.secondary">
-                                      ({prediction.priceChange > 0 ? '+' : ''}{prediction.priceChange}%)
-                                    </Typography>
-                                  )}
-                                </TableCell>
                                 <TableCell align="center">
                                   <Chip
-                                    label={getRecommendationLabel(prediction.recommendation)}
-                                    color={getRecommendationColor(prediction.recommendation)}
+                                    label={aiPrediction.price?.predicted_category || 'N/A'}
+                                    color={aiPrediction.price?.predicted_category === 'High' ? 'success' : aiPrediction.price?.predicted_category === 'Low' ? 'error' : 'warning'}
                                     size="small"
                                   />
                                 </TableCell>
-                                <TableCell align="right">
-                                  <Box sx={{ width: '100%', display: 'flex', alignItems: 'center', gap: 1 }}>
-                                    <LinearProgress
-                                      variant="determinate"
-                                      value={prediction.confidence * 100 || 0}
-                                      sx={{ flexGrow: 1, height: 8, borderRadius: 4 }}
-                                    />
-                                    <Typography variant="caption">
-                                      {((prediction.confidence || 0) * 100).toFixed(0)}%
-                                    </Typography>
-                                  </Box>
+                                <TableCell align="center">
+                                  <Chip
+                                    label={aiPrediction.profit?.predicted_category || 'N/A'}
+                                    color={aiPrediction.profit?.predicted_category === 'Profit' ? 'success' : 'error'}
+                                    size="small"
+                                  />
+                                </TableCell>
+                                <TableCell align="center">
+                                  <Chip
+                                    label={aiPrediction.duration?.predicted_category || 'N/A'}
+                                    color="info"
+                                    size="small"
+                                  />
+                                </TableCell>
+                                <TableCell align="center">
+                                  <Stack direction="row" spacing={1} alignItems="center" justifyContent="center">
+                                    <Tooltip title={`Price: ${((aiPrediction.price?.confidence || 0) * 100).toFixed(0)}%, Profit: ${((aiPrediction.profit?.confidence || 0) * 100).toFixed(0)}%, Duration: ${((aiPrediction.duration?.confidence || 0) * 100).toFixed(0)}%`}>
+                                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                        <LinearProgress
+                                          variant="determinate"
+                                          value={((aiPrediction.price?.confidence || 0) + (aiPrediction.profit?.confidence || 0) + (aiPrediction.duration?.confidence || 0)) / 3 * 100}
+                                          sx={{ width: 60, height: 6, borderRadius: 3 }}
+                                        />
+                                        <Typography variant="caption">
+                                          {(((aiPrediction.price?.confidence || 0) + (aiPrediction.profit?.confidence || 0) + (aiPrediction.duration?.confidence || 0)) / 3 * 100).toFixed(0)}%
+                                        </Typography>
+                                      </Box>
+                                    </Tooltip>
+                                  </Stack>
                                 </TableCell>
                               </>
                             )}
                             
-                            {predictions.length === 0 && (
-                              <TableCell colSpan={3} align="center">
+                            {aiPredictions.length === 0 && (
+                              <TableCell colSpan={4} align="center">
                                 <Typography variant="body2" color="text.secondary">
-                                  Click "Get Predictions" to see AI recommendations
+                                  Click "Get AI Price Predictions" to see AI-powered insights
                                 </Typography>
                               </TableCell>
                             )}
@@ -410,25 +486,25 @@ const CustomerMarketPricesAndPredictions = () => {
                   </Table>
                 </TableContainer>
 
-                {predictions.length > 0 && (
+                {aiPredictions.length > 0 && (
                   <Box sx={{ mt: 2, p: 2, bgcolor: 'background.paper', borderRadius: 1 }}>
                     <Typography variant="caption" color="text.secondary" display="flex" alignItems="center" gap={0.5}>
                       <Info fontSize="small" />
-                      Predictions are generated using machine learning models based on historical market data, storage duration, and current trends.
-                      Confidence scores indicate the reliability of each prediction.
+                      AI predictions powered by machine learning models trained on historical warehouse data. Price Category indicates market trend, Profit Outlook shows expected profitability, and Storage Duration estimates optimal storage period.
                     </Typography>
                   </Box>
                 )}
-              </CardContent>
-            </Card>
-          </Grid>
-        )}
+              </>
+            )}
+            </CardContent>
+          </Card>
+        </Grid>
 
         {/* Market Insights */}
         <Grid item xs={12} md={4}>
           <Paper sx={{ p: 2, bgcolor: 'success.50', border: '1px solid', borderColor: 'success.200' }}>
             <Typography variant="subtitle2" fontWeight="bold" color="success.main" gutterBottom>
-              Highest Price Today
+              {t('market.highestPriceToday')}
             </Typography>
             {marketPrices.length > 0 ? (
               <>
@@ -440,7 +516,7 @@ const CustomerMarketPricesAndPredictions = () => {
                 </Typography>
               </>
             ) : (
-              <Typography variant="body2" color="text.secondary">No data</Typography>
+              <Typography variant="body2" color="text.secondary">{t('market.noData')}</Typography>
             )}
           </Paper>
         </Grid>
@@ -448,7 +524,7 @@ const CustomerMarketPricesAndPredictions = () => {
         <Grid item xs={12} md={4}>
           <Paper sx={{ p: 2, bgcolor: 'warning.50', border: '1px solid', borderColor: 'warning.200' }}>
             <Typography variant="subtitle2" fontWeight="bold" color="warning.main" gutterBottom>
-              Most Volatile
+              {t('market.mostVolatile')}
             </Typography>
             {marketPrices.length > 0 ? (
               <>
@@ -475,7 +551,7 @@ const CustomerMarketPricesAndPredictions = () => {
                 </Typography>
               </>
             ) : (
-              <Typography variant="body2" color="text.secondary">No data</Typography>
+              <Typography variant="body2" color="text.secondary">{t('market.noData')}</Typography>
             )}
           </Paper>
         </Grid>
@@ -483,13 +559,13 @@ const CustomerMarketPricesAndPredictions = () => {
         <Grid item xs={12} md={4}>
           <Paper sx={{ p: 2, bgcolor: 'info.50', border: '1px solid', borderColor: 'info.200' }}>
             <Typography variant="subtitle2" fontWeight="bold" color="info.main" gutterBottom>
-              Your Grain Types
+              {t('market.yourGrainTypes')}
             </Typography>
             <Typography variant="h5" fontWeight="bold">
               {customerGrains.length}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Different grain types stored
+              {t('market.differentGrainTypes')}
             </Typography>
           </Paper>
         </Grid>

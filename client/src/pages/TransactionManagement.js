@@ -33,25 +33,26 @@ import {
   Divider
 } from '@mui/material';
 import {
-  AttachMoney,
+  CurrencyRupee,
   Add,
   Visibility,
   Receipt,
   TrendingUp,
   TrendingDown,
   Payment,
-  AccountBalance,
   Scale,
-  Grain,
   Schedule,
   Warning,
-  Warehouse
+  Warehouse,
+  FileDownload
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
+import { useTranslation } from '../i18n/LanguageContext';
 import axios from 'axios';
 
 const TransactionManagement = () => {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const { addNotification } = useSocket();
   const [activeTab, setActiveTab] = useState(0);
@@ -181,6 +182,31 @@ const TransactionManagement = () => {
     }
   };
 
+  const handleExportTransactions = async () => {
+    try {
+      const params = {};
+      if (activeTab === 1) params.status = 'pending';
+      if (activeTab === 2) params.status = 'completed';
+      if (activeTab === 3) params.today = true;
+
+      const response = await axios.get('/api/exports/transactions', {
+        params,
+        responseType: 'blob'
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'transactions.xlsx');
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error exporting transactions:', error);
+      setError('Failed to export transactions');
+    }
+  };
+
   const getStatusChip = (status) => {
     const statusConfig = {
       pending: { color: 'warning', icon: <Schedule fontSize="small" /> },
@@ -206,11 +232,9 @@ const TransactionManagement = () => {
     const typeIcons = {
       weighbridge_fee: <Scale />,
       grain_storage_rent: <Warehouse />,
-      grain_loan: <AccountBalance />,
-      loan_repayment: <Payment />,
-      grain_release: <Grain />
+      loan_repayment: <Payment />
     };
-    return typeIcons[type] || <AttachMoney />;
+    return typeIcons[type] || <CurrencyRupee />;
   };
 
   const formatCurrency = (amount) => {
@@ -237,16 +261,25 @@ const TransactionManagement = () => {
     <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4" gutterBottom>
-          💰 Transaction Management
+          💰 {t('transactions.title')}
         </Typography>
-        <Button
-          variant="contained"
-          startIcon={<Add />}
-          onClick={() => setCreateDialog(true)}
-          disabled={user?.role !== 'owner'}
-        >
-          New Transaction
-        </Button>
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <Button
+            variant="outlined"
+            startIcon={<FileDownload />}
+            onClick={handleExportTransactions}
+          >
+            {t('common.export') || 'Export Excel'}
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<Add />}
+            onClick={() => setCreateDialog(true)}
+            disabled={user?.role !== 'owner'}
+          >
+            {t('transactions.newTransaction')}
+          </Button>
+        </Box>
       </Box>
 
       {error && (
@@ -270,7 +303,7 @@ const TransactionManagement = () => {
                 <TrendingUp color="success" sx={{ mr: 2 }} />
                 <Box>
                   <Typography color="text.secondary" gutterBottom>
-                    Total Revenue
+                    {t('transactions.totalRevenue')}
                   </Typography>
                   <Typography variant="h4">
                     {formatCurrency(stats.totalRevenue)}
@@ -287,7 +320,7 @@ const TransactionManagement = () => {
                 <Warning color="warning" sx={{ mr: 2 }} />
                 <Box>
                   <Typography color="text.secondary" gutterBottom>
-                    Pending Payments
+                    {t('transactions.pendingPayments')}
                   </Typography>
                   <Typography variant="h4">
                     {formatCurrency(stats.pendingPayments)}
@@ -304,7 +337,7 @@ const TransactionManagement = () => {
                 <Receipt color="primary" sx={{ mr: 2 }} />
                 <Box>
                   <Typography color="text.secondary" gutterBottom>
-                    Completed Today
+                    {t('transactions.completedToday')}
                   </Typography>
                   <Typography variant="h4">
                     {stats.completedToday}
@@ -321,7 +354,7 @@ const TransactionManagement = () => {
                 <Schedule color="error" sx={{ mr: 2 }} />
                 <Box>
                   <Typography color="text.secondary" gutterBottom>
-                    Overdue
+                    {t('transactions.overdue')}
                   </Typography>
                   <Typography variant="h4">
                     <Badge badgeContent={stats.overdueCount} color="error">
@@ -338,10 +371,10 @@ const TransactionManagement = () => {
       {/* Tabs */}
       <Paper sx={{ mb: 3 }}>
         <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)}>
-          <Tab label={`All Transactions (${transactions.length})`} />
-          <Tab label={`Pending (${transactions.filter(t => t.payment.status === 'pending').length})`} />
-          <Tab label={`Completed (${transactions.filter(t => t.payment.status === 'completed').length})`} />
-          <Tab label="Today's Transactions" />
+          <Tab label={`${t('transactions.allTransactions')} (${transactions.length})`} />
+          <Tab label={`${t('transactions.filter')} (${transactions.filter(t => t.payment.status === 'pending').length})`} />
+          <Tab label={`${t('common.completed')} (${transactions.filter(t => t.payment.status === 'completed').length})`} />
+          <Tab label={t('transactions.todayTransactions')} />
         </Tabs>
       </Paper>
 
@@ -350,14 +383,14 @@ const TransactionManagement = () => {
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell>Transaction ID</TableCell>
-              <TableCell>Type</TableCell>
-              <TableCell>Customer</TableCell>
-              <TableCell>Amount</TableCell>
-              <TableCell>Payment Method</TableCell>
-              <TableCell>Status</TableCell>
-              <TableCell>Created Date</TableCell>
-              <TableCell>Actions</TableCell>
+              <TableCell>{t('transactions.transactionId')}</TableCell>
+              <TableCell>{t('transactions.type')}</TableCell>
+              <TableCell>{t('transactions.customer')}</TableCell>
+              <TableCell>{t('transactions.amount')}</TableCell>
+              <TableCell>{t('transactions.paymentMethod')}</TableCell>
+              <TableCell>{t('transactions.status')}</TableCell>
+              <TableCell>{t('transactions.date')}</TableCell>
+              <TableCell>{t('common.actions')}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -398,7 +431,7 @@ const TransactionManagement = () => {
                   {new Date(transaction.createdAt).toLocaleDateString()}
                 </TableCell>
                 <TableCell>
-                  <Tooltip title="View Details">
+                  <Tooltip title={t('common.viewDetails')}>
                     <IconButton
                       size="small"
                       onClick={() => {
@@ -410,7 +443,7 @@ const TransactionManagement = () => {
                     </IconButton>
                   </Tooltip>
                   {transaction.payment.status === 'pending' && user?.role === 'owner' && (
-                    <Tooltip title="Mark as Paid">
+                    <Tooltip title={t('transactions.markAsPaid')}>
                       <IconButton
                         size="small"
                         onClick={() => updatePaymentStatus(transaction._id, 'completed')}
@@ -429,28 +462,26 @@ const TransactionManagement = () => {
 
       {/* Create Transaction Dialog */}
       <Dialog open={createDialog} onClose={() => setCreateDialog(false)} maxWidth="md" fullWidth>
-        <DialogTitle>💰 Create New Transaction</DialogTitle>
+        <DialogTitle>💰 {t('transactions.createNewTransaction')}</DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid item xs={12} sm={6}>
               <FormControl fullWidth>
-                <InputLabel>Transaction Type</InputLabel>
+                <InputLabel>{t('transactions.transactionType')}</InputLabel>
                 <Select
                   value={newTransaction.type}
                   onChange={(e) => setNewTransaction(prev => ({...prev, type: e.target.value}))}
                 >
-                  <MenuItem value="weighbridge_fee">Weighbridge Fee</MenuItem>
-                  <MenuItem value="grain_storage_rent">Grain Storage Rent</MenuItem>
-                  <MenuItem value="grain_loan">Grain Loan</MenuItem>
-                  <MenuItem value="loan_repayment">Loan Repayment</MenuItem>
-                  <MenuItem value="grain_release">Grain Release</MenuItem>
+                  <MenuItem value="weighbridge_fee">{t('transactions.weighbridgeFee')}</MenuItem>
+                  <MenuItem value="grain_storage_rent">{t('transactions.grainStorageRent')}</MenuItem>
+                  <MenuItem value="loan_repayment">{t('transactions.loanRepayment')}</MenuItem>
                 </Select>
               </FormControl>
             </Grid>
             <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
-                label="Customer ID"
+                label={t('transactions.customerId')}
                 value={newTransaction.customer}
                 onChange={(e) => setNewTransaction(prev => ({...prev, customer: e.target.value}))}
                 placeholder="Customer MongoDB ObjectId"
@@ -459,7 +490,7 @@ const TransactionManagement = () => {
             <Grid item xs={12} sm={6}>
               <TextField
                 fullWidth
-                label="Amount (₹)"
+                label={t('transactions.amountRupees')}
                 type="number"
                 value={newTransaction.amount.baseAmount}
                 onChange={(e) => setNewTransaction(prev => ({
@@ -470,7 +501,7 @@ const TransactionManagement = () => {
             </Grid>
             <Grid item xs={12} sm={6}>
               <FormControl fullWidth>
-                <InputLabel>Payment Method</InputLabel>
+                <InputLabel>{t('transactions.paymentMethod')}</InputLabel>
                 <Select
                   value={newTransaction.payment.method}
                   onChange={(e) => setNewTransaction(prev => ({
@@ -478,37 +509,37 @@ const TransactionManagement = () => {
                     payment: {...prev.payment, method: e.target.value}
                   }))}
                 >
-                  <MenuItem value="cash">Cash</MenuItem>
-                  <MenuItem value="upi">UPI</MenuItem>
-                  <MenuItem value="card">Card</MenuItem>
-                  <MenuItem value="bank_transfer">Bank Transfer</MenuItem>
-                  <MenuItem value="cheque">Cheque</MenuItem>
+                  <MenuItem value="cash">{t('transactions.cash')}</MenuItem>
+                  <MenuItem value="upi">{t('transactions.upi')}</MenuItem>
+                  <MenuItem value="card">{t('transactions.card')}</MenuItem>
+                  <MenuItem value="bank_transfer">{t('transactions.bankTransfer')}</MenuItem>
+                  <MenuItem value="cheque">{t('transactions.cheque')}</MenuItem>
                 </Select>
               </FormControl>
             </Grid>
             <Grid item xs={12}>
               <TextField
                 fullWidth
-                label="Description"
+                label={t('transactions.description')}
                 multiline
                 rows={3}
                 value={newTransaction.description}
                 onChange={(e) => setNewTransaction(prev => ({...prev, description: e.target.value}))}
-                placeholder="Transaction description..."
+                placeholder={t('transactions.descriptionPlaceholder')}
               />
             </Grid>
             
             {/* Grain Details for relevant transaction types */}
-            {(['grain_storage_rent', 'grain_loan', 'grain_release'].includes(newTransaction.type)) && (
+            {(['grain_storage_rent'].includes(newTransaction.type)) && (
               <>
                 <Grid item xs={12}>
                   <Divider sx={{ my: 2 }}>
-                    <Typography variant="subtitle2">🌾 Grain Details</Typography>
+                    <Typography variant="subtitle2">🌾 {t('transactions.grainDetails')}</Typography>
                   </Divider>
                 </Grid>
                 <Grid item xs={12} sm={4}>
                   <FormControl fullWidth>
-                    <InputLabel>Grain Type</InputLabel>
+                    <InputLabel>{t('transactions.grainType')}</InputLabel>
                     <Select
                       value={newTransaction.grainDetails.grainType}
                       onChange={(e) => setNewTransaction(prev => ({
@@ -516,19 +547,19 @@ const TransactionManagement = () => {
                         grainDetails: {...prev.grainDetails, grainType: e.target.value}
                       }))}
                     >
-                      <MenuItem value="rice">Rice</MenuItem>
-                      <MenuItem value="wheat">Wheat</MenuItem>
-                      <MenuItem value="maize">Maize</MenuItem>
-                      <MenuItem value="barley">Barley</MenuItem>
-                      <MenuItem value="millet">Millet</MenuItem>
-                      <MenuItem value="sorghum">Sorghum</MenuItem>
+                      <MenuItem value="rice">{t('transactions.rice')}</MenuItem>
+                      <MenuItem value="wheat">{t('transactions.wheat')}</MenuItem>
+                      <MenuItem value="maize">{t('transactions.maize')}</MenuItem>
+                      <MenuItem value="barley">{t('transactions.barley')}</MenuItem>
+                      <MenuItem value="millet">{t('transactions.millet')}</MenuItem>
+                      <MenuItem value="sorghum">{t('transactions.sorghum')}</MenuItem>
                     </Select>
                   </FormControl>
                 </Grid>
                 <Grid item xs={12} sm={4}>
                   <TextField
                     fullWidth
-                    label="Number of Bags"
+                    label={t('transactions.numberOfBags')}
                     type="number"
                     value={newTransaction.grainDetails.numberOfBags}
                     onChange={(e) => setNewTransaction(prev => ({
@@ -539,7 +570,7 @@ const TransactionManagement = () => {
                 </Grid>
                 <Grid item xs={12} sm={4}>
                   <FormControl fullWidth>
-                    <InputLabel>Quality Grade</InputLabel>
+                    <InputLabel>{t('transactions.qualityGrade')}</InputLabel>
                     <Select
                       value={newTransaction.grainDetails.qualityGrade}
                       onChange={(e) => setNewTransaction(prev => ({
@@ -547,9 +578,9 @@ const TransactionManagement = () => {
                         grainDetails: {...prev.grainDetails, qualityGrade: e.target.value}
                       }))}
                     >
-                      <MenuItem value="A">Grade A (Premium)</MenuItem>
-                      <MenuItem value="B">Grade B (Standard)</MenuItem>
-                      <MenuItem value="C">Grade C (Basic)</MenuItem>
+                      <MenuItem value="A">{t('transactions.gradeAPremium')}</MenuItem>
+                      <MenuItem value="B">{t('transactions.gradeBStandard')}</MenuItem>
+                      <MenuItem value="C">{t('transactions.gradeCBasic')}</MenuItem>
                     </Select>
                   </FormControl>
                 </Grid>
@@ -558,65 +589,65 @@ const TransactionManagement = () => {
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setCreateDialog(false)}>Cancel</Button>
+          <Button onClick={() => setCreateDialog(false)}>{t('common.cancel')}</Button>
           <Button 
             onClick={handleCreateTransaction} 
             variant="contained"
             disabled={!newTransaction.customer || !newTransaction.amount.baseAmount}
           >
-            Create Transaction
+            {t('transactions.createTransaction')}
           </Button>
         </DialogActions>
       </Dialog>
 
       {/* Transaction Detail Dialog */}
       <Dialog open={detailDialog} onClose={() => setDetailDialog(false)} maxWidth="md" fullWidth>
-        <DialogTitle>Transaction Details - {selectedTransaction?.transactionId}</DialogTitle>
+        <DialogTitle>{t('transactions.transactionDetails')} - {selectedTransaction?.transactionId}</DialogTitle>
         <DialogContent>
           {selectedTransaction && (
             <Grid container spacing={2} sx={{ mt: 1 }}>
               <Grid item xs={12} sm={6}>
-                <Typography variant="subtitle2" gutterBottom>Type</Typography>
+                <Typography variant="subtitle2" gutterBottom>{t('transactions.type')}</Typography>
                 <Typography>{selectedTransaction.type.replace(/_/g, ' ').toUpperCase()}</Typography>
               </Grid>
               <Grid item xs={12} sm={6}>
-                <Typography variant="subtitle2" gutterBottom>Amount</Typography>
+                <Typography variant="subtitle2" gutterBottom>{t('transactions.amount')}</Typography>
                 <Typography>{formatCurrency(selectedTransaction.amount.totalAmount)}</Typography>
               </Grid>
               <Grid item xs={12} sm={6}>
-                <Typography variant="subtitle2" gutterBottom>Payment Method</Typography>
+                <Typography variant="subtitle2" gutterBottom>{t('transactions.paymentMethod')}</Typography>
                 <Typography>{selectedTransaction.payment.method.toUpperCase()}</Typography>
               </Grid>
               <Grid item xs={12} sm={6}>
-                <Typography variant="subtitle2" gutterBottom>Status</Typography>
+                <Typography variant="subtitle2" gutterBottom>{t('transactions.status')}</Typography>
                 {getStatusChip(selectedTransaction.payment.status)}
               </Grid>
               <Grid item xs={12}>
-                <Typography variant="subtitle2" gutterBottom>Description</Typography>
-                <Typography>{selectedTransaction.description || 'No description'}</Typography>
+                <Typography variant="subtitle2" gutterBottom>{t('transactions.description')}</Typography>
+                <Typography>{selectedTransaction.description || t('transactions.noDescription')}</Typography>
               </Grid>
               <Grid item xs={12}>
-                <Typography variant="subtitle2" gutterBottom>Created</Typography>
+                <Typography variant="subtitle2" gutterBottom>{t('transactions.created')}</Typography>
                 <Typography>{new Date(selectedTransaction.createdAt).toLocaleString()}</Typography>
               </Grid>
               {selectedTransaction.grainDetails && (
                 <>
                   <Grid item xs={12}>
                     <Divider sx={{ my: 2 }}>
-                      <Typography variant="subtitle2">🌾 Grain Details</Typography>
+                      <Typography variant="subtitle2">🌾 {t('transactions.grainDetails')}</Typography>
                     </Divider>
                   </Grid>
                   <Grid item xs={12} sm={4}>
-                    <Typography variant="subtitle2" gutterBottom>Grain Type</Typography>
+                    <Typography variant="subtitle2" gutterBottom>{t('transactions.grainType')}</Typography>
                     <Typography>{selectedTransaction.grainDetails.grainType}</Typography>
                   </Grid>
                   <Grid item xs={12} sm={4}>
-                    <Typography variant="subtitle2" gutterBottom>Bags</Typography>
+                    <Typography variant="subtitle2" gutterBottom>{t('transactions.bags')}</Typography>
                     <Typography>{selectedTransaction.grainDetails.numberOfBags || 'N/A'}</Typography>
                   </Grid>
                   <Grid item xs={12} sm={4}>
-                    <Typography variant="subtitle2" gutterBottom>Quality</Typography>
-                    <Typography>Grade {selectedTransaction.grainDetails.qualityGrade}</Typography>
+                    <Typography variant="subtitle2" gutterBottom>{t('transactions.quality')}</Typography>
+                    <Typography>{t('transactions.grade')} {selectedTransaction.grainDetails.qualityGrade}</Typography>
                   </Grid>
                 </>
               )}
@@ -624,7 +655,7 @@ const TransactionManagement = () => {
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDetailDialog(false)}>Close</Button>
+          <Button onClick={() => setDetailDialog(false)}>{t('common.close')}</Button>
         </DialogActions>
       </Dialog>
     </Container>

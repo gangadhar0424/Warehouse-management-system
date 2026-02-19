@@ -38,7 +38,7 @@ import {
   Warehouse,
   People,
   LocalShipping,
-  AttachMoney,
+  CurrencyRupee,
   Analytics,
   GridView,
   PersonAdd,
@@ -50,10 +50,13 @@ import {
   Home,
   Inventory,
   Scale,
-  MonetizationOn
+  MonetizationOn,
+  SmartToy,
+  Psychology
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
+import { useTranslation } from '../i18n/LanguageContext';
 import axios from 'axios';
 
 // Import new dashboard components
@@ -67,6 +70,7 @@ import PredictionsTab from '../components/PredictionsTab';
 import OwnerRequestManagement from '../components/OwnerRequestManagement';
 
 const OwnerDashboard = () => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -80,6 +84,13 @@ const OwnerDashboard = () => {
   // Dialog states
   const [customerDialog, setCustomerDialog] = useState(false);
   const [allocationDialog, setAllocationDialog] = useState(false);
+
+  // AI Inventory Analysis states
+  const [aiInventoryDialog, setAiInventoryDialog] = useState(false);
+  const [aiInventoryLoading, setAiInventoryLoading] = useState(false);
+  const [aiInventoryResult, setAiInventoryResult] = useState(null);
+  const [aiInventoryError, setAiInventoryError] = useState('');
+  const [aiInventorySummary, setAiInventorySummary] = useState(null);
 
   // Form states
   const [customerForm, setCustomerForm] = useState({
@@ -112,11 +123,35 @@ const OwnerDashboard = () => {
   });
 
   const { user } = useAuth();
-  const { addNotification } = useSocket();
+  const { addNotification, socket } = useSocket();
 
   useEffect(() => {
     fetchDashboardData();
-  }, []);
+    
+    // Listen for real-time payment notifications
+    if (socket) {
+      socket.on('payment_received', (data) => {
+        console.log('Payment received notification:', data);
+        
+        // Show notification
+        addNotification({
+          type: 'payment',
+          title: 'Payment Received',
+          message: `₹${data.amount} received from ${data.customerName} for ${data.type}`,
+          timestamp: new Date(data.timestamp)
+        });
+        
+        // Optionally refresh dashboard data
+        fetchDashboardData();
+      });
+    }
+    
+    return () => {
+      if (socket) {
+        socket.off('payment_received');
+      }
+    };
+  }, [socket]);
 
   const fetchDashboardData = async () => {
     try {
@@ -161,6 +196,44 @@ const OwnerDashboard = () => {
       });
     } catch (error) {
       setError(error.response?.data?.message || 'Failed to allocate storage');
+    }
+  };
+
+  const handleAiInventoryAnalysis = async () => {
+    try {
+      setAiInventoryLoading(true);
+      setAiInventoryError('');
+      setAiInventoryResult(null);
+      setAiInventorySummary(null);
+
+      // Step 1: Fetch warehouse inventory summary from server
+      const token = localStorage.getItem('token');
+      const summaryRes = await axios.get('/api/dynamic-warehouse/inventory-summary', {
+        headers: { 'x-auth-token': token }
+      });
+
+      const summary = summaryRes.data.summary;
+      setAiInventorySummary(summary);
+
+      // Step 2: Send summary to AI engine for intelligent analysis
+      const aiResponse = await axios.post('http://localhost:8001/inventory/analyze', {
+        action: 'analyze'
+      });
+      setAiInventoryResult(aiResponse.data);
+    } catch (err) {
+      console.error('AI Inventory Analysis error:', err);
+      setAiInventoryError(err.response?.data?.message || err.response?.data?.detail || 'Failed to fetch warehouse data. Please make sure the server is running.');
+    } finally {
+      setAiInventoryLoading(false);
+    }
+  };
+
+  const getRiskColor = (riskLevel) => {
+    switch (riskLevel?.toLowerCase()) {
+      case 'low': return 'success';
+      case 'medium': return 'warning';
+      case 'high': case 'critical': return 'error';
+      default: return 'info';
     }
   };
 
@@ -245,17 +318,20 @@ const OwnerDashboard = () => {
   const StatsCards = () => (
     <Grid container spacing={3} sx={{ mb: 4 }}>
       <Grid item xs={12} sm={6} md={3}>
-        <Card>
+        <Card sx={{ borderLeft: '4px solid #1976d2' }}>
           <CardContent>
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
               <LocalShipping color="primary" sx={{ fontSize: 40, mr: 2 }} />
               <Box>
-                <Typography color="text.secondary" gutterBottom>
-                  Total Vehicles
+                <Typography color="text.secondary" variant="body2" gutterBottom>
+                  {t('dashboard.totalVehicles')}
                 </Typography>
                 <Typography variant="h4">
                   {stats?.totalVehicles || 0}
                 </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Loading / Unloading / Weighing
+                </Typography>
               </Box>
             </Box>
           </CardContent>
@@ -263,17 +339,20 @@ const OwnerDashboard = () => {
       </Grid>
       
       <Grid item xs={12} sm={6} md={3}>
-        <Card>
+        <Card sx={{ borderLeft: '4px solid #ed6c02' }}>
           <CardContent>
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
               <Warehouse color="warning" sx={{ fontSize: 40, mr: 2 }} />
               <Box>
-                <Typography color="text.secondary" gutterBottom>
-                  Currently Inside
+                <Typography color="text.secondary" variant="body2" gutterBottom>
+                  {t('dashboard.currentlyInside')}
                 </Typography>
                 <Typography variant="h4">
                   {stats?.currentlyInside || 0}
                 </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Vehicles for Loading / Unloading
+                </Typography>
               </Box>
             </Box>
           </CardContent>
@@ -281,16 +360,19 @@ const OwnerDashboard = () => {
       </Grid>
       
       <Grid item xs={12} sm={6} md={3}>
-        <Card>
+        <Card sx={{ borderLeft: '4px solid #0288d1' }}>
           <CardContent>
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
               <People color="info" sx={{ fontSize: 40, mr: 2 }} />
               <Box>
-                <Typography color="text.secondary" gutterBottom>
-                  Total Customers
+                <Typography color="text.secondary" variant="body2" gutterBottom>
+                  {t('dashboard.totalCustomers')}
                 </Typography>
                 <Typography variant="h4">
-                  {customers?.length || 0}
+                  {customers?.length || stats?.totalCustomers || 0}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Available Customers Till Date
                 </Typography>
               </Box>
             </Box>
@@ -299,16 +381,19 @@ const OwnerDashboard = () => {
       </Grid>
       
       <Grid item xs={12} sm={6} md={3}>
-        <Card>
+        <Card sx={{ borderLeft: '4px solid #2e7d32' }}>
           <CardContent>
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
-              <AttachMoney color="success" sx={{ fontSize: 40, mr: 2 }} />
+              <CurrencyRupee color="success" sx={{ fontSize: 40, mr: 2 }} />
               <Box>
-                <Typography color="text.secondary" gutterBottom>
-                  Today's Entries
+                <Typography color="text.secondary" variant="body2" gutterBottom>
+                  {t('dashboard.totalEntries')}
                 </Typography>
                 <Typography variant="h4">
-                  {stats?.todayEntries || 0}
+                  {stats?.totalEntries || 0}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Total In & Out Entries
                 </Typography>
               </Box>
             </Box>
@@ -325,12 +410,13 @@ const OwnerDashboard = () => {
   const WarehouseTransactions = () => {
     const [transactions, setTransactions] = useState([]);
     const [transactionFilter, setTransactionFilter] = useState('all');
+    const [dateFilter, setDateFilter] = useState('today');
     const [viewDialogOpen, setViewDialogOpen] = useState(false);
     const [selectedTransaction, setSelectedTransaction] = useState(null);
 
     useEffect(() => {
       fetchTransactions();
-    }, [transactionFilter]);
+    }, [transactionFilter, dateFilter]);
 
     const handleViewTransaction = (transaction) => {
       setSelectedTransaction(transaction);
@@ -352,10 +438,54 @@ const OwnerDashboard = () => {
       return `${day}/${month}/${year} ${hours}:${minutes}`;
     };
 
+    const getDateRange = () => {
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      
+      switch (dateFilter) {
+        case 'today':
+          return {
+            startDate: today.toISOString(),
+            endDate: new Date(today.getTime() + 24 * 60 * 60 * 1000).toISOString()
+          };
+        case 'yesterday':
+          const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+          return {
+            startDate: yesterday.toISOString(),
+            endDate: today.toISOString()
+          };
+        case 'last_week':
+          const lastWeek = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+          return {
+            startDate: lastWeek.toISOString(),
+            endDate: new Date(today.getTime() + 24 * 60 * 60 * 1000).toISOString()
+          };
+        case 'last_month':
+          const lastMonth = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+          return {
+            startDate: lastMonth.toISOString(),
+            endDate: new Date(today.getTime() + 24 * 60 * 60 * 1000).toISOString()
+          };
+        case 'all':
+          return null;
+        default:
+          return {
+            startDate: today.toISOString(),
+            endDate: new Date(today.getTime() + 24 * 60 * 60 * 1000).toISOString()
+          };
+      }
+    };
+
     const fetchTransactions = async () => {
       try {
         const params = new URLSearchParams();
         if (transactionFilter !== 'all') params.append('type', transactionFilter);
+        
+        const dateRange = getDateRange();
+        if (dateRange) {
+          params.append('startDate', dateRange.startDate);
+          params.append('endDate', dateRange.endDate);
+        }
         
         const response = await axios.get(`/api/transactions?${params}`);
         setTransactions(response.data.transactions || []);
@@ -372,7 +502,7 @@ const OwnerDashboard = () => {
         case 'grain_storage_rent': return <Home />;
         case 'grain_loan': return <MonetizationOn />;
         case 'grain_release': return <Inventory />;
-        default: return <AttachMoney />;
+        default: return <CurrencyRupee />;
       }
     };
 
@@ -391,11 +521,25 @@ const OwnerDashboard = () => {
       <Paper sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
           <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center' }}>
-            <AttachMoney sx={{ mr: 1 }} />
+            <CurrencyRupee sx={{ mr: 1 }} />
             Warehouse Transactions
           </Typography>
           <Box sx={{ display: 'flex', gap: 2 }}>
-            <FormControl size="small" sx={{ minWidth: 120 }}>
+            <FormControl size="small" sx={{ minWidth: 150 }}>
+              <InputLabel>Date Range</InputLabel>
+              <Select
+                value={dateFilter}
+                onChange={(e) => setDateFilter(e.target.value)}
+                label="Date Range"
+              >
+                <MenuItem value="today">Today</MenuItem>
+                <MenuItem value="yesterday">Yesterday</MenuItem>
+                <MenuItem value="last_week">Last 7 Days</MenuItem>
+                <MenuItem value="last_month">Last 30 Days</MenuItem>
+                <MenuItem value="all">All Time</MenuItem>
+              </Select>
+            </FormControl>
+            <FormControl size="small" sx={{ minWidth: 150 }}>
               <InputLabel>Filter</InputLabel>
               <Select
                 value={transactionFilter}
@@ -406,8 +550,6 @@ const OwnerDashboard = () => {
                 <MenuItem value="weighbridge_fee">Weighbridge Fees</MenuItem>
                 <MenuItem value="loan_repayment">Loan Repayments</MenuItem>
                 <MenuItem value="grain_storage_rent">Storage Rent</MenuItem>
-                <MenuItem value="grain_loan">Grain Loans</MenuItem>
-                <MenuItem value="grain_release">Grain Release</MenuItem>
               </Select>
             </FormControl>
             <Button
@@ -539,7 +681,7 @@ const OwnerDashboard = () => {
 
         {transactions.length === 0 && (
           <Box sx={{ textAlign: 'center', py: 4 }}>
-            <AttachMoney sx={{ fontSize: 60, color: 'text.secondary', mb: 2 }} />
+            <CurrencyRupee sx={{ fontSize: 60, color: 'text.secondary', mb: 2 }} />
             <Typography variant="h6" color="text.secondary">
               No transactions found
             </Typography>
@@ -809,7 +951,7 @@ const OwnerDashboard = () => {
             <Grid item xs={12} sm={6} md={3}>
               <Card>
                 <CardContent sx={{ textAlign: 'center' }}>
-                  <AttachMoney color="info" sx={{ fontSize: 40, mb: 1 }} />
+                  <CurrencyRupee color="info" sx={{ fontSize: 40, mb: 1 }} />
                   <Typography variant="h6" color="info.main">
                     ₹{stats?.totalRevenue || 0}
                   </Typography>
@@ -857,7 +999,7 @@ const OwnerDashboard = () => {
   return (
     <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
       <Typography variant="h4" gutterBottom>
-        Owner Dashboard
+        {t('dashboard.ownerDashboard')}
       </Typography>
 
       {error && (
@@ -876,19 +1018,37 @@ const OwnerDashboard = () => {
 
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
         <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)} variant="scrollable" scrollButtons="auto">
-          <Tab label="Warehouse Layout Manager" />
-          <Tab label="User Management" />
-          <Tab label="Vehicle Management" />
-          <Tab label="Transactions" />
-          <Tab label="Customer Requests" />
-          <Tab label="Analytics" />
-          <Tab label="Predictions" />
-          <Tab label="Loan Portfolio" />
-          <Tab label="Alerts Center" />
+          <Tab label={t('dashboard.warehouseLayoutManager')} />
+          <Tab label={t('dashboard.userManagement')} />
+          <Tab label={t('dashboard.vehicleManagement')} />
+          <Tab label={t('dashboard.transactions')} />
+          <Tab label={t('dashboard.customerRequests')} />
+          <Tab label={t('dashboard.analytics')} />
+          <Tab label={t('dashboard.predictions')} />
+          <Tab label={t('dashboard.loanPortfolio')} />
+          <Tab label={t('dashboard.alertsCenter')} />
         </Tabs>
       </Box>
 
-      {activeTab === 0 && <DynamicWarehouseLayoutManager />}
+      {activeTab === 0 && (
+        <>
+          <Box sx={{ mb: 2, display: 'flex', justifyContent: 'flex-end' }}>
+            <Button
+              variant="contained"
+              startIcon={<SmartToy />}
+              onClick={() => setAiInventoryDialog(true)}
+              sx={{
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                fontWeight: 600,
+                '&:hover': { background: 'linear-gradient(135deg, #5a6fd6 0%, #6a4299 100%)' }
+              }}
+            >
+              🤖 AI Inventory Analysis
+            </Button>
+          </Box>
+          <DynamicWarehouseLayoutManager />
+        </>
+      )}
       {activeTab === 1 && <UserManagementPanel />}
       {activeTab === 2 && <VehicleManagement />}
       {activeTab === 3 && <WarehouseTransactions />}
@@ -897,6 +1057,282 @@ const OwnerDashboard = () => {
       {activeTab === 6 && <PredictionsTab />}
       {activeTab === 7 && <LoanPortfolioManager />}
       {activeTab === 8 && <AlertsCenter />}
+
+      {/* AI Inventory Analysis Dialog */}
+      <Dialog open={aiInventoryDialog} onClose={() => { setAiInventoryDialog(false); setAiInventoryResult(null); setAiInventoryError(''); setAiInventorySummary(null); }} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white' }}>
+          <SmartToy />
+          <Box component="span" sx={{ fontWeight: 700, fontSize: '1.2rem' }}>AI Warehouse Inventory Analysis</Box>
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          {/* Auto-analyze button */}
+          {!aiInventorySummary && !aiInventoryLoading && (
+            <Box sx={{ textAlign: 'center', py: 3 }}>
+              <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
+                Click below to analyze your warehouse spaces. The AI will scan all warehouses and show you filled, partially filled, and empty slots.
+              </Typography>
+              <Button
+                variant="contained"
+                size="large"
+                onClick={handleAiInventoryAnalysis}
+                startIcon={<Psychology />}
+                sx={{ px: 4, py: 1.5, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', fontWeight: 600 }}
+              >
+                Scan All Warehouses
+              </Button>
+            </Box>
+          )}
+
+          {aiInventoryLoading && (
+            <Box sx={{ textAlign: 'center', py: 4 }}>
+              <CircularProgress size={48} sx={{ color: '#667eea' }} />
+              <Typography variant="body1" sx={{ mt: 2, color: 'text.secondary' }}>Scanning warehouse spaces...</Typography>
+            </Box>
+          )}
+
+          {aiInventoryError && (
+            <Alert severity="error" sx={{ mb: 2 }}>{aiInventoryError}</Alert>
+          )}
+
+          {/* Warehouse Summary Data */}
+          {aiInventorySummary && (
+            <Box>
+              {/* Overall Stats Cards */}
+              <Grid container spacing={2} sx={{ mb: 3 }}>
+                <Grid size={{ xs: 6, sm: 3 }}>
+                  <Paper sx={{ p: 2, textAlign: 'center', bgcolor: '#e3f2fd', borderRadius: 2 }}>
+                    <Warehouse sx={{ fontSize: 32, color: '#1565c0' }} />
+                    <Typography variant="h4" fontWeight="bold" color="#1565c0">{aiInventorySummary.totalSlots}</Typography>
+                    <Typography variant="caption" color="text.secondary">Total Slots</Typography>
+                  </Paper>
+                </Grid>
+                <Grid size={{ xs: 6, sm: 3 }}>
+                  <Paper sx={{ p: 2, textAlign: 'center', bgcolor: '#fce4ec', borderRadius: 2 }}>
+                    <Inventory sx={{ fontSize: 32, color: '#c62828' }} />
+                    <Typography variant="h4" fontWeight="bold" color="#c62828">{aiInventorySummary.filledSlots}</Typography>
+                    <Typography variant="caption" color="text.secondary">Full Slots</Typography>
+                  </Paper>
+                </Grid>
+                <Grid size={{ xs: 6, sm: 3 }}>
+                  <Paper sx={{ p: 2, textAlign: 'center', bgcolor: '#fff3e0', borderRadius: 2 }}>
+                    <GridView sx={{ fontSize: 32, color: '#e65100' }} />
+                    <Typography variant="h4" fontWeight="bold" color="#e65100">{aiInventorySummary.partiallyFilledSlots}</Typography>
+                    <Typography variant="caption" color="text.secondary">Partially Filled</Typography>
+                  </Paper>
+                </Grid>
+                <Grid size={{ xs: 6, sm: 3 }}>
+                  <Paper sx={{ p: 2, textAlign: 'center', bgcolor: '#e8f5e9', borderRadius: 2 }}>
+                    <Add sx={{ fontSize: 32, color: '#2e7d32' }} />
+                    <Typography variant="h4" fontWeight="bold" color="#2e7d32">{aiInventorySummary.emptySlots}</Typography>
+                    <Typography variant="caption" color="text.secondary">Empty Slots</Typography>
+                  </Paper>
+                </Grid>
+              </Grid>
+
+              {/* Overall Utilization Bar */}
+              <Paper sx={{ p: 2, mb: 3, borderRadius: 2 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography variant="subtitle1" fontWeight="bold">Overall Utilization</Typography>
+                  <Typography variant="subtitle1" fontWeight="bold" color={parseFloat(aiInventorySummary.overallUtilization) > 80 ? 'error.main' : parseFloat(aiInventorySummary.overallUtilization) > 50 ? 'warning.main' : 'success.main'}>
+                    {aiInventorySummary.overallUtilization}%
+                  </Typography>
+                </Box>
+                <Box sx={{ width: '100%', bgcolor: '#e0e0e0', borderRadius: 2, height: 20, overflow: 'hidden' }}>
+                  <Box sx={{
+                    width: `${aiInventorySummary.overallUtilization}%`,
+                    bgcolor: parseFloat(aiInventorySummary.overallUtilization) > 80 ? '#c62828' : parseFloat(aiInventorySummary.overallUtilization) > 50 ? '#e65100' : '#2e7d32',
+                    height: '100%',
+                    borderRadius: 2,
+                    transition: 'width 0.5s ease'
+                  }} />
+                </Box>
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                  {aiInventorySummary.totalFilledBags.toLocaleString()} / {aiInventorySummary.totalCapacityBags.toLocaleString()} bags filled
+                </Typography>
+              </Paper>
+
+              {/* Grain Distribution */}
+              {Object.keys(aiInventorySummary.grainDistribution).length > 0 && (
+                <Paper sx={{ p: 2, mb: 3, borderRadius: 2 }}>
+                  <Typography variant="subtitle1" fontWeight="bold" gutterBottom>Grain Distribution</Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                    {Object.entries(aiInventorySummary.grainDistribution).map(([grain, bags]) => (
+                      <Chip
+                        key={grain}
+                        label={`${grain}: ${bags.toLocaleString()} bags`}
+                        color="primary"
+                        variant="outlined"
+                        sx={{ fontWeight: 600 }}
+                      />
+                    ))}
+                  </Box>
+                </Paper>
+              )}
+
+              {/* Customer Distribution */}
+              {Object.keys(aiInventorySummary.customerDistribution).length > 0 && (
+                <Paper sx={{ p: 2, mb: 3, borderRadius: 2 }}>
+                  <Typography variant="subtitle1" fontWeight="bold" gutterBottom>Customer Storage</Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                    {Object.entries(aiInventorySummary.customerDistribution).map(([name, bags]) => (
+                      <Chip
+                        key={name}
+                        label={`${name}: ${bags.toLocaleString()} bags`}
+                        color="secondary"
+                        variant="outlined"
+                        sx={{ fontWeight: 600 }}
+                      />
+                    ))}
+                  </Box>
+                </Paper>
+              )}
+
+              {/* Per-Warehouse Breakdown */}
+              {aiInventorySummary.warehouses.map((wh, whIdx) => (
+                <Paper key={whIdx} sx={{ p: 2, mb: 2, borderRadius: 2, border: '1px solid #e0e0e0' }}>
+                  <Typography variant="subtitle1" fontWeight="bold" color="primary" gutterBottom>
+                    {wh.name}
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
+                    <Chip size="small" label={`Total: ${wh.totalSlots}`} />
+                    <Chip size="small" label={`Full: ${wh.filledSlots}`} color="error" />
+                    <Chip size="small" label={`Partial: ${wh.partiallyFilledSlots}`} color="warning" />
+                    <Chip size="small" label={`Empty: ${wh.emptySlots}`} color="success" />
+                    <Chip size="small" label={`${wh.totalFilledBags.toLocaleString()} / ${wh.totalCapacityBags.toLocaleString()} bags`} variant="outlined" />
+                  </Box>
+
+                  {wh.buildings.map((bld, bldIdx) => (
+                    <Box key={bldIdx} sx={{ ml: 1, mb: 1 }}>
+                      <Typography variant="body2" fontWeight="bold" sx={{ mb: 0.5 }}>
+                        📦 {bld.name}
+                      </Typography>
+                      {bld.blocks.map((blk, blkIdx) => (
+                        <Box key={blkIdx} sx={{ ml: 2, mb: 1 }}>
+                          <Typography variant="caption" fontWeight="bold" color="text.secondary">
+                            Block {blk.name} ({blk.totalSlots} slots)
+                          </Typography>
+                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
+                            {/* Show filled slots */}
+                            {blk.filledSlots.map((slot, sIdx) => (
+                              <Tooltip key={`f-${sIdx}`} title={
+                                <Box>
+                                  <div><strong>{slot.label}</strong> — FULL</div>
+                                  <div>{slot.filledBags}/{slot.capacity} bags ({slot.utilization}%)</div>
+                                  {slot.allocations.map((a, ai) => (
+                                    <div key={ai}>{a.customerName}: {a.bags} bags ({a.grainType})</div>
+                                  ))}
+                                </Box>
+                              }>
+                                <Box sx={{
+                                  width: 36, height: 36, borderRadius: 1,
+                                  bgcolor: '#c62828', color: 'white',
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer'
+                                }}>
+                                  {slot.label}
+                                </Box>
+                              </Tooltip>
+                            ))}
+                            {/* Show partially filled slots */}
+                            {blk.partiallyFilledSlots.map((slot, sIdx) => (
+                              <Tooltip key={`p-${sIdx}`} title={
+                                <Box>
+                                  <div><strong>{slot.label}</strong> — PARTIAL</div>
+                                  <div>{slot.filledBags}/{slot.capacity} bags ({slot.utilization}%)</div>
+                                  {slot.allocations.map((a, ai) => (
+                                    <div key={ai}>{a.customerName}: {a.bags} bags ({a.grainType})</div>
+                                  ))}
+                                </Box>
+                              }>
+                                <Box sx={{
+                                  width: 36, height: 36, borderRadius: 1,
+                                  bgcolor: '#ff9800', color: 'white',
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer'
+                                }}>
+                                  {slot.label}
+                                </Box>
+                              </Tooltip>
+                            ))}
+                            {/* Show empty slots */}
+                            {blk.emptySlots.map((slot, sIdx) => (
+                              <Tooltip key={`e-${sIdx}`} title={`${slot.label} — EMPTY (0/${slot.capacity} bags)`}>
+                                <Box sx={{
+                                  width: 36, height: 36, borderRadius: 1,
+                                  bgcolor: '#e8f5e9', color: '#2e7d32',
+                                  border: '1px solid #a5d6a7',
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  fontSize: '0.65rem', fontWeight: 700, cursor: 'pointer'
+                                }}>
+                                  {slot.label}
+                                </Box>
+                              </Tooltip>
+                            ))}
+                          </Box>
+                        </Box>
+                      ))}
+                    </Box>
+                  ))}
+                </Paper>
+              ))}
+
+              {/* AI Insights */}
+              {aiInventoryResult?.data && (
+                <Paper sx={{ p: 2, borderRadius: 2, bgcolor: '#f3e5f5', border: '1px solid #ce93d8' }}>
+                  <Typography variant="subtitle1" fontWeight="bold" color="#6a1b9a" gutterBottom>
+                    🤖 AI Insights
+                  </Typography>
+                  {aiInventoryResult.data.healthScore != null && (
+                    <Chip label={`Health Score: ${aiInventoryResult.data.healthScore}/100`} color="primary" sx={{ mb: 1, mr: 1, fontWeight: 700 }} />
+                  )}
+                  {aiInventoryResult.data.utilization != null && (
+                    <Chip label={`AI Est. Utilization: ${aiInventoryResult.data.utilization}%`} color="secondary" sx={{ mb: 1, mr: 1, fontWeight: 700 }} />
+                  )}
+                  {aiInventoryResult.data.insights && aiInventoryResult.data.insights.length > 0 && (
+                    <Box sx={{ mt: 1 }}>
+                      <Typography variant="body2" fontWeight="bold" gutterBottom>Insights:</Typography>
+                      {aiInventoryResult.data.insights.map((insight, idx) => (
+                        <Alert key={idx} severity="info" sx={{ mb: 0.5, py: 0 }}>{insight}</Alert>
+                      ))}
+                    </Box>
+                  )}
+                  {aiInventoryResult.data.recommendations && aiInventoryResult.data.recommendations.length > 0 && (
+                    <Box sx={{ mt: 1 }}>
+                      <Typography variant="body2" fontWeight="bold" gutterBottom>Recommendations:</Typography>
+                      {aiInventoryResult.data.recommendations.map((rec, idx) => (
+                        <Alert key={idx} severity="success" sx={{ mb: 0.5, py: 0 }}>{rec}</Alert>
+                      ))}
+                    </Box>
+                  )}
+                  {aiInventoryResult.data.alerts && aiInventoryResult.data.alerts.length > 0 && (
+                    <Box sx={{ mt: 1 }}>
+                      <Typography variant="body2" fontWeight="bold" gutterBottom>Alerts:</Typography>
+                      {aiInventoryResult.data.alerts.map((alert, idx) => (
+                        <Alert key={idx} severity="warning" sx={{ mb: 0.5, py: 0 }}>{alert}</Alert>
+                      ))}
+                    </Box>
+                  )}
+                </Paper>
+              )}
+
+              {/* Re-scan button */}
+              <Box sx={{ textAlign: 'center', mt: 2 }}>
+                <Button
+                  variant="outlined"
+                  onClick={handleAiInventoryAnalysis}
+                  disabled={aiInventoryLoading}
+                  startIcon={aiInventoryLoading ? <CircularProgress size={16} /> : <Psychology />}
+                >
+                  Re-scan Warehouses
+                </Button>
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setAiInventoryDialog(false); setAiInventoryResult(null); setAiInventoryError(''); setAiInventorySummary(null); }}>Close</Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Storage Allocation Dialog */}
       <Dialog open={allocationDialog} onClose={() => setAllocationDialog(false)} maxWidth="sm" fullWidth>

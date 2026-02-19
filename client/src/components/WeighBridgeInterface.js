@@ -178,33 +178,33 @@ const WeighBridgeInterface = () => {
 
               <Grid item xs={12} md={4}>
                 <TextField
-                  label="Gross Weight (kg)"
+                  label="Gross Weight (tons)"
                   type="number"
                   value={formData.grossWeight}
                   onChange={(e) => setFormData({ ...formData, grossWeight: e.target.value })}
                   required
                   fullWidth
-                  InputProps={{ inputProps: { min: 0, step: 0.1 } }}
-                  helperText="Vehicle + Grain weight"
+                  InputProps={{ inputProps: { min: 0, step: 0.01 } }}
+                  helperText="Vehicle + Grain weight in tons"
                 />
               </Grid>
 
               <Grid item xs={12} md={4}>
                 <TextField
-                  label="Tare Weight (kg)"
+                  label="Tare Weight (tons)"
                   type="number"
                   value={formData.tareWeight}
                   onChange={(e) => setFormData({ ...formData, tareWeight: e.target.value })}
                   required
                   fullWidth
-                  InputProps={{ inputProps: { min: 0, step: 0.1 } }}
-                  helperText="Empty vehicle weight"
+                  InputProps={{ inputProps: { min: 0, step: 0.01 } }}
+                  helperText="Empty vehicle weight in tons"
                 />
               </Grid>
 
               <Grid item xs={12} md={4}>
                 <TextField
-                  label="Net Weight (kg)"
+                  label="Net Weight (tons)"
                   value={netWeight.toFixed(2)}
                   fullWidth
                   disabled

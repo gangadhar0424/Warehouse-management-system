@@ -25,7 +25,7 @@ import {
 } from '@mui/material';
 import {
   Calculate,
-  AttachMoney,
+  CurrencyRupee,
   Grain,
   AccountBalance,
   Refresh
@@ -457,7 +457,7 @@ const LoanCalculator = () => {
               </Box>
             ) : (
               <Box sx={{ textAlign: 'center', py: 5 }}>
-                <AttachMoney sx={{ fontSize: 60, color: 'text.secondary', mb: 2 }} />
+                <CurrencyRupee sx={{ fontSize: 60, color: 'text.secondary', mb: 2 }} />
                 <Typography variant="body1" color="text.secondary">
                   Enter grain details and click "Calculate Loan" to see results
                 </Typography>

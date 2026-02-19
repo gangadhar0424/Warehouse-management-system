@@ -11,17 +11,17 @@ router.get('/', auth, async (req, res) => {
       return res.status(403).json({ message: 'Access denied' });
     }
 
-    const { page = 1, limit = 10, status, customerId, startDate, endDate, type } = req.query;
+    const { page = 1, limit = 100, status, customerId, startDate, endDate, type } = req.query;
 
     // Build filter query
     const filter = {};
     if (status) filter.status = status;
-    if (customerId) filter.customerId = customerId;
+    if (customerId) filter.customer = customerId;
     if (type) filter.type = type;
     if (startDate && endDate) {
       filter.createdAt = {
         $gte: new Date(startDate),
-        $lte: new Date(endDate)
+        $lt: new Date(endDate)
       };
     }
 

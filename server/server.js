@@ -15,7 +15,7 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: process.env.CLIENT_URL || "http://localhost:3000",
+    origin: process.env.CLIENT_URL || "http://localhost:3001",
     methods: ["GET", "POST"]
   }
 });
@@ -46,8 +46,9 @@ app.use(limiter);
 
 // MongoDB connection with increased timeout
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost/warehouse_management', {
-  serverSelectionTimeoutMS: 5000, // 5 seconds timeout
-  socketTimeoutMS: 10000, // 10 seconds socket timeout
+  serverSelectionTimeoutMS: 30000, // 30 seconds timeout for Atlas
+  socketTimeoutMS: 45000, // 45 seconds socket timeout
+  connectTimeoutMS: 30000, // 30 seconds connection timeout
 }).catch(err => {
   console.warn('⚠️  MongoDB connection failed:', err.message);
   console.warn('⚠️  Server will continue running but database features will be unavailable');
@@ -108,12 +109,15 @@ app.use('/api/analytics', require('./routes/analytics'));
 app.use('/api/loans', require('./routes/loans'));
 app.use('/api/market', require('./routes/market'));
 app.use('/api/predictions', require('./routes/predictions'));
+app.use('/api/ai', require('./routes/ai-predictions'));
+app.use('/api/translate', require('./routes/translate'));
+app.use('/api/email', require('./routes/email'));
 
 // Serve static uploads folder
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Serve static assets in production (or when React dev server isn't running)
-// In development, React runs on port 3000 and proxies API calls to port 5000
+// In development, React runs on port 3001 and proxies API calls to port 5000
 if (process.env.NODE_ENV === 'production' || process.env.SERVE_REACT === 'true') {
   app.use(express.static(path.join(__dirname, 'client/build')));
   
@@ -131,8 +135,8 @@ if (process.env.NODE_ENV === 'production' || process.env.SERVE_REACT === 'true')
       <h3>Option 1: Development Mode (Recommended)</h3>
       <ul>
         <li>Backend API: Already running on port 5000 ✓</li>
-        <li>Frontend: Run <code>cd client && npm start</code> to start on port 3000</li>
-        <li>Then access: <a href="http://localhost:3000">http://localhost:3000</a></li>
+        <li>Frontend: Run <code>cd client && npm start</code> to start on port 3001</li>
+        <li>Then access: <a href="http://localhost:3001">http://localhost:3001</a></li>
       </ul>
       <h3>Option 2: Production Mode (Current Workaround)</h3>
       <ul>

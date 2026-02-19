@@ -127,26 +127,24 @@ const UserManagementPanel = () => {
     return userList;
   };
 
-  const handleExport = () => {
-    const csvContent = [
-      ['Username', 'Email', 'Role', 'Name', 'Phone', 'Status', 'Created'],
-      ...getUsersForTab().map(user => [
-        user.username,
-        user.email,
-        user.role,
-        `${user.profile?.firstName || ''} ${user.profile?.lastName || ''}`,
-        user.profile?.phone || '',
-        user.isActive ? 'Active' : 'Inactive',
-        new Date(user.createdAt).toLocaleDateString()
-      ])
-    ].map(row => row.join(',')).join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `users_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
+  const handleExport = async () => {
+    try {
+      const response = await axios.get('/api/exports/users-excel', {
+        responseType: 'blob'
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `users_${new Date().toISOString().split('T')[0]}.xlsx`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Export error:', error);
+      setError('Failed to export users to Excel');
+      setTimeout(() => setError(''), 3000);
+    }
   };
 
   if (loading) {
@@ -222,7 +220,7 @@ const UserManagementPanel = () => {
             startIcon={<Download />}
             onClick={handleExport}
           >
-            Export CSV
+            Export Excel
           </Button>
         </Box>
 
@@ -262,7 +260,8 @@ const UserManagementPanel = () => {
                 {activeTab === 2 && <TableCell>Active Storage</TableCell>}
                 {activeTab === 2 && <TableCell>Total Spent</TableCell>}
                 <TableCell>Status</TableCell>
-                <TableCell>Joined</TableCell>
+                <TableCell>Date Joined</TableCell>
+                <TableCell>Left Date</TableCell>
                 <TableCell>Actions</TableCell>
               </TableRow>
             </TableHead>
@@ -337,7 +336,14 @@ const UserManagementPanel = () => {
                   </TableCell>
                   <TableCell>
                     <Typography variant="caption">
-                      {new Date(user.createdAt).toLocaleDateString()}
+                      {new Date(user.createdAt).toLocaleDateString('en-IN')}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="caption">
+                      {!user.isActive && user.role === 'customer' 
+                        ? (user.updatedAt ? new Date(user.updatedAt).toLocaleDateString('en-IN') : 'N/A')
+                        : user.role === 'customer' ? 'Active' : '-'}
                     </Typography>
                   </TableCell>
                   <TableCell>

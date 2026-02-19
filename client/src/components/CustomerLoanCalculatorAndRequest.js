@@ -39,8 +39,10 @@ import {
   Info
 } from '@mui/icons-material';
 import axios from 'axios';
+import { useTranslation } from '../i18n/LanguageContext';
 
 const CustomerLoanCalculatorAndRequest = () => {
+  const { t } = useTranslation();
   // Loan Calculator State
   const [grainValue, setGrainValue] = useState(0);
   const [requestedAmount, setRequestedAmount] = useState('');
@@ -64,8 +66,22 @@ const CustomerLoanCalculatorAndRequest = () => {
   const fetchLoanEligibility = async () => {
     try {
       const response = await axios.get('/api/loans/eligibility');
-      setEligibility(response.data);
-      setGrainValue(response.data.totalGrainValue || 0);
+      const data = response.data;
+      
+      // Parse all numeric values from strings to numbers
+      const parsedEligibility = {
+        totalGrainValue: parseFloat(data.totalGrainValue) || 0,
+        maxLoanAmount: parseFloat(data.maxLoanAmount) || 0,
+        totalActiveLoanAmount: parseFloat(data.totalActiveLoanAmount) || 0,
+        availableLoanAmount: parseFloat(data.availableLoanAmount) || 0,
+        grainDetails: data.grainDetails,
+        loanToValueRatio: data.loanToValueRatio,
+        eligibilityStatus: data.eligibilityStatus,
+        message: data.message
+      };
+      
+      setEligibility(parsedEligibility);
+      setGrainValue(parsedEligibility.totalGrainValue);
     } catch (err) {
       console.error('Error fetching loan eligibility:', err);
     }
@@ -81,10 +97,12 @@ const CustomerLoanCalculatorAndRequest = () => {
       return;
     }
 
+    // Allow calculation even if amount exceeds eligibility, but show warning
     const maxLoanAmount = grainValue * 0.70;
-    if (amount > maxLoanAmount) {
-      setError(`Requested amount exceeds maximum eligible amount of ₹${maxLoanAmount.toFixed(2)}`);
-      return;
+    if (amount > maxLoanAmount && maxLoanAmount > 0) {
+      setError(`Warning: Requested amount (₹${amount.toFixed(2)}) exceeds maximum eligible amount of ₹${maxLoanAmount.toFixed(2)} based on your grain value. You can still calculate, but loan approval may be subject to additional collateral.`);
+    } else {
+      setError('');
     }
 
     // Calculate monthly EMI
@@ -123,8 +141,6 @@ const CustomerLoanCalculatorAndRequest = () => {
       interestRate: rate,
       schedule: schedule
     });
-
-    setError('');
   };
 
   const handleLoanRequest = () => {
@@ -177,7 +193,8 @@ const CustomerLoanCalculatorAndRequest = () => {
   };
 
   const formatCurrency = (amount) => {
-    return `₹${amount?.toFixed(2).toLocaleString('en-IN') || 0}`;
+    const numAmount = parseFloat(amount) || 0;
+    return `₹${numAmount.toFixed(2).toLocaleString('en-IN')}`;
   };
 
   return (
@@ -265,7 +282,7 @@ const CustomerLoanCalculatorAndRequest = () => {
                   InputProps={{
                     startAdornment: <InputAdornment position="start">₹</InputAdornment>
                   }}
-                  helperText={`Maximum: ₹${(eligibility?.availableLoanAmount || 0).toFixed(2)}`}
+                  helperText={`Maximum: ₹${parseFloat(eligibility?.availableLoanAmount || 0).toFixed(2)}`}
                 />
 
                 <FormControl fullWidth>

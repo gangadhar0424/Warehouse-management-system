@@ -36,8 +36,10 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 import { useSocket } from '../contexts/SocketContext';
+import { useTranslation } from '../i18n/LanguageContext';
 
 const DynamicWarehouseLayoutManager = () => {
+  const { t } = useTranslation();
   const [layouts, setLayouts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -294,7 +296,7 @@ const DynamicWarehouseLayoutManager = () => {
         customerName: selectedCustomer?.profile?.name || selectedCustomer?.username || 'Unknown Customer',
         bags: parseInt(allocationForm.bags),
         grainType: allocationForm.grainType,
-        weight: parseFloat(allocationForm.weight) || 0,
+        weight: parseFloat(allocationForm.weight) * 100 || 0, // Convert quintals to kg for backend
         notes: allocationForm.notes
       }, {
         headers: { 'x-auth-token': token }
@@ -353,7 +355,7 @@ const DynamicWarehouseLayoutManager = () => {
           <Box>
             <TextField
               fullWidth
-              label="Warehouse Name"
+              label={t('warehouse.warehouseName')}
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
               margin="normal"
@@ -361,7 +363,7 @@ const DynamicWarehouseLayoutManager = () => {
             />
             <TextField
               fullWidth
-              label="Description"
+              label={t('common.description')}
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               margin="normal"
@@ -375,7 +377,7 @@ const DynamicWarehouseLayoutManager = () => {
         return (
           <Box>
             <Alert severity="info" sx={{ mb: 3 }}>
-              Configure your warehouse structure. Each block will contain a grid of storage slots.
+              {t('warehouse.configureStructure')}
             </Alert>
             
             <Grid container spacing={3}>
@@ -383,7 +385,7 @@ const DynamicWarehouseLayoutManager = () => {
                 <TextField
                   fullWidth
                   type="number"
-                  label="Number of Buildings"
+                  label={t('warehouse.numberOfBuildings')}
                   value={formData.configuration.numberOfBuildings}
                   onChange={(e) => setFormData({
                     ...formData,
@@ -393,7 +395,7 @@ const DynamicWarehouseLayoutManager = () => {
                     }
                   })}
                   inputProps={{ min: 1, max: 10 }}
-                  helperText="Maximum 10 buildings"
+                  helperText={t('warehouse.maxBuildings')}
                 />
               </Grid>
               
@@ -401,7 +403,7 @@ const DynamicWarehouseLayoutManager = () => {
                 <TextField
                   fullWidth
                   type="number"
-                  label="Blocks per Building"
+                  label={t('warehouse.blocksPerBuildingLabel')}
                   value={formData.configuration.blocksPerBuilding}
                   onChange={(e) => setFormData({
                     ...formData,
@@ -411,7 +413,7 @@ const DynamicWarehouseLayoutManager = () => {
                     }
                   })}
                   inputProps={{ min: 1, max: 26 }}
-                  helperText="Maximum 26 blocks (A-Z)"
+                  helperText={t('warehouse.maxBlocks')}
                 />
               </Grid>
               
@@ -419,7 +421,7 @@ const DynamicWarehouseLayoutManager = () => {
                 <TextField
                   fullWidth
                   type="number"
-                  label="Rows per Block"
+                  label={t('warehouse.rowsPerBlock')}
                   value={formData.configuration.rowsPerBlock}
                   onChange={(e) => setFormData({
                     ...formData,
@@ -429,7 +431,7 @@ const DynamicWarehouseLayoutManager = () => {
                     }
                   })}
                   inputProps={{ min: 1, max: 20 }}
-                  helperText="Number of rows in each block"
+                  helperText={t('warehouse.numberOfRows')}
                 />
               </Grid>
               
@@ -437,7 +439,7 @@ const DynamicWarehouseLayoutManager = () => {
                 <TextField
                   fullWidth
                   type="number"
-                  label="Columns per Block"
+                  label={t('warehouse.columnsPerBlock')}
                   value={formData.configuration.colsPerBlock}
                   onChange={(e) => setFormData({
                     ...formData,
@@ -447,7 +449,7 @@ const DynamicWarehouseLayoutManager = () => {
                     }
                   })}
                   inputProps={{ min: 1, max: 20 }}
-                  helperText="Number of columns in each block"
+                  helperText={t('warehouse.numberOfColumns')}
                 />
               </Grid>
             </Grid>
@@ -674,14 +676,14 @@ const DynamicWarehouseLayoutManager = () => {
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
           <Typography variant="h5">
             <Warehouse sx={{ mr: 1, verticalAlign: 'middle' }} />
-            Dynamic Warehouse Layouts
+            {t('warehouse.dynamicLayouts')}
           </Typography>
           <Button
             variant="contained"
             startIcon={<Add />}
             onClick={() => setCreateDialogOpen(true)}
           >
-            Create New Layout
+            {t('warehouse.createLayout')}
           </Button>
         </Box>
 
@@ -689,17 +691,17 @@ const DynamicWarehouseLayoutManager = () => {
           <Box sx={{ textAlign: 'center', py: 8 }}>
             <GridOn sx={{ fontSize: 80, color: 'text.secondary', mb: 2 }} />
             <Typography variant="h6" color="text.secondary" gutterBottom>
-              No warehouse layouts found
+              {t('warehouse.noLayouts')}
             </Typography>
             <Typography variant="body2" color="text.secondary" paragraph>
-              Create your first warehouse layout with custom configuration
+              {t('warehouse.createFirstLayout')}
             </Typography>
             <Button
               variant="contained"
               startIcon={<Add />}
               onClick={() => setCreateDialogOpen(true)}
             >
-              Create Layout
+              {t('warehouse.createLayout')}
             </Button>
           </Box>
         ) : (
@@ -712,7 +714,7 @@ const DynamicWarehouseLayoutManager = () => {
                       {layout.name}
                     </Typography>
                     <Typography variant="body2" color="text.secondary" paragraph>
-                      {layout.description || 'No description'}
+                      {layout.description || t('common.noDescription')}
                     </Typography>
 
                     <Divider sx={{ my: 2 }} />
@@ -720,7 +722,7 @@ const DynamicWarehouseLayoutManager = () => {
                     <Grid container spacing={2}>
                       <Grid item xs={6}>
                         <Typography variant="caption" color="text.secondary">
-                          Total Slots
+                          {t('warehouse.totalSlots')}
                         </Typography>
                         <Typography variant="h6">
                           {layout.totalSlots}
@@ -728,7 +730,7 @@ const DynamicWarehouseLayoutManager = () => {
                       </Grid>
                       <Grid item xs={6}>
                         <Typography variant="caption" color="text.secondary">
-                          Occupancy
+                          {t('warehouse.occupancy')}
                         </Typography>
                         <Typography variant="h6">
                           {layout.occupancy?.occupancyRate}%
@@ -738,13 +740,13 @@ const DynamicWarehouseLayoutManager = () => {
                         <Box sx={{ display: 'flex', gap: 1 }}>
                           <Chip
                             size="small"
-                            label={`${layout.configuration.numberOfBuildings} Buildings`}
+                            label={`${layout.configuration.numberOfBuildings} ${t('warehouse.buildings')}`}
                             color="primary"
                             variant="outlined"
                           />
                           <Chip
                             size="small"
-                            label={`${layout.configuration.blocksPerBuilding} Blocks/Building`}
+                            label={`${layout.configuration.blocksPerBuilding} ${t('warehouse.blocksPerBuilding')}`}
                             color="secondary"
                             variant="outlined"
                           />
@@ -752,13 +754,13 @@ const DynamicWarehouseLayoutManager = () => {
                       </Grid>
                       <Grid item xs={12}>
                         <Typography variant="caption" color="text.secondary">
-                          Grid: {layout.configuration.rowsPerBlock} × {layout.configuration.colsPerBlock}
+                          {t('warehouse.grid')}: {layout.configuration.rowsPerBlock} × {layout.configuration.colsPerBlock}
                         </Typography>
                       </Grid>
                     </Grid>
 
                     <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
-                      <Tooltip title="View Details">
+                      <Tooltip title={t('warehouse.viewDetails')}>
                         <IconButton
                           size="small"
                           color="primary"
@@ -767,7 +769,7 @@ const DynamicWarehouseLayoutManager = () => {
                           <Visibility />
                         </IconButton>
                       </Tooltip>
-                      <Tooltip title="Download JSON">
+                      <Tooltip title={t('warehouse.downloadJSON')}>
                         <IconButton
                           size="small"
                           color="success"
@@ -776,7 +778,7 @@ const DynamicWarehouseLayoutManager = () => {
                           <Download />
                         </IconButton>
                       </Tooltip>
-                      <Tooltip title="Delete Layout">
+                      <Tooltip title={t('warehouse.deleteLayout')}>
                         <IconButton
                           size="small"
                           color="error"
@@ -990,33 +992,33 @@ const DynamicWarehouseLayoutManager = () => {
         fullWidth
       >
         <DialogTitle>
-          Slot {selectedSlot?.slotLabel} - Customer Details
+          {t('warehouse.slot')} {selectedSlot?.slotLabel} - {t('warehouse.customerDetails')}
         </DialogTitle>
         <DialogContent>
           {selectedSlot && (
             <>
               <Alert severity="info" sx={{ mb: 3 }}>
                 <Typography variant="body2" component="div">
-                  <strong>Location:</strong> {selectedSlot.building} - {selectedSlot.block} - Row {selectedSlot.row}, Col {selectedSlot.col}
+                  <strong>{t('grainLocations.location')}:</strong> {selectedSlot.building} - {selectedSlot.block} - {t('grainLocations.row')} {selectedSlot.row}, {t('grainLocations.col')} {selectedSlot.col}
                 </Typography>
                 <Typography variant="body2" component="div">
-                  <strong>Total Capacity:</strong> {selectedSlot.capacity || 2000} bags
+                  <strong>{t('grainLocations.totalCapacity')}:</strong> {selectedSlot.capacity || 2000} {t('grainLocations.bags')}
                 </Typography>
                 <Typography variant="body2" component="div">
-                  <strong>Filled:</strong> {selectedSlot.filledBags || 0} bags ({((selectedSlot.filledBags || 0) / (selectedSlot.capacity || 2000) * 100).toFixed(1)}%)
+                  <strong>{t('grainLocations.filled')}:</strong> {selectedSlot.filledBags || 0} {t('grainLocations.bags')} ({((selectedSlot.filledBags || 0) / (selectedSlot.capacity || 2000) * 100).toFixed(1)}%)
                 </Typography>
                 <Typography variant="body2" component="div">
-                  <strong>Available:</strong> {(selectedSlot.capacity || 2000) - (selectedSlot.filledBags || 0)} bags
+                  <strong>{t('grainLocations.available')}:</strong> {(selectedSlot.capacity || 2000) - (selectedSlot.filledBags || 0)} {t('grainLocations.bags')}
                 </Typography>
                 <Typography variant="body2" component="div">
-                  <strong>Status:</strong> <Chip size="small" label={selectedSlot.status?.toUpperCase() || 'EMPTY'} 
+                  <strong>{t('warehouse.status')}:</strong> <Chip size="small" label={selectedSlot.status === 'full' ? t('warehouse.full').toUpperCase() : selectedSlot.status === 'partially-filled' ? t('warehouse.partiallyFilled').toUpperCase() : t('warehouse.empty').toUpperCase()} 
                     color={selectedSlot.status === 'full' ? 'error' : selectedSlot.status === 'partially-filled' ? 'warning' : 'success'} 
                   />
                 </Typography>
               </Alert>
 
               <Typography variant="h6" gutterBottom sx={{ mt: 2 }}>
-                Customers Stored in This Slot
+                {t('warehouse.customersInSlot')}
               </Typography>
 
               {selectedSlot.allocations && selectedSlot.allocations.length > 0 ? (
@@ -1035,11 +1037,11 @@ const DynamicWarehouseLayoutManager = () => {
                                 {allocation.customerName || 'Unknown Customer'}
                               </Typography>
                               <Typography variant="caption" color="text.secondary">
-                                Allocated on: {allocation.entryDate ? new Date(allocation.entryDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : 'Date not available'}
+                                {t('warehouse.allocatedOn')}: {allocation.entryDate ? new Date(allocation.entryDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : t('warehouse.dateNotAvailable')}
                               </Typography>
                             </Box>
                             <Chip 
-                              label={`${allocation.bags} bags`} 
+                              label={`${allocation.bags} ${t('grainLocations.bags')}`} 
                               color="primary" 
                               sx={{ fontWeight: 'bold' }}
                             />
@@ -1050,17 +1052,17 @@ const DynamicWarehouseLayoutManager = () => {
                           <Grid container spacing={2}>
                             <Grid item xs={12} sm={6}>
                               <Typography variant="body2" color="text.secondary">
-                                <strong>Number of Bags:</strong>
+                                <strong>{t('warehouse.numberOfBags')}:</strong>
                               </Typography>
                               <Typography variant="body1" sx={{ fontWeight: 'bold', color: 'primary.main' }}>
-                                {allocation.bags} bags
+                                {allocation.bags} {t('grainLocations.bags')}
                               </Typography>
                             </Grid>
 
                             {allocation.grainType && (
                               <Grid item xs={12} sm={6}>
                                 <Typography variant="body2" color="text.secondary">
-                                  <strong>Grain Type:</strong>
+                                  <strong>{t('grainLocations.grainType')}:</strong>
                                 </Typography>
                                 <Typography variant="body1">
                                   {allocation.grainType}
@@ -1071,17 +1073,17 @@ const DynamicWarehouseLayoutManager = () => {
                             {allocation.weight && allocation.weight > 0 && (
                               <Grid item xs={12} sm={6}>
                                 <Typography variant="body2" color="text.secondary">
-                                  <strong>Weight:</strong>
+                                  <strong>{t('grainLocations.weight')}:</strong>
                                 </Typography>
                                 <Typography variant="body1">
-                                  {allocation.weight} kg
+                                  {(allocation.weight / 100).toFixed(2)} {t('warehouse.quintals')}
                                 </Typography>
                               </Grid>
                             )}
 
                             <Grid item xs={12} sm={6}>
                               <Typography variant="body2" color="text.secondary">
-                                <strong>Customer ID:</strong>
+                                <strong>{t('warehouse.customerId')}:</strong>
                               </Typography>
                               <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
                                 {allocation.customerId}
@@ -1091,7 +1093,7 @@ const DynamicWarehouseLayoutManager = () => {
                             {allocation.notes && (
                               <Grid item xs={12}>
                                 <Typography variant="body2" color="text.secondary">
-                                  <strong>Notes:</strong>
+                                  <strong>{t('warehouse.notes')}:</strong>
                                 </Typography>
                                 <Typography variant="body2" sx={{ 
                                   bgcolor: 'grey.100', 
@@ -1116,7 +1118,7 @@ const DynamicWarehouseLayoutManager = () => {
                                 allocation.bags
                               )}
                             >
-                              Deallocate All ({allocation.bags} bags)
+                              {t('warehouse.deallocateAll')} ({allocation.bags} {t('grainLocations.bags')})
                             </Button>
                           </Box>
                         </CardContent>
@@ -1126,7 +1128,7 @@ const DynamicWarehouseLayoutManager = () => {
                 </Grid>
               ) : (
                 <Alert severity="info">
-                  No customer allocations found for this slot.
+                  {t('warehouse.noAllocations')}
                 </Alert>
               )}
 
@@ -1134,7 +1136,7 @@ const DynamicWarehouseLayoutManager = () => {
                 <Box sx={{ mt: 3 }}>
                   <Alert severity="success">
                     <Typography variant="body2">
-                      <strong>Available Space:</strong> {(selectedSlot.capacity || 2000) - (selectedSlot.filledBags || 0)} bags still available in this slot.
+                      <strong>{t('warehouse.availableSpace')}:</strong> {(selectedSlot.capacity || 2000) - (selectedSlot.filledBags || 0)} {t('grainLocations.bags')} {t('warehouse.stillAvailable')}
                     </Typography>
                   </Alert>
                   <Button
@@ -1156,7 +1158,7 @@ const DynamicWarehouseLayoutManager = () => {
                       fetchCustomers();
                     }}
                   >
-                    Add More Bags to This Slot
+                    {t('warehouse.addMoreBags')}
                   </Button>
                 </Box>
               )}
@@ -1165,7 +1167,7 @@ const DynamicWarehouseLayoutManager = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setSlotDetailsDialogOpen(false)}>
-            Close
+            {t('common.close')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -1248,13 +1250,13 @@ const DynamicWarehouseLayoutManager = () => {
 
           <TextField
             fullWidth
-            label="Weight (kg)"
+            label="Weight (quintals)"
             type="number"
             value={allocationForm.weight}
             onChange={(e) => setAllocationForm({ ...allocationForm, weight: e.target.value })}
             sx={{ mt: 2 }}
             inputProps={{ min: 0, step: 0.01 }}
-            helperText="Optional: Total weight of the bags"
+            helperText="Optional: Total weight in quintals (1 quintal = 100 kg)"
           />
 
           <TextField

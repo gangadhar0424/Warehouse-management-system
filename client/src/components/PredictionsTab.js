@@ -38,12 +38,14 @@ import {
   Visibility
 } from '@mui/icons-material';
 import axios from 'axios';
+import AIGrainPriceForecast from './AIGrainPriceForecast';
 
 const PredictionsTab = () => {
   const [loading, setLoading] = useState(true);
   const [predictions, setPredictions] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [marketAlerts, setMarketAlerts] = useState([]);
+  const [marketPrices, setMarketPrices] = useState([]);
   const [stats, setStats] = useState({
     totalCustomers: 0,
     profitableCount: 0,
@@ -56,15 +58,26 @@ const PredictionsTab = () => {
   useEffect(() => {
     fetchPredictions();
     fetchMarketAlerts();
+    fetchMarketPrices();
     
     // Auto-refresh every 5 minutes
     const interval = setInterval(() => {
       fetchPredictions();
       fetchMarketAlerts();
+      fetchMarketPrices();
     }, 5 * 60 * 1000);
 
     return () => clearInterval(interval);
   }, []);
+
+  const fetchMarketPrices = async () => {
+    try {
+      const response = await axios.get('/api/market/live-prices');
+      setMarketPrices(response.data.prices || []);
+    } catch (err) {
+      console.error('Market prices fetch error:', err);
+    }
+  };
 
   const fetchPredictions = async () => {
     try {
@@ -138,17 +151,23 @@ const PredictionsTab = () => {
         <Typography variant="h5" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <ShowChart /> ML Predictions & Market Intelligence
         </Typography>
-        <Button
-          variant="outlined"
-          startIcon={<Refresh />}
-          onClick={() => {
-            fetchPredictions();
-            fetchMarketAlerts();
-          }}
-          disabled={loading}
-        >
-          Refresh
-        </Button>
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <AIGrainPriceForecast
+            buttonVariant="contained"
+            buttonSize="medium"
+          />
+          <Button
+            variant="outlined"
+            startIcon={<Refresh />}
+            onClick={() => {
+              fetchPredictions();
+              fetchMarketAlerts();
+            }}
+            disabled={loading}
+          >
+            Refresh
+          </Button>
+        </Box>
       </Box>
 
       {error && (
@@ -223,6 +242,90 @@ const PredictionsTab = () => {
           </Card>
         </Grid>
       </Grid>
+
+      {/* Live Market Prices */}
+      {marketPrices.length > 0 && (
+        <Paper sx={{ p: 3, mb: 4 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <MonetizationOn /> Live Market Prices
+            </Typography>
+            <Chip
+              icon={<Schedule />}
+              label="Auto-refresh every 5 min"
+              size="small"
+              color="primary"
+              variant="outlined"
+            />
+          </Box>
+          <TableContainer>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell><strong>Grain Type</strong></TableCell>
+                  <TableCell align="right"><strong>Current Price</strong></TableCell>
+                  <TableCell align="right"><strong>Change</strong></TableCell>
+                  <TableCell align="right"><strong>Trend</strong></TableCell>
+                  <TableCell align="right"><strong>Last Updated</strong></TableCell>
+                  <TableCell align="center"><strong>AI Forecast</strong></TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {marketPrices.map((price, index) => {
+                  const priceChange = price.previousPrice 
+                    ? ((price.currentPrice - price.previousPrice) / price.previousPrice * 100).toFixed(2)
+                    : 0;
+                  const isPositive = priceChange > 0;
+                  
+                  return (
+                    <TableRow key={index} hover>
+                      <TableCell>
+                        <Typography fontWeight="600">{price.grainType || price.name}</Typography>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography fontWeight="bold" color="primary">
+                          ₹{price.currentPrice?.toFixed(2) || price.price?.toFixed(2)}
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Chip
+                          size="small"
+                          label={`${isPositive ? '+' : ''}${priceChange}%`}
+                          color={isPositive ? 'success' : priceChange < 0 ? 'error' : 'default'}
+                        />
+                      </TableCell>
+                      <TableCell align="right">
+                        {isPositive ? (
+                          <TrendingUp color="success" />
+                        ) : priceChange < 0 ? (
+                          <TrendingDown color="error" />
+                        ) : (
+                          <span>—</span>
+                        )}
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography variant="caption" color="text.secondary">
+                          {price.lastUpdated 
+                            ? new Date(price.lastUpdated).toLocaleTimeString('en-IN')
+                            : new Date().toLocaleTimeString('en-IN')}
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="center">
+                        <AIGrainPriceForecast
+                          defaultGrain={price.grainType || price.name}
+                          buttonVariant="outlined"
+                          buttonSize="small"
+                          buttonText="Predict"
+                        />
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Paper>
+      )}
 
       {/* Market Alerts */}
       {marketAlerts.length > 0 && (

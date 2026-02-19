@@ -33,20 +33,61 @@ import {
   Close
 } from '@mui/icons-material';
 import axios from 'axios';
+import { useSocket } from '../contexts/SocketContext';
+import { useTranslation } from '../i18n/LanguageContext';
 
 const CustomerLoanAlerts = () => {
+  const { t } = useTranslation();
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [dismissedAlerts, setDismissedAlerts] = useState([]);
+  const [aiRiskAssessment, setAiRiskAssessment] = useState(null);
+  const [aiRiskLoading, setAiRiskLoading] = useState(false);
+  const [customerGrains, setCustomerGrains] = useState([]);
+  const { socket } = useSocket();
 
   useEffect(() => {
     fetchLoanAlerts();
+    fetchCustomerGrains();
     
     // Refresh alerts every 5 minutes
     const interval = setInterval(fetchLoanAlerts, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    // Listen for loan approval notifications
+    socket.on('loan_approved', (data) => {
+      console.log('Loan approved notification:', data);
+      
+      // Show alert notification
+      const newAlert = {
+        _id: `new-${Date.now()}`,
+        loanAmount: data.loanAmount,
+        interestRate: data.interestRate,
+        duration: data.duration,
+        monthlyEMI: data.monthlyEMI,
+        startDate: data.startDate,
+        endDate: data.endDate,
+        daysUntilDue: 999, // Large number to mark as new
+        isOverdue: false,
+        notificationsSent: [],
+        type: 'new_approval'
+      };
+      
+      setAlerts(prev => [newAlert, ...prev]);
+      
+      // Refresh data
+      fetchLoanAlerts();
+    });
+
+    return () => {
+      socket.off('loan_approved');
+    };
+  }, [socket]);
 
   const fetchLoanAlerts = async () => {
     try {
@@ -57,9 +98,66 @@ const CustomerLoanAlerts = () => {
       setAlerts(response.data.alerts || []);
     } catch (err) {
       console.error('Error fetching loan alerts:', err);
-      setError(err.response?.data?.message || 'Failed to fetch loan alerts');
+      setError(err.response?.data?.message || t('loans.errorFetchingAlerts'));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchCustomerGrains = async () => {
+    try {
+      const response = await axios.get('/api/warehouse/allocations/my-locations');
+      const allocations = response.data.allocations || [];
+      
+      // Extract grain types from allocations
+      const grains = [];
+      allocations.forEach(allocation => {
+        if (allocation.storageDetails?.items) {
+          allocation.storageDetails.items.forEach(item => {
+            if (item.description && !grains.some(g => g.name === item.description)) {
+              grains.push({
+                name: item.description,
+                weight: item.weight || 0,
+                quantity: item.quantity || 0
+              });
+            }
+          });
+        }
+      });
+      
+      setCustomerGrains(grains);
+    } catch (err) {
+      console.error('Error fetching customer grains:', err);
+    }
+  };
+
+  const fetchAIRiskAssessment = async () => {
+    if (customerGrains.length === 0) {
+      setError('No grain data available for risk assessment');
+      return;
+    }
+
+    try {
+      setAiRiskLoading(true);
+      setError('');
+
+      // Use the first grain for risk assessment (or aggregate if multiple)
+      const primaryGrain = customerGrains[0];
+      const response = await axios.post('/api/ai/predict-profit', {
+        grain_type: primaryGrain.name,
+        total_bags: primaryGrain.quantity || 100,
+        total_weight_kg: primaryGrain.weight || 5000,
+        monthly_rent_per_bag: 50
+      });
+
+      if (response.data.success) {
+        setAiRiskAssessment(response.data.prediction);
+      }
+    } catch (err) {
+      console.error('Error fetching AI risk assessment:', err);
+      setError(err.response?.data?.message || 'Failed to fetch AI risk assessment');
+    } finally {
+      setAiRiskLoading(false);
     }
   };
 
@@ -171,6 +269,93 @@ const CustomerLoanAlerts = () => {
         </Grid>
       </Grid>
 
+      {/* AI Risk Assessment */}
+      <Card sx={{ mb: 3, bgcolor: 'primary.50', border: '2px solid', borderColor: 'primary.main' }}>
+        <CardContent>
+          <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
+            <Box display="flex" alignItems="center" gap={1}>
+              <Info color="primary" />
+              <Typography variant="h6" fontWeight="bold" color="primary.main">
+                AI-Powered Loan Risk Assessment
+              </Typography>
+            </Box>
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={fetchAIRiskAssessment}
+              disabled={aiRiskLoading || customerGrains.length === 0}
+            >
+              {aiRiskLoading ? 'Analyzing...' : 'Get AI Assessment'}
+            </Button>
+            </Box>
+
+            {customerGrains.length === 0 ? (
+              <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'background.paper' }}>
+                <Info sx={{ fontSize: 48, color: 'text.secondary', mb: 1 }} />
+                <Typography variant="body2" color="text.secondary">
+                  No grain data available. Please add grains to your warehouse to get AI-powered loan risk assessment.
+                </Typography>
+              </Paper>
+            ) : aiRiskAssessment ? (
+              <Grid container spacing={2}>
+                <Grid item xs={12} md={4}>
+                  <Paper sx={{ p: 2, bgcolor: aiRiskAssessment.predicted_category === 'Profit' ? 'success.50' : 'error.50', border: '1px solid', borderColor: aiRiskAssessment.predicted_category === 'Profit' ? 'success.main' : 'error.main' }}>
+                    <Typography variant="caption" color="text.secondary">
+                      Profit Outlook
+                    </Typography>
+                    <Typography variant="h5" fontWeight="bold" color={aiRiskAssessment.predicted_category === 'Profit' ? 'success.main' : 'error.main'}>
+                      {aiRiskAssessment.predicted_category}
+                    </Typography>
+                  </Paper>
+                </Grid>
+                <Grid item xs={12} md={4}>
+                  <Paper sx={{ p: 2, bgcolor: 'info.50', border: '1px solid', borderColor: 'info.main' }}>
+                    <Typography variant="caption" color="text.secondary">
+                      AI Confidence Score
+                    </Typography>
+                    <Typography variant="h5" fontWeight="bold" color="info.main">
+                      {((aiRiskAssessment.confidence || 0) * 100).toFixed(0)}%
+                    </Typography>
+                  </Paper>
+                </Grid>
+                <Grid item xs={12} md={4}>
+                  <Paper sx={{ p: 2, bgcolor: 'warning.50', border: '1px solid', borderColor: 'warning.main' }}>
+                    <Typography variant="caption" color="text.secondary">
+                      Loan Risk Level
+                    </Typography>
+                    <Typography variant="h5" fontWeight="bold" color="warning.main">
+                      {aiRiskAssessment.predicted_category === 'Profit' ? 'LOW' : 'MODERATE'}
+                    </Typography>
+                  </Paper>
+                </Grid>
+                <Grid item xs={12}>
+                  <Alert severity={aiRiskAssessment.predicted_category === 'Profit' ? 'success' : 'warning'}>
+                    <AlertTitle>AI Recommendation</AlertTitle>
+                    {aiRiskAssessment.predicted_category === 'Profit' ? (
+                      <Typography variant="body2">
+                        <strong>Favorable Conditions:</strong> Based on grain type, weight, and market analysis, AI predicts profitable outcomes. 
+                        You may be eligible for better loan terms with lower interest rates.
+                      </Typography>
+                    ) : (
+                      <Typography variant="body2">
+                        <strong>Caution Advised:</strong> AI analysis suggests potential challenges. Consider reviewing storage duration 
+                        and market conditions before taking additional loans. Contact our financial advisor for personalized guidance.
+                      </Typography>
+                    )}
+                  </Alert>
+                </Grid>
+              </Grid>
+            ) : (
+              <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'background.paper' }}>
+                <Info sx={{ fontSize: 48, color: 'text.secondary', mb: 1 }} />
+                <Typography variant="body2" color="text.secondary">
+                  Click "Get AI Assessment" to analyze your loan eligibility and risk profile based on your stored grains
+                </Typography>
+              </Paper>
+            )}
+          </CardContent>
+        </Card>
+
       {/* Alert List */}
       {visibleAlerts.length === 0 ? (
         <Paper sx={{ p: 4, textAlign: 'center' }}>
@@ -185,6 +370,102 @@ const CustomerLoanAlerts = () => {
       ) : (
         <Stack spacing={2}>
           {visibleAlerts.map((alert) => {
+            // Special handling for newly approved loans
+            if (alert.type === 'new_approval') {
+              return (
+                <Alert
+                  key={alert._id}
+                  severity="success"
+                  icon={<CheckCircle />}
+                  action={
+                    <IconButton
+                      aria-label="dismiss"
+                      color="inherit"
+                      size="small"
+                      onClick={() => dismissAlert(alert._id)}
+                    >
+                      <Close fontSize="inherit" />
+                    </IconButton>
+                  }
+                >
+                  <AlertTitle sx={{ fontWeight: 'bold' }}>
+                    Loan Approved Successfully!
+                  </AlertTitle>
+                  
+                  <Grid container spacing={2} sx={{ mt: 1 }}>
+                    <Grid item xs={12} md={6}>
+                      <Stack spacing={1}>
+                        <Box display="flex" justifyContent="space-between">
+                          <Typography variant="body2" color="text.secondary">
+                            Loan Amount:
+                          </Typography>
+                          <Typography variant="body1" fontWeight="bold" color="success.main">
+                            ₹{alert.loanAmount?.toLocaleString('en-IN')}
+                          </Typography>
+                        </Box>
+                        
+                        <Box display="flex" justifyContent="space-between">
+                          <Typography variant="body2" color="text.secondary">
+                            Interest Rate:
+                          </Typography>
+                          <Typography variant="body2" fontWeight="bold">
+                            {alert.interestRate}%
+                          </Typography>
+                        </Box>
+
+                        <Box display="flex" justifyContent="space-between">
+                          <Typography variant="body2" color="text.secondary">
+                            Duration:
+                          </Typography>
+                          <Typography variant="body2" fontWeight="bold">
+                            {alert.duration} months
+                          </Typography>
+                        </Box>
+                      </Stack>
+                    </Grid>
+
+                    <Grid item xs={12} md={6}>
+                      <Stack spacing={1}>
+                        <Box display="flex" justifyContent="space-between">
+                          <Typography variant="body2" color="text.secondary">
+                            Monthly EMI:
+                          </Typography>
+                          <Typography variant="body1" fontWeight="bold">
+                            ₹{parseFloat(alert.monthlyEMI).toLocaleString('en-IN')}
+                          </Typography>
+                        </Box>
+
+                        <Box display="flex" justifyContent="space-between">
+                          <Typography variant="body2" color="text.secondary">
+                            Start Date:
+                          </Typography>
+                          <Chip
+                            icon={<CalendarToday />}
+                            label={formatDate(alert.startDate)}
+                            size="small"
+                            color="success"
+                          />
+                        </Box>
+
+                        <Box display="flex" justifyContent="space-between">
+                          <Typography variant="body2" color="text.secondary">
+                            End Date:
+                          </Typography>
+                          <Chip
+                            icon={<CalendarToday />}
+                            label={formatDate(alert.endDate)}
+                            size="small"
+                            color="info"
+                          />
+                        </Box>
+                      </Stack>
+                    </Grid>
+                  </Grid>
+                </Alert>
+              );
+            }
+
+            // Regular alert handling
             const severity = getAlertSeverity(alert.daysUntilDue);
             const icon = getAlertIcon(alert.daysUntilDue);
             const title = getAlertTitle(alert.daysUntilDue, alert.isOverdue);

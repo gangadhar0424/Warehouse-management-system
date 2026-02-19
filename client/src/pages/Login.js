@@ -18,6 +18,7 @@ import {
 import { Visibility, VisibilityOff, Business, Person, Engineering } from '@mui/icons-material';
 import { Link as RouterLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useTranslation } from '../i18n/LanguageContext';
 
 const Login = () => {
   const [selectedRole, setSelectedRole] = useState('owner');
@@ -31,11 +32,15 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
+
   const navigate = useNavigate();
   const location = useLocation();
   const { login, logout } = useAuth();
+  const { t } = useTranslation();
 
   const from = location.state?.from?.pathname || '/dashboard';
+
+
 
   const validateEmailOrUsername = (input) => {
     // If input contains @, treat it as email and validate
@@ -53,25 +58,8 @@ const Login = () => {
   };
 
   const validatePassword = (password) => {
-    const hasUpperCase = /[A-Z]/.test(password);
-    const hasLowerCase = /[a-z]/.test(password);
-    const hasNumber = /[0-9]/.test(password);
-    const hasSpecialChar = /[!@#$%^&*(),.?":{}|<>]/.test(password);
-
-    if (!hasUpperCase) {
-      setPasswordError('Password must contain at least one uppercase letter');
-      return false;
-    }
-    if (!hasLowerCase) {
-      setPasswordError('Password must contain at least one lowercase letter');
-      return false;
-    }
-    if (!hasNumber) {
-      setPasswordError('Password must contain at least one number');
-      return false;
-    }
-    if (!hasSpecialChar) {
-      setPasswordError('Password must contain at least one special character (!@#$%^&*...)');
+    if (!password || password.length < 6) {
+      setPasswordError('Password must be at least 6 characters');
       return false;
     }
     setPasswordError('');
@@ -127,15 +115,7 @@ const Login = () => {
         return;
       }
       
-      // Check if user's role matches selected role
-      if (result.user.role !== selectedRole) {
-        setError(`Invalid credentials for ${selectedRole} login. This account is registered as a ${result.user.role}.`);
-        setLoading(false);
-        // Logout the user since role doesn't match
-        return;
-      }
-      
-      // Navigate to role-specific dashboard
+      // Navigate to role-specific dashboard based on the user's actual role
       const roleDashboard = {
         owner: '/owner-dashboard',
         customer: '/customer-dashboard'
@@ -149,7 +129,8 @@ const Login = () => {
   };
 
   return (
-    <Container component="main" maxWidth="sm">
+    <>
+      <Container component="main" maxWidth="sm">
       <Box
         sx={{
           minHeight: '100vh',
@@ -170,16 +151,16 @@ const Login = () => {
           }}
         >
           <Typography component="h1" variant="h4" gutterBottom>
-            Warehouse Management System
+            {t('common.appTitle')}
           </Typography>
           <Typography component="h2" variant="h5" color="primary" gutterBottom>
-            Sign In
+            {t('auth.signIn')}
           </Typography>
 
           {/* Role Selection Buttons */}
           <Box sx={{ width: '100%', mt: 3, mb: 2 }}>
             <Typography variant="subtitle1" gutterBottom align="center" sx={{ mb: 2 }}>
-              Select Login Type
+              {t('auth.selectLoginType')}
             </Typography>
             <ToggleButtonGroup
               value={selectedRole}
@@ -191,11 +172,11 @@ const Login = () => {
             >
               <ToggleButton value="owner" aria-label="owner login">
                 <Business sx={{ mr: 1 }} />
-                Owner
+                {t('auth.owner')}
               </ToggleButton>
               <ToggleButton value="customer" aria-label="customer login">
                 <Person sx={{ mr: 1 }} />
-                Customer
+                {t('auth.customer')}
               </ToggleButton>
             </ToggleButtonGroup>
           </Box>
@@ -214,7 +195,7 @@ const Login = () => {
               required
               fullWidth
               id="login"
-              label="Email or Username"
+              label={t('auth.emailOrUsername')}
               name="login"
               autoComplete="username"
               autoFocus
@@ -222,14 +203,14 @@ const Login = () => {
               onChange={handleChange}
               disabled={loading}
               error={!!emailError}
-              helperText={emailError || 'Enter your email or username'}
+              helperText={emailError || t('auth.enterEmailOrUsername')}
             />
             <TextField
               margin="normal"
               required
               fullWidth
               name="password"
-              label="Password"
+              label={t('auth.password')}
               type={showPassword ? 'text' : 'password'}
               id="password"
               autoComplete="current-password"
@@ -237,7 +218,7 @@ const Login = () => {
               onChange={handleChange}
               disabled={loading}
               error={!!passwordError}
-              helperText={passwordError || 'Must contain uppercase, lowercase, number & special character'}
+              helperText={passwordError || t('auth.passwordRequirements')}
               InputProps={{
                 endAdornment: (
                   <InputAdornment position="end">
@@ -260,18 +241,19 @@ const Login = () => {
               sx={{ mt: 3, mb: 2 }}
               disabled={loading}
             >
-              {loading ? <CircularProgress size={24} /> : `Sign In as ${selectedRole.charAt(0).toUpperCase() + selectedRole.slice(1)}`}
+              {loading ? <CircularProgress size={24} /> : `${t('auth.signIn')} ${t('common.as')} ${t(`auth.${selectedRole}`)}`}
             </Button>
             
             <Box sx={{ textAlign: 'center' }}>
               <Link component={RouterLink} to="/register" variant="body2">
-                Don't have an account? Sign Up
+                {t('auth.noAccount')} {t('auth.signUp')}
               </Link>
             </Box>
           </Box>
         </Paper>
       </Box>
     </Container>
+    </>
   );
 };
 

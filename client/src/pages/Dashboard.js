@@ -16,7 +16,7 @@ import {
   LocalShipping,
   Warehouse,
   People,
-  AttachMoney,
+  CurrencyRupee,
   TrendingUp,
   TrendingDown,
   Grain,
@@ -134,7 +134,7 @@ const Dashboard = () => {
         <StatCard
           title="Revenue Today"
           value={`₹${stats?.todayRevenue || 0}`}
-          icon={<AttachMoney fontSize="large" />}
+          icon={<CurrencyRupee fontSize="large" />}
           color="info"
           trend="up"
           trendValue="+8%"
@@ -181,7 +181,7 @@ const Dashboard = () => {
         <StatCard
           title="Total Spent"
           value={`₹${stats?.totalSpent || 0}`}
-          icon={<AttachMoney fontSize="large" />}
+          icon={<CurrencyRupee fontSize="large" />}
           color="success"
         />
       </Grid>
@@ -197,7 +197,7 @@ const Dashboard = () => {
         <StatCard
           title="Pending Payments"
           value={`₹${stats?.pendingPayments || 0}`}
-          icon={<AttachMoney fontSize="large" />}
+          icon={<CurrencyRupee fontSize="large" />}
           color="warning"
         />
       </Grid>

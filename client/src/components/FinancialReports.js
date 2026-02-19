@@ -25,7 +25,7 @@ import {
   TrendingDown,
   AccountBalance,
   Receipt,
-  AttachMoney
+  CurrencyRupee
 } from '@mui/icons-material';
 import {
   LineChart,
@@ -217,7 +217,7 @@ const FinancialReports = () => {
                     </Typography>
                   </Box>
                 </Box>
-                <AttachMoney sx={{ fontSize: 48, color: 'rgba(255,255,255,0.3)' }} />
+                <CurrencyRupee sx={{ fontSize: 48, color: 'rgba(255,255,255,0.3)' }} />
               </Box>
             </CardContent>
           </Card>

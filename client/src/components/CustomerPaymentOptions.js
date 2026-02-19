@@ -37,8 +37,10 @@ import {
 } from '@mui/icons-material';
 import axios from 'axios';
 import RazorpayPayment from './RazorpayPayment';
+import { useTranslation } from '../i18n/LanguageContext';
 
 const CustomerPaymentOptions = () => {
+  const { t } = useTranslation();
   const [paymentType, setPaymentType] = useState('weighbridge');
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [amount, setAmount] = useState('');
@@ -62,19 +64,45 @@ const CustomerPaymentOptions = () => {
     // Auto-set amounts based on payment type
     if (paymentType === 'weighbridge') {
       setAmount('100');
-      setDescription('Weighbridge fee payment');
+      setDescription(t('payments.weighbridgeFeeDescription'));
     } else if (paymentType === 'loan' && selectedLoan) {
       // Amount will be set when loan is selected
       const loan = loans.find(l => l._id === selectedLoan);
       if (loan) {
         setAmount(loan.remainingAmount?.toString() || '');
-        setDescription(`Loan repayment for Loan ID: ${loan._id.slice(-8)}`);
+        setDescription(`${t('payments.loanRepaymentFor')} ${t('loans.loanId')}: ${loan._id.slice(-8)}`);
       }
     } else if (paymentType === 'rent' && selectedAllocation) {
       const allocation = allocations.find(a => a._id === selectedAllocation);
       if (allocation) {
-        setAmount(allocation.rentDetails?.dueRent?.toString() || '');
-        setDescription(`Rent payment for storage allocation`);
+        // Calculate rent based on storage duration
+        // Charges: ₹18 per quintal per month
+        // - Rent: ₹7/quintal/month
+        // - Maintenance: ₹6/quintal/month
+        // - Insurance: ₹5/quintal/year (one-time, even if stored less than a year)
+        
+        const entryDate = new Date(allocation.allocation.entryDate);
+        const currentDate = new Date();
+        const daysStored = Math.floor((currentDate - entryDate) / (1000 * 60 * 60 * 24));
+        const monthsStored = daysStored / 30; // Approximate months
+        const weightQuintals = allocation.allocation.weight / 100; // Convert kg to quintals
+        
+        // Monthly recurring charges (Rent + Maintenance)
+        const rentPerQuintalPerMonth = 7;
+        const maintenancePerQuintalPerMonth = 6;
+        const monthlyChargesPerQuintal = rentPerQuintalPerMonth + maintenancePerQuintalPerMonth; // ₹13
+        
+        // Insurance (one-time per year, charged even if stored less than a year)
+        const insurancePerQuintalPerYear = 5;
+        
+        // Calculate total charges
+        const monthlyCharges = weightQuintals * monthlyChargesPerQuintal * monthsStored;
+        const insuranceCharges = weightQuintals * insurancePerQuintalPerYear; // One-time annual charge
+        
+        const totalRent = Math.ceil(monthlyCharges + insuranceCharges);
+        
+        setAmount(totalRent.toString());
+        setDescription(`${t('payments.rentPaymentFor')} ${allocation.warehouseName} - ${allocation.location.slotLabel} (${daysStored} ${t('payments.days')}, ${weightQuintals.toFixed(2)} ${t('grainLocations.quintals')})`);
       }
     } else {
       setAmount('');
@@ -86,7 +114,7 @@ const CustomerPaymentOptions = () => {
     try {
       const [loansRes, allocationsRes] = await Promise.all([
         axios.get('/api/loans/my-loans'),
-        axios.get('/api/warehouse/allocations/my-locations')
+        axios.get('/api/dynamic-warehouse/my-grain-locations')
       ]);
 
       // Filter active loans with remaining amount
@@ -95,11 +123,20 @@ const CustomerPaymentOptions = () => {
       );
       setLoans(activeLoans);
 
-      // Filter allocations with due rent
-      const allocationsWithDue = (allocationsRes.data.allocations || []).filter(
-        allocation => allocation.rentDetails?.dueRent > 0
-      );
-      setAllocations(allocationsWithDue);
+      // Get all customer's grain allocations from dynamic warehouse
+      const grainLocations = allocationsRes.data.grainLocations || [];
+      console.log('Customer grain locations:', grainLocations);
+      
+      // Map to format needed for dropdown display
+      const formattedAllocations = grainLocations.map((loc, index) => ({
+        _id: `${loc.warehouseId}_${loc.location.building}_${loc.location.block}_${loc.location.slotLabel}`,
+        warehouseName: loc.warehouseName,
+        location: loc.location,
+        allocation: loc.allocation,
+        displayLabel: `${loc.warehouseName} - ${loc.location.slotLabel} (${loc.allocation.grainType}, ${(loc.allocation.weight / 100).toFixed(2)} quintals)`
+      }));
+      
+      setAllocations(formattedAllocations);
     } catch (err) {
       console.error('Error fetching payment options:', err);
     }
@@ -218,7 +255,7 @@ const CustomerPaymentOptions = () => {
       <Box sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 2 }}>
         <Payment sx={{ fontSize: 32, color: 'primary.main' }} />
         <Typography variant="h5" fontWeight="bold">
-          Payment Options
+          {t('payments.title')}
         </Typography>
       </Box>
 
@@ -240,7 +277,7 @@ const CustomerPaymentOptions = () => {
           <Card>
             <CardContent>
               <Typography variant="h6" gutterBottom>
-                Select Payment Type
+                {t('payments.selectPaymentType')}
               </Typography>
               <FormControl component="fieldset" fullWidth sx={{ mt: 2 }}>
                 <RadioGroup
@@ -256,10 +293,10 @@ const CustomerPaymentOptions = () => {
                           <LocalAtm color="primary" />
                           <Box>
                             <Typography variant="body1" fontWeight="bold">
-                              Weighbridge Fee
+                              {t('payments.weighbridgeFee')}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
-                              Fixed charge: ₹100
+                              {t('payments.fixedCharge')}: ₹100
                             </Typography>
                           </Box>
                         </Box>
@@ -276,10 +313,10 @@ const CustomerPaymentOptions = () => {
                           <AccountBalance color="warning" />
                           <Box>
                             <Typography variant="body1" fontWeight="bold">
-                              Storage Rent Payment
+                              {t('payments.storageRentPayment')}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
-                              Pay pending rent for your storage
+                              {t('payments.payPendingRent')}
                             </Typography>
                           </Box>
                         </Box>
@@ -294,16 +331,20 @@ const CustomerPaymentOptions = () => {
                             displayEmpty
                           >
                             <MenuItem value="" disabled>
-                              Select storage allocation
+                              {t('payments.selectStorageAllocation')}
                             </MenuItem>
                             {allocations.map((allocation) => (
                               <MenuItem key={allocation._id} value={allocation._id}>
-                                Building {allocation.allocation?.building} - Block {allocation.allocation?.block} 
-                                (Due: ₹{allocation.rentDetails?.dueRent})
+                                {allocation.displayLabel}
                               </MenuItem>
                             ))}
                           </Select>
                         </FormControl>
+                        {allocations.length === 0 && (
+                          <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                            {t('payments.noAllocationsFound')}
+                          </Typography>
+                        )}
                       </Box>
                     )}
                   </Paper>
@@ -317,10 +358,10 @@ const CustomerPaymentOptions = () => {
                           <CreditCard color="error" />
                           <Box>
                             <Typography variant="body1" fontWeight="bold">
-                              Loan Repayment
+                              {t('payments.loanRepayment')}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
-                              Repay your active loan
+                              {t('payments.repayActiveLoan')}
                             </Typography>
                           </Box>
                         </Box>
@@ -335,11 +376,11 @@ const CustomerPaymentOptions = () => {
                             displayEmpty
                           >
                             <MenuItem value="" disabled>
-                              Select loan to repay
+                              {t('payments.selectLoanToRepay')}
                             </MenuItem>
                             {loans.map((loan) => (
                               <MenuItem key={loan._id} value={loan._id}>
-                                Loan #{loan._id.slice(-8)} - Remaining: ₹{loan.remainingAmount}
+                                {t('loans.loan')} #{loan._id.slice(-8)} - {t('payments.remaining')}: ₹{loan.remainingAmount}
                               </MenuItem>
                             ))}
                           </Select>
@@ -357,10 +398,10 @@ const CustomerPaymentOptions = () => {
                           <Receipt color="info" />
                           <Box>
                             <Typography variant="body1" fontWeight="bold">
-                              Custom Payment
+                              {t('payments.customPayment')}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
-                              Enter custom amount
+                              {t('payments.enterCustomAmount')}
                             </Typography>
                           </Box>
                         </Box>
@@ -372,7 +413,7 @@ const CustomerPaymentOptions = () => {
                           fullWidth
                           size="small"
                           type="number"
-                          label="Enter Amount"
+                          label={t('payments.enterAmount')}
                           value={customAmount}
                           onChange={(e) => setCustomAmount(e.target.value)}
                           InputProps={{
@@ -395,7 +436,7 @@ const CustomerPaymentOptions = () => {
             <Card>
               <CardContent>
                 <Typography variant="h6" gutterBottom>
-                  Payment Method
+                  {t('payments.paymentMethod')}
                 </Typography>
                 <FormControl component="fieldset" fullWidth sx={{ mt: 2 }}>
                   <RadioGroup
@@ -409,7 +450,7 @@ const CustomerPaymentOptions = () => {
                         label={
                           <Box display="flex" alignItems="center" gap={1}>
                             <LocalAtm />
-                            <Typography>Cash</Typography>
+                            <Typography>{t('payments.cash')}</Typography>
                           </Box>
                         }
                       />
@@ -421,7 +462,7 @@ const CustomerPaymentOptions = () => {
                         label={
                           <Box display="flex" alignItems="center" gap={1}>
                             <QrCode2 />
-                            <Typography>UPI</Typography>
+                            <Typography>{t('payments.upi')}</Typography>
                           </Box>
                         }
                       />
@@ -433,7 +474,7 @@ const CustomerPaymentOptions = () => {
                         label={
                           <Box display="flex" alignItems="center" gap={1}>
                             <CreditCard />
-                            <Typography>Razorpay (Card/Net Banking)</Typography>
+                            <Typography>{t('payments.razorpay')}</Typography>
                           </Box>
                         }
                       />
@@ -447,26 +488,26 @@ const CustomerPaymentOptions = () => {
             <Card sx={{ bgcolor: 'primary.50' }}>
               <CardContent>
                 <Typography variant="h6" gutterBottom color="primary.main">
-                  Payment Summary
+                  {t('payments.paymentSummary')}
                 </Typography>
                 <Divider sx={{ my: 2 }} />
                 <Stack spacing={2}>
                   <Box display="flex" justifyContent="space-between">
                     <Typography variant="body2" color="text.secondary">
-                      Payment Type:
+                      {t('payments.paymentType')}:
                     </Typography>
                     <Chip label={paymentType} size="small" sx={{ textTransform: 'capitalize' }} />
                   </Box>
                   <Box display="flex" justifyContent="space-between">
                     <Typography variant="body2" color="text.secondary">
-                      Payment Method:
+                      {t('payments.paymentMethod')}:
                     </Typography>
                     <Chip label={paymentMethod} size="small" color="primary" sx={{ textTransform: 'uppercase' }} />
                   </Box>
                   <Divider />
                   <Box display="flex" justifyContent="space-between" alignItems="center">
                     <Typography variant="h6">
-                      Total Amount:
+                      {t('payments.totalAmount')}:
                     </Typography>
                     <Typography variant="h5" fontWeight="bold" color="primary.main">
                       ₹{paymentType === 'custom' ? (customAmount || '0') : (amount || '0')}
@@ -476,7 +517,7 @@ const CustomerPaymentOptions = () => {
                   {description && (
                     <Box>
                       <Typography variant="caption" color="text.secondary">
-                        Description:
+                        {t('payments.description')}:
                       </Typography>
                       <Typography variant="body2">
                         {description}
@@ -492,7 +533,7 @@ const CustomerPaymentOptions = () => {
                     disabled={loading || !amount && !customAmount}
                     startIcon={loading ? <CircularProgress size={20} /> : <CheckCircle />}
                   >
-                    {loading ? 'Processing...' : 'Proceed to Pay'}
+                    {loading ? t('payments.processing') : t('payments.proceedToPay')}
                   </Button>
                 </Stack>
               </CardContent>

@@ -6,7 +6,14 @@ const StorageAllocation = require('../models/StorageAllocation');
 const Loan = require('../models/Loan');
 const Vehicle = require('../models/Vehicle');
 const User = require('../models/User');
-const { sendAlertSMS, sendBulkSMS } = require('../utils/smsService');
+const { PDFDocument, rgb, StandardFonts } = require('pdf-lib');
+let sendAlertSMS, sendBulkSMS;
+try {
+  ({ sendAlertSMS, sendBulkSMS } = require('../utils/smsService'));
+} catch(e) {
+  sendAlertSMS = () => {};
+  sendBulkSMS = () => {};
+}
 
 const router = express.Router();
 
@@ -25,8 +32,8 @@ router.get('/owner/dashboard', auth, authorize('owner'), async (req, res) => {
     });
 
     const rentRevenue = transactions
-      .filter(t => t.type === 'storage')
-      .reduce((sum, t) => sum + (t.amount.finalAmount || 0), 0);
+      .filter(t => t.type === 'grain_storage_rent')
+      .reduce((sum, t) => sum + (t.amount.totalAmount || 0), 0);
 
     const loanInterest = await Loan.aggregate([
       { $match: { status: { $in: ['active', 'completed'] } } },
@@ -34,12 +41,12 @@ router.get('/owner/dashboard', auth, authorize('owner'), async (req, res) => {
     ]);
 
     const vehicleCharges = transactions
-      .filter(t => t.type === 'weigh_bridge')
-      .reduce((sum, t) => sum + (t.amount.finalAmount || 0), 0);
+      .filter(t => t.type === 'weighbridge_fee')
+      .reduce((sum, t) => sum + (t.amount.totalAmount || 0), 0);
 
     const otherCharges = transactions
       .filter(t => ['loading', 'unloading', 'penalty'].includes(t.type))
-      .reduce((sum, t) => sum + (t.amount.finalAmount || 0), 0);
+      .reduce((sum, t) => sum + (t.amount.totalAmount || 0), 0);
 
     // Monthly revenue trend (last 6 months)
     const monthlyRevenue = await Transaction.aggregate([
@@ -54,7 +61,7 @@ router.get('/owner/dashboard', auth, authorize('owner'), async (req, res) => {
             year: { $year: '$createdAt' },
             month: { $month: '$createdAt' }
           },
-          revenue: { $sum: '$amount.finalAmount' }
+          revenue: { $sum: '$amount.totalAmount' }
         }
       },
       { $sort: { '_id.year': 1, '_id.month': 1 } }
@@ -65,7 +72,7 @@ router.get('/owner/dashboard', auth, authorize('owner'), async (req, res) => {
     const activeCustomers = await StorageAllocation.distinct('customer', { status: 'active' });
     
     const customerLifetimeValue = await Transaction.aggregate([
-      { $group: { _id: '$customer', totalSpent: { $sum: '$amount.finalAmount' } } },
+      { $group: { _id: '$customer', totalSpent: { $sum: '$amount.totalAmount' } } },
       { $sort: { totalSpent: -1 } },
       { $limit: 10 }
     ]);
@@ -75,7 +82,7 @@ router.get('/owner/dashboard', auth, authorize('owner'), async (req, res) => {
       customerLifetimeValue.map(async (c) => {
         const customer = await User.findById(c._id).select('profile.firstName profile.lastName');
         return {
-          name: `${customer?.profile?.firstName || ''} ${customer?.profile?.lastName || ''}`,
+          name: customer ? `${customer?.profile?.firstName || ''} ${customer?.profile?.lastName || ''}`.trim() : 'Unknown Customer',
           totalSpent: c.totalSpent,
           customerId: c._id
         };
@@ -248,15 +255,15 @@ router.get('/owner/financial-summary', auth, authorize('owner'), async (req, res
 
     const income = {
       rentCollected: transactions
-        .filter(t => t.type === 'storage')
-        .reduce((sum, t) => sum + (t.amount.finalAmount || 0), 0),
+        .filter(t => t.type === 'grain_storage_rent')
+        .reduce((sum, t) => sum + (t.amount.totalAmount || 0), 0),
       loanInterest: 0, // Would need separate tracking
       vehicleCharges: transactions
-        .filter(t => t.type === 'weigh_bridge')
-        .reduce((sum, t) => sum + (t.amount.finalAmount || 0), 0),
+        .filter(t => t.type === 'weighbridge_fee')
+        .reduce((sum, t) => sum + (t.amount.totalAmount || 0), 0),
       otherCharges: transactions
         .filter(t => ['loading', 'unloading', 'penalty'].includes(t.type))
-        .reduce((sum, t) => sum + (t.amount.finalAmount || 0), 0)
+        .reduce((sum, t) => sum + (t.amount.totalAmount || 0), 0)
     };
 
     income.total = income.rentCollected + income.loanInterest + income.vehicleCharges + income.otherCharges;
@@ -302,9 +309,14 @@ router.get('/owner/alerts', auth, authorize('owner'), async (req, res) => {
       if (loan.isOverdue()) {
         const daysOverdue = loan.getDaysOverdue();
         if (daysOverdue > 30) {
-          alerts.critical.push(
-            `Loan payment overdue by ${daysOverdue} days - ${loan.customer.profile?.firstName} ${loan.customer.profile?.lastName}`
-          );
+          alerts.critical.push({
+            _id: `loan-overdue-${loan._id}`,
+            priority: 'critical',
+            category: 'Loan',
+            message: `Loan payment overdue by ${daysOverdue} days - ${loan.customer.profile?.firstName} ${loan.customer.profile?.lastName}`,
+            timestamp: new Date(),
+            read: false
+          });
         }
       }
     });
@@ -316,9 +328,14 @@ router.get('/owner/alerts', auth, authorize('owner'), async (req, res) => {
 
     unpaidRent.forEach(allocation => {
       if (allocation.paymentStatus === 'overdue') {
-        alerts.critical.push(
-          `Storage rent unpaid - ${allocation.customer.profile?.firstName} ${allocation.customer.profile?.lastName}`
-        );
+        alerts.critical.push({
+          _id: `rent-overdue-${allocation._id}`,
+          priority: 'critical',
+          category: 'Storage',
+          message: `Storage rent unpaid - ${allocation.customer.profile?.firstName} ${allocation.customer.profile?.lastName}`,
+          timestamp: new Date(),
+          read: false
+        });
       }
     });
 
@@ -328,7 +345,14 @@ router.get('/owner/alerts', auth, authorize('owner'), async (req, res) => {
     const occupancyRate = (allocations / totalBoxes) * 100;
 
     if (occupancyRate >= 90) {
-      alerts.warnings.push(`Warehouse capacity at ${occupancyRate.toFixed(0)}%`);
+      alerts.warnings.push({
+        _id: `capacity-warning-${Date.now()}`,
+        priority: 'warning',
+        category: 'Capacity',
+        message: `Warehouse capacity at ${occupancyRate.toFixed(0)}%`,
+        timestamp: new Date(),
+        read: false
+      });
     }
 
     // Check expiring grains
@@ -336,16 +360,28 @@ router.get('/owner/alerts', auth, authorize('owner'), async (req, res) => {
     allAllocations.forEach(allocation => {
       const remainingDays = allocation.getRemainingDays();
       if (remainingDays !== null && remainingDays <= 3 && remainingDays >= 0) {
-        alerts.warnings.push(
-          `Grain expiry in ${remainingDays} days - ${allocation.customer.profile?.firstName} ${allocation.customer.profile?.lastName}`
-        );
+        alerts.warnings.push({
+          _id: `expiry-warning-${allocation._id}`,
+          priority: 'warning',
+          category: 'Grain Expiry',
+          message: `Grain expiry in ${remainingDays} days - ${allocation.customer.profile?.firstName} ${allocation.customer.profile?.lastName}`,
+          timestamp: new Date(),
+          read: false
+        });
       }
     });
 
     // Check pending loan approvals
     const pendingLoans = await Loan.countDocuments({ status: 'pending' });
     if (pendingLoans > 0) {
-      alerts.warnings.push(`Loan approval pending - ${pendingLoans} requests`);
+      alerts.warnings.push({
+        _id: `pending-loans-${Date.now()}`,
+        priority: 'warning',
+        category: 'Loan Approval',
+        message: `Loan approval pending - ${pendingLoans} requests`,
+        timestamp: new Date(),
+        read: false
+      });
     }
 
     // Recent activities
@@ -355,7 +391,14 @@ router.get('/owner/alerts', auth, authorize('owner'), async (req, res) => {
     });
 
     if (recentCustomers.length > 0) {
-      alerts.info.push(`${recentCustomers.length} new customer registration(s)`);
+      alerts.info.push({
+        _id: `new-customers-${Date.now()}`,
+        priority: 'info',
+        category: 'New Registration',
+        message: `${recentCustomers.length} new customer registration(s)`,
+        timestamp: new Date(),
+        read: false
+      });
     }
 
     const recentPayments = await Transaction.find({
@@ -364,7 +407,14 @@ router.get('/owner/alerts', auth, authorize('owner'), async (req, res) => {
     });
 
     if (recentPayments.length > 0) {
-      alerts.info.push(`${recentPayments.length} payment(s) received today`);
+      alerts.info.push({
+        _id: `recent-payments-${Date.now()}`,
+        priority: 'info',
+        category: 'Payments',
+        message: `${recentPayments.length} payment(s) received today`,
+        timestamp: new Date(),
+        read: false
+      });
     }
 
     res.json(alerts);
@@ -802,7 +852,7 @@ router.get('/owner/customer-analytics', auth, authorize('owner'), async (req, re
     const customerLTV = await Transaction.aggregate([
       { $group: { 
         _id: '$customer', 
-        totalSpent: { $sum: '$amount.finalAmount' },
+        totalSpent: { $sum: '$amount.totalAmount' },
         transactionCount: { $sum: 1 }
       }},
       { $sort: { totalSpent: -1 } }
@@ -811,11 +861,11 @@ router.get('/owner/customer-analytics', auth, authorize('owner'), async (req, re
     const ltvWithDetails = await Promise.all(
       customerLTV.map(async (ltv) => {
         const customer = await User.findById(ltv._id).select('profile');
-        const hasActiveStorage = activeCustomerIds.has(ltv._id.toString());
+        const hasActiveStorage = ltv._id ? activeCustomerIds.has(ltv._id.toString()) : false;
         
         return {
           customerId: ltv._id,
-          name: `${customer?.profile?.firstName || ''} ${customer?.profile?.lastName || ''}`.trim(),
+          name: customer ? `${customer?.profile?.firstName || ''} ${customer?.profile?.lastName || ''}`.trim() : 'Unknown',
           totalSpent: ltv.totalSpent,
           transactionCount: ltv.transactionCount,
           status: hasActiveStorage ? 'active' : 'inactive',
@@ -955,6 +1005,173 @@ router.get('/owner/warehouse-capacity-viz', auth, authorize('owner'), async (req
   } catch (error) {
     console.error('Error fetching warehouse capacity visualization:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// @route   GET /api/analytics/export-pdf
+// @desc    Generate PDF report with analytics data
+// @access  Private (Owner only)
+router.get('/export-pdf', auth, authorize('owner'), async (req, res) => {
+  try {
+    const { period = 'month' } = req.query;
+    
+    // Calculate date ranges
+    const now = new Date();
+    let startDate;
+    if (period === 'week') {
+      startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    } else if (period === 'year') {
+      startDate = new Date(now.getFullYear(), 0, 1);
+    } else {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    }
+
+    // Fetch data
+    const transactions = await Transaction.find({ createdAt: { $gte: startDate } })
+      .populate('customer', 'name')
+      .sort({ createdAt: -1 })
+      .limit(100);
+    
+    const allocations = await StorageAllocation.find({ createdAt: { $gte: startDate } })
+      .populate('customer', 'name');
+    
+    const loans = await Loan.find({ createdAt: { $gte: startDate } })
+      .populate('customer', 'name');
+    
+    const totalCustomers = await User.countDocuments({ role: 'customer' });
+    
+    // Calculate metrics
+    const totalRevenue = transactions
+      .filter(t => ['grain_storage_rent', 'weighbridge_fee', 'processing_fee'].includes(t.type))
+      .reduce((sum, t) => sum + (t.amount?.totalAmount || t.amount?.baseAmount || 0), 0);
+    
+    const totalExpenses = transactions
+      .filter(t => ['refund', 'maintenance', 'operational'].includes(t.type))
+      .reduce((sum, t) => sum + (t.amount?.totalAmount || t.amount?.baseAmount || 0), 0);
+    
+    const profit = totalRevenue - totalExpenses;
+    
+    const totalGrainIn = allocations.reduce((sum, a) => sum + (a.allocation?.weight || 0), 0);
+    const activeAllocations = allocations.filter(a => a.status === 'active');
+    
+    const pendingLoans = loans.filter(l => l.status === 'pending').length;
+    const activeLoans = loans.filter(l => l.status === 'active').length;
+    const totalLoanAmount = loans.reduce((sum, l) => sum + (l.amount || 0), 0);
+
+    // Create PDF
+    const pdfDoc = await PDFDocument.create();
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    
+    // Page 1 - Summary
+    let page = pdfDoc.addPage([595, 842]); // A4
+    const { width, height } = page.getSize();
+    let y = height - 50;
+    
+    // Title
+    page.drawText('Warehouse Analytics Report', { x: 50, y, size: 24, font: boldFont, color: rgb(0.1, 0.2, 0.5) });
+    y -= 25;
+    page.drawText(`Period: ${period.charAt(0).toUpperCase() + period.slice(1)} | Generated: ${now.toLocaleDateString('en-IN')}`, { x: 50, y, size: 10, font, color: rgb(0.4, 0.4, 0.4) });
+    y -= 40;
+    
+    // Revenue Section
+    page.drawText('Revenue & Financial Summary', { x: 50, y, size: 16, font: boldFont, color: rgb(0.1, 0.4, 0.2) });
+    y -= 25;
+    const financials = [
+      ['Total Revenue', `Rs. ${totalRevenue.toLocaleString('en-IN')}`],
+      ['Total Expenses', `Rs. ${totalExpenses.toLocaleString('en-IN')}`],
+      ['Net Profit/Loss', `Rs. ${profit.toLocaleString('en-IN')}`],
+      ['Total Transactions', String(transactions.length)]
+    ];
+    for (const [label, value] of financials) {
+      page.drawText(`${label}:`, { x: 70, y, size: 11, font: boldFont });
+      page.drawText(value, { x: 250, y, size: 11, font, color: profit >= 0 ? rgb(0, 0.5, 0) : rgb(0.7, 0, 0) });
+      y -= 18;
+    }
+    y -= 20;
+    
+    // Grain Analytics
+    page.drawText('Grain Analytics', { x: 50, y, size: 16, font: boldFont, color: rgb(0.5, 0.3, 0) });
+    y -= 25;
+    const grainMetrics = [
+      ['Total Grain Stored (kg)', totalGrainIn.toLocaleString('en-IN')],
+      ['Active Allocations', String(activeAllocations.length)],
+      ['Total Allocations', String(allocations.length)]
+    ];
+    for (const [label, value] of grainMetrics) {
+      page.drawText(`${label}:`, { x: 70, y, size: 11, font: boldFont });
+      page.drawText(value, { x: 250, y, size: 11, font });
+      y -= 18;
+    }
+    y -= 20;
+    
+    // Customer & Loan Summary
+    page.drawText('Customer & Loan Summary', { x: 50, y, size: 16, font: boldFont, color: rgb(0.4, 0.1, 0.5) });
+    y -= 25;
+    const customerMetrics = [
+      ['Total Customers', String(totalCustomers)],
+      ['Pending Loans', String(pendingLoans)],
+      ['Active Loans', String(activeLoans)],
+      ['Total Loan Amount', `Rs. ${totalLoanAmount.toLocaleString('en-IN')}`]
+    ];
+    for (const [label, value] of customerMetrics) {
+      page.drawText(`${label}:`, { x: 70, y, size: 11, font: boldFont });
+      page.drawText(value, { x: 250, y, size: 11, font });
+      y -= 18;
+    }
+    y -= 30;
+
+    // Page 2 - Recent Transactions Table
+    page = pdfDoc.addPage([595, 842]);
+    y = height - 50;
+    page.drawText('Recent Transactions', { x: 50, y, size: 16, font: boldFont, color: rgb(0.1, 0.2, 0.5) });
+    y -= 30;
+    
+    // Table header
+    const cols = [50, 150, 270, 370, 470];
+    const headers = ['Date', 'Customer', 'Type', 'Amount', 'Status'];
+    headers.forEach((h, i) => {
+      page.drawText(h, { x: cols[i], y, size: 10, font: boldFont, color: rgb(0.2, 0.2, 0.2) });
+    });
+    y -= 5;
+    page.drawLine({ start: { x: 50, y }, end: { x: 545, y }, thickness: 1, color: rgb(0.7, 0.7, 0.7) });
+    y -= 15;
+    
+    // Transaction rows (up to 30)
+    const topTransactions = transactions.slice(0, 30);
+    for (const t of topTransactions) {
+      if (y < 50) {
+        page = pdfDoc.addPage([595, 842]);
+        y = height - 50;
+      }
+      const date = new Date(t.createdAt).toLocaleDateString('en-IN');
+      const customer = t.customer?.name || 'N/A';
+      const type = (t.type || '').replace(/_/g, ' ');
+      const amount = `Rs. ${(t.amount?.totalAmount || t.amount?.baseAmount || 0).toLocaleString('en-IN')}`;
+      const status = t.status || 'N/A';
+      
+      page.drawText(date.substring(0, 12), { x: cols[0], y, size: 9, font });
+      page.drawText(customer.substring(0, 18), { x: cols[1], y, size: 9, font });
+      page.drawText(type.substring(0, 15), { x: cols[2], y, size: 9, font });
+      page.drawText(amount, { x: cols[3], y, size: 9, font });
+      page.drawText(status, { x: cols[4], y, size: 9, font });
+      y -= 16;
+    }
+
+    // Footer on last page
+    page.drawText('Generated by Warehouse Management System - AI Analytics Engine', {
+      x: 50, y: 30, size: 8, font, color: rgb(0.5, 0.5, 0.5)
+    });
+
+    // Serialize and send
+    const pdfBytes = await pdfDoc.save();
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=analytics_report_${period}_${now.toISOString().split('T')[0]}.pdf`);
+    res.send(Buffer.from(pdfBytes));
+    
+  } catch (error) {
+    console.error('Error generating analytics PDF:', error);
+    res.status(500).json({ message: 'Failed to generate PDF', error: error.message });
   }
 });
 

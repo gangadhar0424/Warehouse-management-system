@@ -116,4 +116,44 @@ router.put('/:id/toggle-status', auth, authorize('owner'), async (req, res) => {
   }
 });
 
+// @route   PUT /api/users/update-language
+// @desc    Update user's language preference
+// @access  Authenticated users (owner, customer)
+router.put('/update-language', auth, async (req, res) => {
+  try {
+    const { language } = req.body;
+    
+    if (!language || !['en', 'te'].includes(language)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid language. Must be "en" or "te"'
+      });
+    }
+
+    const user = await User.findById(req.user.id);
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    user.preferredLanguage = language;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Language preference updated successfully',
+      language: user.preferredLanguage
+    });
+  } catch (error) {
+    console.error('Error updating language preference:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while updating language preference'
+    });
+  }
+});
+
 module.exports = router;

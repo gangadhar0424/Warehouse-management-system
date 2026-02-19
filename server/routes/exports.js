@@ -349,6 +349,105 @@ router.post('/custom', auth, authorize(['owner']), async (req, res) => {
     }
 });
 
+// @route   GET /api/exports/users-excel
+// @desc    Export all owners and customers to Excel with date joined and left date
+// @access  Private (Owner only)
+router.get('/users-excel', auth, authorize(['owner']), async (req, res) => {
+    try {
+        const ExcelJS = require('exceljs');
+        const workbook = new ExcelJS.Workbook();
+        workbook.creator = 'WMS';
+        workbook.created = new Date();
+
+        // ----- Owners Sheet -----
+        const ownersSheet = workbook.addWorksheet('Owners');
+        ownersSheet.columns = [
+            { header: 'Username', key: 'username', width: 20 },
+            { header: 'Name', key: 'name', width: 25 },
+            { header: 'Email', key: 'email', width: 30 },
+            { header: 'Phone', key: 'phone', width: 18 },
+            { header: 'Status', key: 'status', width: 12 },
+            { header: 'Date Joined', key: 'dateJoined', width: 18 }
+        ];
+        ownersSheet.getRow(1).font = { bold: true };
+        ownersSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4472C4' } };
+        ownersSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+
+        const owners = await User.find({ role: 'owner' }).select('-password').sort({ createdAt: -1 });
+        owners.forEach(owner => {
+            ownersSheet.addRow({
+                username: owner.username,
+                name: `${owner.profile?.firstName || ''} ${owner.profile?.lastName || ''}`.trim(),
+                email: owner.email,
+                phone: owner.profile?.phone || 'N/A',
+                status: owner.isActive ? 'Active' : 'Inactive',
+                dateJoined: owner.createdAt ? new Date(owner.createdAt).toLocaleDateString('en-IN') : 'N/A'
+            });
+        });
+
+        // ----- Customers Sheet -----
+        const customersSheet = workbook.addWorksheet('Customers');
+        customersSheet.columns = [
+            { header: 'Username', key: 'username', width: 20 },
+            { header: 'Name', key: 'name', width: 25 },
+            { header: 'Email', key: 'email', width: 30 },
+            { header: 'Phone', key: 'phone', width: 18 },
+            { header: 'Status', key: 'status', width: 12 },
+            { header: 'Date Joined', key: 'dateJoined', width: 18 },
+            { header: 'Left Date', key: 'leftDate', width: 18 },
+            { header: 'Total Spent (₹)', key: 'totalSpent', width: 18 }
+        ];
+        customersSheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        customersSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF70AD47' } };
+
+        const customers = await User.find({ role: 'customer' }).select('-password').sort({ createdAt: -1 });
+        
+        // Get transaction totals for each customer
+        const Transaction = require('../models/Transaction');
+        const customerTotals = await Transaction.aggregate([
+            { $match: { 'payment.status': 'completed' } },
+            { $group: { _id: '$customer', totalSpent: { $sum: '$totalAmount' } } }
+        ]);
+        const totalsMap = {};
+        customerTotals.forEach(ct => { totalsMap[ct._id?.toString()] = ct.totalSpent; });
+
+        // Check for active storage allocations to determine if customer vacated
+        const StorageAllocation = require('../models/StorageAllocation');
+        const activeAllocations = await StorageAllocation.aggregate([
+            { $match: { status: 'active' } },
+            { $group: { _id: '$customer' } }
+        ]);
+        const activeCustomerIds = new Set(activeAllocations.map(a => a._id?.toString()));
+
+        customers.forEach(customer => {
+            const hasActive = activeCustomerIds.has(customer._id.toString());
+            const isInactive = !customer.isActive;
+            
+            customersSheet.addRow({
+                username: customer.username,
+                name: `${customer.profile?.firstName || ''} ${customer.profile?.lastName || ''}`.trim(),
+                email: customer.email,
+                phone: customer.profile?.phone || 'N/A',
+                status: customer.isActive ? 'Active' : 'Inactive',
+                dateJoined: customer.createdAt ? new Date(customer.createdAt).toLocaleDateString('en-IN') : 'N/A',
+                leftDate: (isInactive && !hasActive) ? (customer.updatedAt ? new Date(customer.updatedAt).toLocaleDateString('en-IN') : 'N/A') : '-',
+                totalSpent: totalsMap[customer._id.toString()] || 0
+            });
+        });
+
+        // Set response headers
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename=users_${new Date().toISOString().split('T')[0]}.xlsx`);
+
+        await workbook.xlsx.write(res);
+        res.end();
+
+    } catch (error) {
+        console.error('Users Excel export error:', error);
+        res.status(500).json({ success: false, message: 'Failed to export users' });
+    }
+});
+
 // @route   DELETE /api/exports/cleanup
 // @desc    Clean old export files
 // @access  Private (Owner only)

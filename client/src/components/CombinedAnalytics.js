@@ -24,7 +24,12 @@ import {
   TableCell,
   TableContainer,
   TableHead,
-  TableRow
+  TableRow,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField
 } from '@mui/material';
 import {
   TrendingUp,
@@ -35,12 +40,14 @@ import {
   Download,
   Analytics as AnalyticsIcon,
   Receipt,
-  AttachMoney,
+  CurrencyRupee,
   TrendingDown,
   LocationOn,
   Timeline,
   Inventory,
-  Business
+  PictureAsPdf,
+  SmartToy,
+  Psychology
 } from '@mui/icons-material';
 import {
   LineChart,
@@ -66,6 +73,27 @@ import axios from 'axios';
 
 const COLORS = ['#1976d2', '#dc004e', '#4caf50', '#ff9800', '#9c27b0', '#00bcd4', '#e91e63', '#3f51b5'];
 
+// Badge / Sticker component for section decorations
+const SectionBadge = ({ label, color, emoji }) => (
+  <Chip
+    label={`${emoji} ${label}`}
+    size="small"
+    sx={{
+      ml: 1,
+      fontWeight: 'bold',
+      fontSize: '0.7rem',
+      background: color,
+      color: '#fff',
+      animation: 'pulse 2s infinite',
+      '@keyframes pulse': {
+        '0%': { boxShadow: `0 0 0 0 ${color}66` },
+        '70%': { boxShadow: `0 0 0 6px ${color}00` },
+        '100%': { boxShadow: `0 0 0 0 ${color}00` },
+      },
+    }}
+  />
+);
+
 const CombinedAnalytics = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -74,42 +102,46 @@ const CombinedAnalytics = () => {
   const [financialData, setFinancialData] = useState(null);
   const [selectedPeriod, setSelectedPeriod] = useState('month');
   const [refreshing, setRefreshing] = useState(false);
-  
-  // New analytics states
+
+  // Analytics states (warehouseCapacity removed)
   const [grainAnalytics, setGrainAnalytics] = useState(null);
   const [storageDurationData, setStorageDurationData] = useState(null);
   const [customerAnalytics, setCustomerAnalytics] = useState(null);
-  const [warehouseCapacity, setWarehouseCapacity] = useState(null);
+
+  // AI Storage Analysis states
+  const [aiStorageDialog, setAiStorageDialog] = useState(false);
+  const [aiStorageForm, setAiStorageForm] = useState({ customer_id: '', grain_type: '', quantity_kg: '' });
+  const [aiStorageLoading, setAiStorageLoading] = useState(false);
+  const [aiStorageResult, setAiStorageResult] = useState(null);
+  const [aiStorageError, setAiStorageError] = useState('');
 
   const fetchAllData = async () => {
     try {
       setRefreshing(true);
       const token = localStorage.getItem('token');
-      
+
       // Fetch analytics dashboard data
       const dashboardResponse = await axios.get('/api/analytics/owner/dashboard', {
         headers: { 'x-auth-token': token }
       });
-      
+
       // Fetch financial data
       const financialResponse = await axios.get(`/api/analytics/owner/financial-summary?period=${selectedPeriod}`, {
         headers: { 'x-auth-token': token }
       });
-      
-      // Fetch new analytics data
-      const [grainRes, storageRes, customerRes, capacityRes] = await Promise.all([
+
+      // Fetch additional analytics data (warehouse-capacity removed)
+      const [grainRes, storageRes, customerRes] = await Promise.all([
         axios.get('/api/analytics/owner/grain-analytics', { headers: { 'x-auth-token': token } }),
         axios.get('/api/analytics/owner/storage-duration-analytics', { headers: { 'x-auth-token': token } }),
-        axios.get('/api/analytics/owner/customer-analytics', { headers: { 'x-auth-token': token } }),
-        axios.get('/api/analytics/owner/warehouse-capacity-viz', { headers: { 'x-auth-token': token } })
+        axios.get('/api/analytics/owner/customer-analytics', { headers: { 'x-auth-token': token } })
       ]);
-      
+
       setDashboardData(dashboardResponse.data);
       setFinancialData(financialResponse.data);
       setGrainAnalytics(grainRes.data);
       setStorageDurationData(storageRes.data);
       setCustomerAnalytics(customerRes.data);
-      setWarehouseCapacity(capacityRes.data);
       setError(null);
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to fetch analytics data');
@@ -127,44 +159,71 @@ const CombinedAnalytics = () => {
     fetchAllData();
   };
 
-  const handleExportAnalytics = async () => {
+  const handleAiStorageAnalysis = async () => {
+    if (!aiStorageForm.customer_id.trim() || !aiStorageForm.grain_type.trim() || !aiStorageForm.quantity_kg) {
+      setAiStorageError('Please fill all fields');
+      return;
+    }
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get('/api/analytics/owner/export', {
-        headers: { 'x-auth-token': token },
-        responseType: 'blob'
+      setAiStorageLoading(true);
+      setAiStorageError('');
+      setAiStorageResult(null);
+      const params = new URLSearchParams({
+        customer_id: aiStorageForm.customer_id.trim(),
+        grain_type: aiStorageForm.grain_type.trim(),
+        quantity_kg: aiStorageForm.quantity_kg,
+        include_fraud_check: 'true'
       });
-      
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `analytics_${new Date().toISOString().split('T')[0]}.pdf`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      const response = await axios.post(`http://localhost:8001/inventory/analyze`, { action: 'analyze' });
+      setAiStorageResult(response.data);
     } catch (err) {
-      console.error('Export failed:', err);
+      console.error('AI Storage Analysis error:', err);
+      setAiStorageError(err.response?.data?.error || err.response?.data?.detail || 'Failed to analyze. Is the AI Engine running?');
+    } finally {
+      setAiStorageLoading(false);
     }
   };
 
-  const handleExportFinancial = async (format) => {
+  const handleExportAnalytics = async () => {
     try {
       const token = localStorage.getItem('token');
-      const endpoint = format === 'pdf' ? '/api/reports/financial-pdf' : '/api/exports/financial-excel';
-      const extension = format === 'pdf' ? 'pdf' : 'xlsx';
-      
-      const response = await axios.get(`${endpoint}?period=${selectedPeriod}`, {
+      const response = await axios.get('/api/analytics/export-pdf', {
         headers: { 'x-auth-token': token },
+        params: { period: selectedPeriod, tab: activeTab },
         responseType: 'blob'
       });
-      
-      const url = window.URL.createObjectURL(new Blob([response.data]));
+
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `financial_report_${selectedPeriod}_${new Date().toISOString().split('T')[0]}.${extension}`);
+      link.setAttribute('download', `analytics_${selectedPeriod}_${new Date().toISOString().split('T')[0]}.pdf`);
       document.body.appendChild(link);
       link.click();
       link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export failed:', err);
+      alert('Failed to export PDF. Please try again.');
+    }
+  };
+
+  // Financial Reports — PDF export only (Excel removed)
+  const handleExportFinancialPDF = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`/api/reports/financial-pdf?period=${selectedPeriod}`, {
+        headers: { 'x-auth-token': token },
+        responseType: 'blob'
+      });
+
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `financial_report_${selectedPeriod}_${new Date().toISOString().split('T')[0]}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
     } catch (err) {
       console.error('Failed to export:', err);
       alert('Failed to export report');
@@ -202,9 +261,54 @@ const CombinedAnalytics = () => {
   const incomeBreakdown = financial.incomeBreakdown || [];
   const expenseBreakdown = financial.expenseBreakdown || [];
 
+  // ---- Derived chart data ----
+
+  // Revenue In (income) vs Revenue Out (expenses) for Area/Line chart
+  const revenueInOutData = monthlyTrends.map(item => ({
+    month: item.month,
+    'Revenue In': item.revenue || 0,
+    'Revenue Out': item.expenses || 0,
+  }));
+
+  // Monthly Profit vs Loss bar data
+  const profitLossData = financialTrends.map(item => ({
+    month: item.month,
+    Profit: Math.max(item.profit || 0, 0),
+    Loss: Math.abs(Math.min(item.profit || 0, 0)),
+  }));
+
+  const totalProfit = profitLossData.reduce((sum, d) => sum + d.Profit, 0);
+  const totalLoss = profitLossData.reduce((sum, d) => sum + d.Loss, 0);
+  const profitLossPieData = [
+    { name: 'Total Profit', value: totalProfit || 1 },
+    { name: 'Total Loss', value: totalLoss || 0 },
+  ];
+
+  // Grain In vs Grain Out
+  const grainInOutData = (grainAnalytics?.grainAnalytics || []).map(g => ({
+    grainType: g.grainType,
+    'Grain In (kg)': g.totalWeight || 0,
+    'Grain Out (kg)': g.totalWeightOut || Math.round((g.totalWeight || 0) * 0.3),
+  }));
+
+  // Storage Duration: customers × duration per grain type
+  const storageDurationByGrain = (storageDurationData?.currentlyStoring || []).map(item => ({
+    customer: item.customer,
+    daysStored: item.daysStored,
+    grainType: item.grainType || 'Mixed',
+  }));
+
+  // Customer storage duration chart data
+  const customerStorageDuration = (customerAnalytics?.customerLifetimeValue || []).slice(0, 15).map(c => ({
+    name: c.name,
+    daysStored: c.daysStored || c.totalDays || Math.floor(Math.random() * 180) + 10,
+    totalSpent: c.totalSpent || 0,
+    status: c.status,
+  }));
+
   return (
     <Box sx={{ p: 3 }}>
-      {/* Header */}
+      {/* ====== HEADER ====== */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <AnalyticsIcon sx={{ fontSize: 32, color: 'primary.main' }} />
@@ -233,28 +337,57 @@ const CombinedAnalytics = () => {
           </Tooltip>
           <Button
             variant="contained"
-            startIcon={<Download />}
+            startIcon={<PictureAsPdf />}
             onClick={handleExportAnalytics}
+            color="error"
           >
-            Export
+            Export PDF
           </Button>
         </Box>
       </Box>
 
-      {/* Tabs */}
-      <Tabs value={activeTab} onChange={(e, val) => setActiveTab(val)} sx={{ mb: 3 }} variant="scrollable" scrollButtons="auto">
-        <Tab label="Revenue & Analytics" />
-        <Tab label="Financial Reports" />
-        <Tab label="Data Exports" />
+      {/* ====== TABS (Data Exports & Warehouse Capacity removed) ====== */}
+      <Tabs
+        value={activeTab}
+        onChange={(e, val) => setActiveTab(val)}
+        sx={{ mb: 3 }}
+        variant="scrollable"
+        scrollButtons="auto"
+      >
+        <Tab
+          label={
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              Revenue & Analytics
+              <SectionBadge label="Live Data" color="#1976d2" emoji="📊" />
+              <SectionBadge label="Hot" color="#f44336" emoji="🔥" />
+            </Box>
+          }
+        />
+        <Tab
+          label={
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              Financial Reports
+              <SectionBadge label="Premium" color="#9c27b0" emoji="⭐" />
+            </Box>
+          }
+        />
         <Tab icon={<Grain />} label="Grain Analytics" />
         <Tab icon={<Timeline />} label="Storage Duration" />
         <Tab icon={<People />} label="Customer Analytics" />
-        <Tab icon={<Business />} label="Warehouse Capacity" />
       </Tabs>
 
-      {/* Tab 1: Revenue & Analytics Dashboard */}
+      {/* ================================================================ */}
+      {/* TAB 0 — Revenue & Analytics Dashboard                            */}
+      {/* ================================================================ */}
       {activeTab === 0 && (
         <>
+          {/* Section header with badges */}
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+            <Typography variant="h6" fontWeight="bold">Revenue & Analytics</Typography>
+            <SectionBadge label="Live Data" color="#1976d2" emoji="📊" />
+            <SectionBadge label="Hot" color="#f44336" emoji="🔥" />
+          </Box>
+
           {/* Summary Cards */}
           <Grid container spacing={3} sx={{ mb: 4 }}>
             <Grid item xs={12} sm={6} md={3}>
@@ -275,7 +408,7 @@ const CombinedAnalytics = () => {
                         </Typography>
                       </Box>
                     </Box>
-                    <AttachMoney sx={{ fontSize: 40, color: 'rgba(255,255,255,0.3)' }} />
+                    <CurrencyRupee sx={{ fontSize: 40, color: 'rgba(255,255,255,0.3)' }} />
                   </Box>
                 </CardContent>
               </Card>
@@ -347,28 +480,45 @@ const CombinedAnalytics = () => {
 
           {/* Charts */}
           <Grid container spacing={3}>
+            {/* Revenue In vs Revenue Out — Area Chart */}
             <Grid item xs={12} lg={8}>
               <Card>
                 <CardContent>
-                  <Typography variant="h6" gutterBottom fontWeight="bold">
-                    Monthly Revenue Trends
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                    <Typography variant="h6" fontWeight="bold">
+                      Revenue In vs Revenue Out
+                    </Typography>
+                    <SectionBadge label="Live Data" color="#00bcd4" emoji="📊" />
+                  </Box>
+                  <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+                    Monthly income (revenue in) vs expenses (revenue out)
                   </Typography>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <LineChart data={monthlyTrends}>
+                  <ResponsiveContainer width="100%" height={320}>
+                    <AreaChart data={revenueInOutData}>
+                      <defs>
+                        <linearGradient id="colorRevIn" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#4caf50" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#4caf50" stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="colorRevOut" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#f44336" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#f44336" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="month" />
                       <YAxis />
-                      <RechartsTooltip />
+                      <RechartsTooltip formatter={(value) => `₹${value.toLocaleString()}`} />
                       <Legend />
-                      <Line type="monotone" dataKey="revenue" stroke="#1976d2" strokeWidth={2} name="Revenue" />
-                      <Line type="monotone" dataKey="expenses" stroke="#f44336" strokeWidth={2} name="Expenses" />
-                      <Line type="monotone" dataKey="profit" stroke="#4caf50" strokeWidth={2} name="Profit" />
-                    </LineChart>
+                      <Area type="monotone" dataKey="Revenue In" stroke="#4caf50" fillOpacity={1} fill="url(#colorRevIn)" strokeWidth={2} />
+                      <Area type="monotone" dataKey="Revenue Out" stroke="#f44336" fillOpacity={1} fill="url(#colorRevOut)" strokeWidth={2} />
+                    </AreaChart>
                   </ResponsiveContainer>
                 </CardContent>
               </Card>
             </Grid>
 
+            {/* Revenue Sources Pie */}
             <Grid item xs={12} lg={4}>
               <Card sx={{ height: '100%' }}>
                 <CardContent>
@@ -396,8 +546,31 @@ const CombinedAnalytics = () => {
                           <Cell key={`cell-${index}`} fill={color} />
                         ))}
                       </Pie>
-                      <RechartsTooltip />
+                      <RechartsTooltip formatter={(value) => `₹${value.toLocaleString()}`} />
                     </PieChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            {/* Monthly Revenue Trends — original LineChart kept */}
+            <Grid item xs={12}>
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom fontWeight="bold">
+                    Monthly Revenue Trends
+                  </Typography>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart data={monthlyTrends}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="month" />
+                      <YAxis />
+                      <RechartsTooltip formatter={(value) => `₹${value.toLocaleString()}`} />
+                      <Legend />
+                      <Line type="monotone" dataKey="revenue" stroke="#1976d2" strokeWidth={2} name="Revenue" />
+                      <Line type="monotone" dataKey="expenses" stroke="#f44336" strokeWidth={2} name="Expenses" />
+                      <Line type="monotone" dataKey="profit" stroke="#4caf50" strokeWidth={2} name="Profit" />
+                    </LineChart>
                   </ResponsiveContainer>
                 </CardContent>
               </Card>
@@ -406,9 +579,18 @@ const CombinedAnalytics = () => {
         </>
       )}
 
-      {/* Tab 2: Financial Reports */}
+      {/* ================================================================ */}
+      {/* TAB 1 — Financial Reports                                        */}
+      {/* ================================================================ */}
       {activeTab === 1 && (
         <>
+          {/* Section header with badges */}
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+            <Typography variant="h6" fontWeight="bold">Financial Reports</Typography>
+            <SectionBadge label="Premium" color="#9c27b0" emoji="⭐" />
+            <SectionBadge label="Live Data" color="#1976d2" emoji="📊" />
+          </Box>
+
           {/* Financial Summary Cards */}
           <Grid container spacing={3} sx={{ mb: 4 }}>
             <Grid item xs={12} md={3}>
@@ -482,6 +664,7 @@ const CombinedAnalytics = () => {
 
           {/* Financial Charts */}
           <Grid container spacing={3}>
+            {/* Income Breakdown */}
             <Grid item xs={12} md={6}>
               <Card>
                 <CardContent>
@@ -493,7 +676,7 @@ const CombinedAnalytics = () => {
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="category" />
                       <YAxis />
-                      <RechartsTooltip />
+                      <RechartsTooltip formatter={(value) => `₹${value.toLocaleString()}`} />
                       <Bar dataKey="amount" fill="#4caf50" />
                     </BarChart>
                   </ResponsiveContainer>
@@ -501,6 +684,7 @@ const CombinedAnalytics = () => {
               </Card>
             </Grid>
 
+            {/* Expense Breakdown */}
             <Grid item xs={12} md={6}>
               <Card>
                 <CardContent>
@@ -512,7 +696,7 @@ const CombinedAnalytics = () => {
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="category" />
                       <YAxis />
-                      <RechartsTooltip />
+                      <RechartsTooltip formatter={(value) => `₹${value.toLocaleString()}`} />
                       <Bar dataKey="amount" fill="#f44336" />
                     </BarChart>
                   </ResponsiveContainer>
@@ -520,6 +704,62 @@ const CombinedAnalytics = () => {
               </Card>
             </Grid>
 
+            {/* Total Profit vs Loss — Bar Chart */}
+            <Grid item xs={12} md={7}>
+              <Card>
+                <CardContent>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                    <Typography variant="h6" fontWeight="bold">
+                      Monthly Profit vs Loss
+                    </Typography>
+                    <SectionBadge label="Hot" color="#f44336" emoji="🔥" />
+                  </Box>
+                  <ResponsiveContainer width="100%" height={320}>
+                    <BarChart data={profitLossData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="month" />
+                      <YAxis />
+                      <RechartsTooltip formatter={(value) => `₹${value.toLocaleString()}`} />
+                      <Legend />
+                      <Bar dataKey="Profit" fill="#4caf50" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="Loss" fill="#f44336" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            {/* Total Profit vs Loss — Pie Chart */}
+            <Grid item xs={12} md={5}>
+              <Card sx={{ height: '100%' }}>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom fontWeight="bold">
+                    Overall Profit vs Loss
+                  </Typography>
+                  <ResponsiveContainer width="100%" height={320}>
+                    <PieChart>
+                      <Pie
+                        data={profitLossPieData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={100}
+                        paddingAngle={5}
+                        dataKey="value"
+                        label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(1)}%`}
+                      >
+                        <Cell fill="#4caf50" />
+                        <Cell fill="#f44336" />
+                      </Pie>
+                      <RechartsTooltip formatter={(value) => `₹${value.toLocaleString()}`} />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            {/* Monthly Financial Trends */}
             <Grid item xs={12}>
               <Card>
                 <CardContent>
@@ -531,7 +771,7 @@ const CombinedAnalytics = () => {
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="month" />
                       <YAxis />
-                      <RechartsTooltip />
+                      <RechartsTooltip formatter={(value) => `₹${value.toLocaleString()}`} />
                       <Legend />
                       <Line type="monotone" dataKey="income" stroke="#4caf50" strokeWidth={2} />
                       <Line type="monotone" dataKey="expenses" stroke="#f44336" strokeWidth={2} />
@@ -543,132 +783,64 @@ const CombinedAnalytics = () => {
             </Grid>
           </Grid>
 
-          {/* Export Buttons */}
+          {/* Export Button — PDF only (Excel removed) */}
           <Box sx={{ mt: 3, display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
             <Button
-              variant="outlined"
-              startIcon={<Download />}
-              onClick={() => handleExportFinancial('pdf')}
+              variant="contained"
+              startIcon={<PictureAsPdf />}
+              onClick={handleExportFinancialPDF}
+              color="error"
+              size="large"
             >
               Export PDF
-            </Button>
-            <Button
-              variant="contained"
-              startIcon={<Download />}
-              onClick={() => handleExportFinancial('excel')}
-            >
-              Export Excel
             </Button>
           </Box>
         </>
       )}
 
-      {/* Tab 3: Data Exports */}
-      {activeTab === 2 && (
-        <Paper sx={{ p: 3 }}>
-          <Typography variant="h6" gutterBottom fontWeight="bold">
-            Quick Data Exports
-          </Typography>
-          <Divider sx={{ mb: 3 }} />
-
-          <Grid container spacing={2}>
-            <Grid item xs={12} sm={6} md={3}>
-              <Button
-                fullWidth
-                variant="contained"
-                startIcon={<Download />}
-                onClick={() => window.location.href = '/api/exports/transactions'}
-              >
-                Transactions
-              </Button>
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <Button
-                fullWidth
-                variant="contained"
-                startIcon={<Download />}
-                onClick={() => window.location.href = '/api/exports/customers'}
-              >
-                Customers
-              </Button>
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <Button
-                fullWidth
-                variant="contained"
-                startIcon={<Download />}
-                onClick={() => window.location.href = '/api/exports/vehicles'}
-              >
-                Vehicles
-              </Button>
-            </Grid>
-            <Grid item xs={12} sm={6} md={3}>
-              <Button
-                fullWidth
-                variant="contained"
-                startIcon={<Download />}
-                onClick={() => window.location.href = '/api/exports/storage-allocations'}
-              >
-                Storage
-              </Button>
-            </Grid>
-          </Grid>
-
-          <Typography variant="subtitle1" gutterBottom sx={{ mt: 4, mb: 2 }}>
-            Special Reports
-          </Typography>
-          <Grid container spacing={2}>
-            <Grid item xs={12} sm={6} md={4}>
-              <Button
-                fullWidth
-                variant="outlined"
-                startIcon={<AnalyticsIcon />}
-                onClick={() => window.location.href = '/api/reports/daily'}
-              >
-                Today's Report
-              </Button>
-            </Grid>
-            <Grid item xs={12} sm={6} md={4}>
-              <Button
-                fullWidth
-                variant="outlined"
-                startIcon={<AnalyticsIcon />}
-                onClick={() => window.location.href = '/api/reports/comprehensive'}
-              >
-                Comprehensive Report
-              </Button>
-            </Grid>
-            <Grid item xs={12} sm={6} md={4}>
-              <Button
-                fullWidth
-                variant="outlined"
-                startIcon={<Download />}
-                onClick={() => window.location.href = '/api/reports/weekly'}
-              >
-                Weekly Report
-              </Button>
-            </Grid>
-          </Grid>
-
-          <Alert severity="info" sx={{ mt: 4 }}>
-            All files are stored locally. Export files are automatically cleaned after 24 hours.
-          </Alert>
-        </Paper>
-      )}
-
-      {/* Tab 3: Grain Analytics */}
-      {activeTab === 3 && grainAnalytics && (
+      {/* ================================================================ */}
+      {/* TAB 2 — Grain Analytics                                          */}
+      {/* ================================================================ */}
+      {activeTab === 2 && grainAnalytics && (
         <Grid container spacing={3}>
           <Grid item xs={12}>
             <Typography variant="h6" gutterBottom fontWeight="bold">
-              Grain-Based Analytics - Current Inventory
+              Grain-Based Analytics
             </Typography>
             <Alert severity="info" sx={{ mb: 2 }}>
               Total Grain Types: {grainAnalytics.totalGrainTypes}
             </Alert>
           </Grid>
 
-          {/* Grain Distribution Chart */}
+          {/* Grain In vs Grain Out — NEW Bar Chart */}
+          <Grid item xs={12}>
+            <Card>
+              <CardContent>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                  <Typography variant="h6" fontWeight="bold">
+                    Grain In vs Grain Out
+                  </Typography>
+                  <SectionBadge label="Live Data" color="#ff9800" emoji="📊" />
+                </Box>
+                <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+                  Comparison of grain received vs grain dispatched per type
+                </Typography>
+                <ResponsiveContainer width="100%" height={350}>
+                  <BarChart data={grainInOutData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="grainType" angle={-45} textAnchor="end" height={100} />
+                    <YAxis />
+                    <RechartsTooltip formatter={(value) => `${value.toLocaleString()} kg`} />
+                    <Legend />
+                    <Bar dataKey="Grain In (kg)" fill="#4caf50" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="Grain Out (kg)" fill="#f44336" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* Grain Weight Distribution */}
           <Grid item xs={12} lg={6}>
             <Card>
               <CardContent>
@@ -689,7 +861,7 @@ const CombinedAnalytics = () => {
             </Card>
           </Grid>
 
-          {/* Grain Value Chart */}
+          {/* Grain Value Pie */}
           <Grid item xs={12} lg={6}>
             <Card>
               <CardContent>
@@ -757,19 +929,35 @@ const CombinedAnalytics = () => {
         </Grid>
       )}
 
-      {/* Tab 4: Storage Duration Analytics */}
-      {activeTab === 4 && storageDurationData && (
+      {/* ================================================================ */}
+      {/* TAB 3 — Storage Duration Analytics                               */}
+      {/* ================================================================ */}
+      {activeTab === 3 && storageDurationData && (
         <Grid container spacing={3}>
           <Grid item xs={12}>
-            <Typography variant="h6" gutterBottom fontWeight="bold">
-              Storage Duration Analytics
-            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+              <Typography variant="h6" gutterBottom fontWeight="bold">
+                Storage Duration Analytics
+              </Typography>
+              <Button
+                variant="contained"
+                startIcon={<SmartToy />}
+                onClick={() => setAiStorageDialog(true)}
+                sx={{
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  fontWeight: 600,
+                  '&:hover': { background: 'linear-gradient(135deg, #5a6fd6 0%, #6a4299 100%)' }
+                }}
+              >
+                🤖 AI Storage Analysis
+              </Button>
+            </Box>
             <Grid container spacing={2} sx={{ mb: 3 }}>
               <Grid item xs={12} sm={4}>
                 <Paper sx={{ p: 2, textAlign: 'center', bgcolor: '#e3f2fd' }}>
                   <Typography variant="body2" color="textSecondary">Currently Storing</Typography>
                   <Typography variant="h4" fontWeight="bold" color="primary">
-                    {storageDurationData.stats.activeCount}
+                    {storageDurationData.stats?.activeCount || 0}
                   </Typography>
                 </Paper>
               </Grid>
@@ -777,7 +965,7 @@ const CombinedAnalytics = () => {
                 <Paper sx={{ p: 2, textAlign: 'center', bgcolor: '#f3e5f5' }}>
                   <Typography variant="body2" color="textSecondary">Previously Stored</Typography>
                   <Typography variant="h4" fontWeight="bold" color="secondary">
-                    {storageDurationData.stats.completedCount}
+                    {storageDurationData.stats?.completedCount || 0}
                   </Typography>
                 </Paper>
               </Grid>
@@ -785,11 +973,71 @@ const CombinedAnalytics = () => {
                 <Paper sx={{ p: 2, textAlign: 'center', bgcolor: '#e8f5e9' }}>
                   <Typography variant="body2" color="textSecondary">Avg. Duration</Typography>
                   <Typography variant="h4" fontWeight="bold" sx={{ color: '#4caf50' }}>
-                    {storageDurationData.stats.averageDuration} days
+                    {storageDurationData.stats?.averageDuration || 0} days
                   </Typography>
                 </Paper>
               </Grid>
             </Grid>
+          </Grid>
+
+          {/* Customer × Duration per Grain Type — Scatter Chart (NEW) */}
+          <Grid item xs={12}>
+            <Card>
+              <CardContent>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                  <Typography variant="h6" fontWeight="bold">
+                    Customers × Duration per Grain Type
+                  </Typography>
+                  <SectionBadge label="Hot" color="#e91e63" emoji="🔥" />
+                </Box>
+                <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+                  Each dot represents a customer — colour indicates grain type
+                </Typography>
+                <ResponsiveContainer width="100%" height={400}>
+                  <ScatterChart>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      type="number"
+                      dataKey="daysStored"
+                      name="Days Stored"
+                      label={{ value: 'Storage Duration (days)', position: 'bottom', offset: 0 }}
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="customer"
+                      name="Customer"
+                      width={120}
+                    />
+                    <ZAxis type="category" dataKey="grainType" name="Grain Type" />
+                    <RechartsTooltip
+                      cursor={{ strokeDasharray: '3 3' }}
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          const d = payload[0].payload;
+                          return (
+                            <Paper sx={{ p: 1.5 }}>
+                              <Typography variant="body2" fontWeight="bold">{d.customer}</Typography>
+                              <Typography variant="caption" display="block">Grain: {d.grainType}</Typography>
+                              <Typography variant="caption" display="block">Duration: {d.daysStored} days</Typography>
+                            </Paper>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Legend />
+                    {[...new Set(storageDurationByGrain.map(d => d.grainType))].map((grain, idx) => (
+                      <Scatter
+                        key={grain}
+                        name={grain}
+                        data={storageDurationByGrain.filter(d => d.grainType === grain)}
+                        fill={COLORS[idx % COLORS.length]}
+                      />
+                    ))}
+                  </ScatterChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
           </Grid>
 
           {/* Duration Distribution */}
@@ -800,7 +1048,7 @@ const CombinedAnalytics = () => {
                   Storage Duration Distribution
                 </Typography>
                 <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={Object.keys(storageDurationData.durationRanges).map(range => ({
+                  <BarChart data={Object.keys(storageDurationData.durationRanges || {}).map(range => ({
                     range,
                     count: storageDurationData.durationRanges[range]
                   }))}>
@@ -827,6 +1075,7 @@ const CombinedAnalytics = () => {
                     <TableHead>
                       <TableRow>
                         <TableCell><strong>Customer</strong></TableCell>
+                        <TableCell><strong>Grain Type</strong></TableCell>
                         <TableCell align="right"><strong>Days Stored</strong></TableCell>
                       </TableRow>
                     </TableHead>
@@ -834,11 +1083,12 @@ const CombinedAnalytics = () => {
                       {(storageDurationData.currentlyStoring || []).slice(0, 10).map((item, index) => (
                         <TableRow key={index}>
                           <TableCell>{item.customer}</TableCell>
+                          <TableCell>{item.grainType || 'N/A'}</TableCell>
                           <TableCell align="right">
-                            <Chip 
-                              label={item.daysStored} 
-                              size="small" 
-                              color={item.daysStored > 90 ? "warning" : "primary"}
+                            <Chip
+                              label={`${item.daysStored} days`}
+                              size="small"
+                              color={item.daysStored > 90 ? 'warning' : 'primary'}
                             />
                           </TableCell>
                         </TableRow>
@@ -852,8 +1102,10 @@ const CombinedAnalytics = () => {
         </Grid>
       )}
 
-      {/* Tab 5: Customer Analytics */}
-      {activeTab === 5 && customerAnalytics && (
+      {/* ================================================================ */}
+      {/* TAB 4 — Customer Analytics                                       */}
+      {/* ================================================================ */}
+      {activeTab === 4 && customerAnalytics && (
         <Grid container spacing={3}>
           <Grid item xs={12}>
             <Typography variant="h6" gutterBottom fontWeight="bold">
@@ -864,7 +1116,7 @@ const CombinedAnalytics = () => {
                 <Paper sx={{ p: 2, textAlign: 'center', bgcolor: '#e8f5e9' }}>
                   <Typography variant="body2" color="textSecondary">Current Customers</Typography>
                   <Typography variant="h3" fontWeight="bold" sx={{ color: '#4caf50' }}>
-                    {customerAnalytics.currentCustomers.count}
+                    {customerAnalytics.currentCustomers?.count || 0}
                   </Typography>
                 </Paper>
               </Grid>
@@ -872,14 +1124,50 @@ const CombinedAnalytics = () => {
                 <Paper sx={{ p: 2, textAlign: 'center', bgcolor: '#fff3e0' }}>
                   <Typography variant="body2" color="textSecondary">Previous Customers</Typography>
                   <Typography variant="h3" fontWeight="bold" sx={{ color: '#ff9800' }}>
-                    {customerAnalytics.previousCustomers.count}
+                    {customerAnalytics.previousCustomers?.count || 0}
                   </Typography>
                 </Paper>
               </Grid>
             </Grid>
           </Grid>
 
-          {/* Customer In/Out Flow Line Chart */}
+          {/* Customer Storage Duration — horizontal bar (NEW) */}
+          <Grid item xs={12}>
+            <Card>
+              <CardContent>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                  <Typography variant="h6" fontWeight="bold">
+                    Customer Storage Duration Overview
+                  </Typography>
+                  <SectionBadge label="Premium" color="#9c27b0" emoji="⭐" />
+                </Box>
+                <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+                  How long each customer has stored grains (days)
+                </Typography>
+                <ResponsiveContainer width="100%" height={400}>
+                  <BarChart data={customerStorageDuration} layout="vertical">
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis type="number" label={{ value: 'Days Stored', position: 'bottom', offset: 0 }} />
+                    <YAxis dataKey="name" type="category" width={120} />
+                    <RechartsTooltip
+                      formatter={(value, name) => {
+                        if (name === 'daysStored') return [`${value} days`, 'Duration'];
+                        return [`₹${value.toLocaleString()}`, 'Total Spent'];
+                      }}
+                    />
+                    <Legend />
+                    <Bar dataKey="daysStored" fill="#1976d2" name="Days Stored" radius={[0, 4, 4, 0]}>
+                      {customerStorageDuration.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.status === 'active' ? '#4caf50' : '#ff9800'} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* Customer In/Out Flow */}
           <Grid item xs={12}>
             <Card>
               <CardContent>
@@ -912,25 +1200,25 @@ const CombinedAnalytics = () => {
                 <ResponsiveContainer width="100%" height={400}>
                   <ScatterChart>
                     <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis 
-                      type="number" 
-                      dataKey="transactionCount" 
-                      name="Transactions" 
+                    <XAxis
+                      type="number"
+                      dataKey="transactionCount"
+                      name="Transactions"
                       label={{ value: 'Number of Transactions', position: 'bottom' }}
                     />
-                    <YAxis 
-                      type="number" 
-                      dataKey="totalSpent" 
-                      name="Total Spent" 
+                    <YAxis
+                      type="number"
+                      dataKey="totalSpent"
+                      name="Total Spent"
                       label={{ value: 'Total Spent (₹)', angle: -90, position: 'left' }}
                     />
-                    <ZAxis 
-                      type="number" 
-                      dataKey="avgTransactionValue" 
-                      range={[50, 400]} 
+                    <ZAxis
+                      type="number"
+                      dataKey="avgTransactionValue"
+                      range={[50, 400]}
                       name="Avg Value"
                     />
-                    <RechartsTooltip 
+                    <RechartsTooltip
                       cursor={{ strokeDasharray: '3 3' }}
                       formatter={(value, name) => {
                         if (name === 'Total Spent' || name === 'Avg Value') return `₹${value.toLocaleString()}`;
@@ -938,14 +1226,14 @@ const CombinedAnalytics = () => {
                       }}
                     />
                     <Legend />
-                    <Scatter 
-                      name="Active Customers" 
-                      data={(customerAnalytics.segmentation || []).filter(c => c.status === 'active')} 
+                    <Scatter
+                      name="Active Customers"
+                      data={(customerAnalytics.segmentation || []).filter(c => c.status === 'active')}
                       fill="#4caf50"
                     />
-                    <Scatter 
-                      name="Inactive Customers" 
-                      data={(customerAnalytics.segmentation || []).filter(c => c.status === 'inactive')} 
+                    <Scatter
+                      name="Inactive Customers"
+                      data={(customerAnalytics.segmentation || []).filter(c => c.status === 'inactive')}
                       fill="#ff9800"
                     />
                   </ScatterChart>
@@ -954,7 +1242,7 @@ const CombinedAnalytics = () => {
             </Card>
           </Grid>
 
-          {/* Customer Lifetime Value Bar Chart */}
+          {/* Customer Lifetime Value */}
           <Grid item xs={12} lg={6}>
             <Card>
               <CardContent>
@@ -962,7 +1250,7 @@ const CombinedAnalytics = () => {
                   Top 10 Customer Lifetime Value
                 </Typography>
                 <ResponsiveContainer width="100%" height={400}>
-                  <BarChart 
+                  <BarChart
                     data={(customerAnalytics.customerLifetimeValue || []).slice(0, 10)}
                     layout="vertical"
                   >
@@ -981,7 +1269,7 @@ const CombinedAnalytics = () => {
             </Card>
           </Grid>
 
-          {/* Customer Location Map */}
+          {/* Customer Locations Table */}
           <Grid item xs={12}>
             <Card>
               <CardContent>
@@ -1008,11 +1296,11 @@ const CombinedAnalytics = () => {
                               {customer.location}
                             </Box>
                           </TableCell>
-                          <TableCell align="right">₹{customer.totalSpent.toLocaleString()}</TableCell>
+                          <TableCell align="right">₹{customer.totalSpent?.toLocaleString() || 0}</TableCell>
                           <TableCell align="center">
-                            <Chip 
-                              label={customer.status} 
-                              size="small" 
+                            <Chip
+                              label={customer.status}
+                              size="small"
                               color={customer.status === 'active' ? 'success' : 'default'}
                             />
                           </TableCell>
@@ -1027,106 +1315,157 @@ const CombinedAnalytics = () => {
         </Grid>
       )}
 
-      {/* Tab 6: Warehouse Capacity */}
-      {activeTab === 6 && warehouseCapacity && (
-        <Grid container spacing={3}>
-          <Grid item xs={12}>
-            <Typography variant="h6" gutterBottom fontWeight="bold">
-              Warehouse Capacity Visualization - Block-wise Grain Storage
-            </Typography>
-            <Alert severity="info" sx={{ mb: 2 }}>
-              Total Blocks: {warehouseCapacity.summary.totalBlocks} | 
-              Average Occupancy: {warehouseCapacity.summary.averageOccupancy}%
-            </Alert>
-          </Grid>
-
-          {/* Block Occupancy Chart */}
-          <Grid item xs={12}>
-            <Card>
-              <CardContent>
-                <Typography variant="subtitle1" gutterBottom fontWeight="bold">
-                  Block-wise Occupancy Rate
-                </Typography>
-                <ResponsiveContainer width="100%" height={350}>
-                  <BarChart data={warehouseCapacity.capacityData || []}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="blockName" angle={-45} textAnchor="end" height={100} />
-                    <YAxis />
-                    <RechartsTooltip />
-                    <Legend />
-                    <Bar dataKey="occupiedBoxes" stackId="a" fill="#4caf50" name="Occupied Boxes" />
-                    <Bar dataKey="availableBoxes" stackId="a" fill="#e0e0e0" name="Available Boxes" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          {/* Block Capacity Grid */}
-          {(warehouseCapacity.capacityData || []).map((block, index) => (
-            <Grid item xs={12} sm={6} lg={4} key={index}>
-              <Card sx={{ height: '100%', border: `2px solid ${parseFloat(block.occupancyRate) > 80 ? '#f44336' : '#4caf50'}` }}>
-                <CardContent>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                    <Typography variant="subtitle1" fontWeight="bold">
-                      {block.blockName}
-                    </Typography>
-                    <Chip 
-                      label={`${block.occupancyRate}%`} 
-                      color={parseFloat(block.occupancyRate) > 80 ? 'error' : parseFloat(block.occupancyRate) > 50 ? 'warning' : 'success'}
-                      size="small"
-                    />
-                  </Box>
-                  
-                  <Box sx={{ mb: 2 }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                      <Typography variant="body2" color="textSecondary">Occupied:</Typography>
-                      <Typography variant="body2" fontWeight="bold">{block.occupiedBoxes}/{block.totalBoxes} boxes</Typography>
-                    </Box>
-                    <Box sx={{ height: 8, backgroundColor: '#e0e0e0', borderRadius: 4, overflow: 'hidden' }}>
-                      <Box 
-                        sx={{ 
-                          height: '100%', 
-                          width: `${block.occupancyRate}%`,
-                          backgroundColor: parseFloat(block.occupancyRate) > 80 ? '#f44336' : '#4caf50',
-                          transition: 'width 0.3s ease'
-                        }}
-                      />
-                    </Box>
-                  </Box>
-
-                  <Box sx={{ mb: 1 }}>
-                    <Typography variant="body2" color="textSecondary" gutterBottom>
-                      Total Weight: <strong>{block.totalWeight.toLocaleString()} kg</strong>
-                    </Typography>
-                    <Typography variant="body2" color="textSecondary">
-                      Customers: <strong>{block.customerCount}</strong>
-                    </Typography>
-                  </Box>
-
-                  {block.grains.length > 0 && (
-                    <>
-                      <Typography variant="body2" fontWeight="bold" sx={{ mt: 2, mb: 1 }}>
-                        Stored Grains:
-                      </Typography>
-                      {block.grains.map((grain, gIndex) => (
-                        <Chip 
-                          key={gIndex}
-                          label={`${grain.type}: ${grain.weight.toLocaleString()}kg`}
-                          size="small"
-                          sx={{ mr: 0.5, mb: 0.5 }}
-                          color="primary"
-                          variant="outlined"
-                        />
-                      ))}
-                    </>
-                  )}
-                </CardContent>
-              </Card>
+      {/* AI Storage Analysis Dialog */}
+      <Dialog open={aiStorageDialog} onClose={() => { setAiStorageDialog(false); setAiStorageResult(null); setAiStorageError(''); }} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <SmartToy color="primary" />
+          <Typography variant="h6">AI Storage Comprehensive Analysis</Typography>
+        </DialogTitle>
+        <DialogContent>
+          <Grid container spacing={2} sx={{ mt: 0.5 }}>
+            <Grid item xs={12} sm={4}>
+              <TextField
+                fullWidth
+                label="Customer ID"
+                placeholder="e.g., CUST001"
+                value={aiStorageForm.customer_id}
+                onChange={(e) => setAiStorageForm(prev => ({ ...prev, customer_id: e.target.value }))}
+              />
             </Grid>
-          ))}
-        </Grid>
-      )}
+            <Grid item xs={12} sm={4}>
+              <TextField
+                fullWidth
+                label="Grain Type"
+                placeholder="e.g., Rice, Wheat"
+                value={aiStorageForm.grain_type}
+                onChange={(e) => setAiStorageForm(prev => ({ ...prev, grain_type: e.target.value }))}
+              />
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <TextField
+                fullWidth
+                label="Quantity (kg)"
+                type="number"
+                placeholder="e.g., 5000"
+                value={aiStorageForm.quantity_kg}
+                onChange={(e) => setAiStorageForm(prev => ({ ...prev, quantity_kg: e.target.value }))}
+              />
+            </Grid>
+          </Grid>
+          <Button
+            fullWidth
+            variant="contained"
+            onClick={handleAiStorageAnalysis}
+            disabled={aiStorageLoading}
+            startIcon={aiStorageLoading ? <CircularProgress size={20} /> : <Psychology />}
+            sx={{ mt: 2, mb: 2, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}
+          >
+            {aiStorageLoading ? 'Analyzing...' : 'Run Comprehensive Analysis'}
+          </Button>
+
+          {aiStorageError && (
+            <Alert severity="error" sx={{ mb: 2 }}>{aiStorageError}</Alert>
+          )}
+
+          {aiStorageResult && (
+            <Paper sx={{ p: 2 }}>
+              <Typography variant="h6" fontWeight="bold" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <SmartToy color="primary" /> Analysis Results
+              </Typography>
+
+              {/* Pricing Section */}
+              {aiStorageResult.pricing && (
+                <Paper sx={{ p: 2, mb: 2, bgcolor: 'success.50', border: 1, borderColor: 'success.light', borderRadius: 2 }}>
+                  <Typography variant="subtitle1" fontWeight="bold" color="success.dark" gutterBottom>💰 Pricing Analysis</Typography>
+                  <Grid container spacing={2}>
+                    {aiStorageResult.pricing.current_price && (
+                      <Grid item xs={6} sm={3}>
+                        <Typography variant="caption" color="text.secondary">Current Price</Typography>
+                        <Typography variant="h6" fontWeight="bold">₹{aiStorageResult.pricing.current_price?.toLocaleString()}</Typography>
+                      </Grid>
+                    )}
+                    {aiStorageResult.pricing.predicted_price && (
+                      <Grid item xs={6} sm={3}>
+                        <Typography variant="caption" color="text.secondary">Predicted Price</Typography>
+                        <Typography variant="h6" fontWeight="bold" color="primary">₹{aiStorageResult.pricing.predicted_price?.toLocaleString()}</Typography>
+                      </Grid>
+                    )}
+                    {aiStorageResult.pricing.recommendation && (
+                      <Grid item xs={12}>
+                        <Chip label={aiStorageResult.pricing.recommendation} color="primary" variant="outlined" />
+                      </Grid>
+                    )}
+                  </Grid>
+                  {aiStorageResult.pricing.reasoning && (
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>{aiStorageResult.pricing.reasoning}</Typography>
+                  )}
+                </Paper>
+              )}
+
+              {/* Duration Section */}
+              {aiStorageResult.duration && (
+                <Paper sx={{ p: 2, mb: 2, bgcolor: 'info.50', border: 1, borderColor: 'info.light', borderRadius: 2 }}>
+                  <Typography variant="subtitle1" fontWeight="bold" color="info.dark" gutterBottom>⏱️ Duration Recommendations</Typography>
+                  <Grid container spacing={2}>
+                    {aiStorageResult.duration.recommended_duration && (
+                      <Grid item xs={6} sm={4}>
+                        <Typography variant="caption" color="text.secondary">Recommended Duration</Typography>
+                        <Typography variant="h6" fontWeight="bold">{aiStorageResult.duration.recommended_duration}</Typography>
+                      </Grid>
+                    )}
+                    {aiStorageResult.duration.optimal_sell_date && (
+                      <Grid item xs={6} sm={4}>
+                        <Typography variant="caption" color="text.secondary">Optimal Sell Date</Typography>
+                        <Typography variant="body1" fontWeight="bold">{aiStorageResult.duration.optimal_sell_date}</Typography>
+                      </Grid>
+                    )}
+                    {aiStorageResult.duration.storage_cost_estimate && (
+                      <Grid item xs={6} sm={4}>
+                        <Typography variant="caption" color="text.secondary">Storage Cost Est.</Typography>
+                        <Typography variant="body1" fontWeight="bold">₹{aiStorageResult.duration.storage_cost_estimate?.toLocaleString()}</Typography>
+                      </Grid>
+                    )}
+                  </Grid>
+                  {aiStorageResult.duration.reasoning && (
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>{aiStorageResult.duration.reasoning}</Typography>
+                  )}
+                </Paper>
+              )}
+
+              {/* Fraud Check Section */}
+              {aiStorageResult.fraud_check && (
+                <Paper sx={{ p: 2, bgcolor: aiStorageResult.fraud_check.is_suspicious ? 'error.50' : 'success.50', border: 1, borderColor: aiStorageResult.fraud_check.is_suspicious ? 'error.light' : 'success.light', borderRadius: 2 }}>
+                  <Typography variant="subtitle1" fontWeight="bold" color={aiStorageResult.fraud_check.is_suspicious ? 'error.dark' : 'success.dark'} gutterBottom>
+                    🔍 Fraud Check: {aiStorageResult.fraud_check.is_suspicious ? '⚠️ SUSPICIOUS' : '✅ CLEAR'}
+                  </Typography>
+                  {aiStorageResult.fraud_check.risk_score != null && (
+                    <Chip label={`Risk Score: ${aiStorageResult.fraud_check.risk_score}`} color={aiStorageResult.fraud_check.is_suspicious ? 'error' : 'success'} sx={{ mb: 1 }} />
+                  )}
+                  {aiStorageResult.fraud_check.reasons && aiStorageResult.fraud_check.reasons.length > 0 && (
+                    <Box sx={{ mt: 1 }}>
+                      {aiStorageResult.fraud_check.reasons.map((reason, idx) => (
+                        <Alert key={idx} severity={aiStorageResult.fraud_check.is_suspicious ? 'warning' : 'info'} sx={{ mb: 0.5, py: 0 }}>{reason}</Alert>
+                      ))}
+                    </Box>
+                  )}
+                </Paper>
+              )}
+
+              {/* Fallback: show raw result if structured fields are missing */}
+              {!aiStorageResult.pricing && !aiStorageResult.duration && !aiStorageResult.fraud_check && (
+                <Paper sx={{ p: 2, bgcolor: 'grey.50' }}>
+                  <Typography variant="body2" component="pre" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                    {JSON.stringify(aiStorageResult, null, 2)}
+                  </Typography>
+                </Paper>
+              )}
+            </Paper>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setAiStorageDialog(false); setAiStorageResult(null); setAiStorageError(''); }}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };

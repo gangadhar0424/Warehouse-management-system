@@ -24,7 +24,7 @@ import {
   Grain,
   CalendarToday,
   Scale,
-  AttachMoney,
+  CurrencyRupee,
   Room,
   Payment,
   Warning,
@@ -262,7 +262,7 @@ const MyGrainsOverview = () => {
                       </Grid>
                       <Grid item xs={6}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                          <AttachMoney sx={{ fontSize: 18, color: 'text.secondary' }} />
+                          <CurrencyRupee sx={{ fontSize: 18, color: 'text.secondary' }} />
                           <Typography variant="body2" color="textSecondary">
                             Value
                           </Typography>

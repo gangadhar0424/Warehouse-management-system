@@ -440,6 +440,10 @@ router.get('/stats/dashboard', [auth, authorize('owner')], async (req, res) => {
             { $match: { status: { $in: ['entered', 'loaded', 'weighed'] } } },
             { $count: "count" }
           ],
+          totalExited: [
+            { $match: { status: 'exited' } },
+            { $count: "count" }
+          ],
           byStatus: [
             { $group: { _id: "$status", count: { $sum: 1 } } }
           ],
@@ -450,10 +454,19 @@ router.get('/stats/dashboard', [auth, authorize('owner')], async (req, res) => {
       }
     ]);
 
+    // Total customers till date
+    const totalCustomers = await User.countDocuments({ role: 'customer' });
+
+    const totalVehicles = stats[0].totalVehicles[0]?.count || 0;
+    const totalExited = stats[0].totalExited[0]?.count || 0;
+    const currentlyInside = stats[0].currentlyInside[0]?.count || 0;
+
     const result = {
-      totalVehicles: stats[0].totalVehicles[0]?.count || 0,
+      totalVehicles: totalVehicles, // All vehicles that came for loading, unloading, weighing
       todayEntries: stats[0].todayEntries[0]?.count || 0,
-      currentlyInside: stats[0].currentlyInside[0]?.count || 0,
+      currentlyInside: currentlyInside, // Only vehicles currently inside for loading/unloading
+      totalEntries: totalVehicles + totalExited, // Total in + out count
+      totalCustomers: totalCustomers, // Cumulative customers till date
       statusBreakdown: stats[0].byStatus,
       vehicleTypeBreakdown: stats[0].byVehicleType
     };
