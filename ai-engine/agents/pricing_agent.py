@@ -86,8 +86,7 @@ Respond in JSON: {{
     async def _get_live_prices(self):
         """Fetch and analyze live market prices."""
         try:
-            # Try to fetch from data.gov.in or agmarknet (free APIs)
-            # Fallback to AI-generated realistic prices
+            # Fetch AI-generated realistic market prices
             live_prices = await self._fetch_market_data()
             
             # Save to database

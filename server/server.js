@@ -61,7 +61,7 @@ db.on('error', (error) => {
 });
 db.once('open', async () => {
   console.log('✅ Connected to MongoDB');
-  
+
   // Initialize local file storage
   try {
     const localFileService = require('./utils/localFileService');
@@ -74,7 +74,7 @@ db.once('open', async () => {
 // Socket.IO connection handling
 io.on('connection', (socket) => {
   console.log('New client connected');
-  
+
   socket.on('join_room', (room) => {
     socket.join(room);
     console.log(`Client joined room: ${room}`);
@@ -110,6 +110,7 @@ app.use('/api/loans', require('./routes/loans'));
 app.use('/api/market', require('./routes/market'));
 app.use('/api/predictions', require('./routes/predictions'));
 app.use('/api/ai', require('./routes/ai-predictions'));
+app.use('/api/workflows', require('./routes/workflows'));
 app.use('/api/translate', require('./routes/translate'));
 app.use('/api/email', require('./routes/email'));
 
@@ -117,16 +118,13 @@ app.use('/api/email', require('./routes/email'));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Serve static assets in production (or when React dev server isn't running)
-// In development, React runs on port 3001 and proxies API calls to port 5000
 if (process.env.NODE_ENV === 'production' || process.env.SERVE_REACT === 'true') {
   app.use(express.static(path.join(__dirname, 'client/build')));
-  
-  // Handle React routing - return index.html for all non-API routes
+
   app.get('*', (req, res) => {
     res.sendFile(path.resolve(__dirname, 'client', 'build', 'index.html'));
   });
 } else {
-  // In development mode without React dev server, provide helpful message
   app.get('/', (req, res) => {
     res.send(`
       <h1>Warehouse Management System - Backend API</h1>
@@ -134,11 +132,11 @@ if (process.env.NODE_ENV === 'production' || process.env.SERVE_REACT === 'true')
       <h2>To run the full application:</h2>
       <h3>Option 1: Development Mode (Recommended)</h3>
       <ul>
-        <li>Backend API: Already running on port 5000 ✓</li>
+        <li>Backend API: Already running on port 5000</li>
         <li>Frontend: Run <code>cd client && npm start</code> to start on port 3001</li>
         <li>Then access: <a href="http://localhost:3001">http://localhost:3001</a></li>
       </ul>
-      <h3>Option 2: Production Mode (Current Workaround)</h3>
+      <h3>Option 2: Production Mode</h3>
       <ul>
         <li>Set environment variable: <code>SERVE_REACT=true</code></li>
         <li>Or restart with: <code>npm run start:prod</code></li>
@@ -146,14 +144,15 @@ if (process.env.NODE_ENV === 'production' || process.env.SERVE_REACT === 'true')
       </ul>
       <h2>API Endpoints:</h2>
       <ul>
-        <li>POST <a href="/api/auth/login">/api/auth/login</a> - Login</li>
-        <li>POST <a href="/api/auth/register">/api/auth/register</a> - Register</li>
+        <li>POST /api/auth/login - Login</li>
+        <li>POST /api/auth/register - Register</li>
         <li>GET /api/warehouse/* - Warehouse routes (requires auth)</li>
         <li>GET /api/vehicles/* - Vehicle routes (requires auth)</li>
         <li>GET /api/customers/* - Customer routes (requires auth)</li>
         <li>GET /api/analytics/* - Analytics routes (requires auth)</li>
         <li>GET /api/loans/* - Loan routes (requires auth)</li>
         <li>GET /api/market/* - Market routes (requires auth)</li>
+        <li>GET /api/workflows/* - AI Workflow automation (requires auth)</li>
       </ul>
     `);
   });

@@ -68,6 +68,7 @@ import UserManagementPanel from '../components/UserManagementPanel';
 import VehicleManagement from './VehicleManagement';
 import PredictionsTab from '../components/PredictionsTab';
 import OwnerRequestManagement from '../components/OwnerRequestManagement';
+import AIWorkflowRunner from '../components/AIWorkflowRunner';
 
 const OwnerDashboard = () => {
   const { t } = useTranslation();
@@ -215,9 +216,12 @@ const OwnerDashboard = () => {
       const summary = summaryRes.data.summary;
       setAiInventorySummary(summary);
 
-      // Step 2: Send summary to AI engine for intelligent analysis
-      const aiResponse = await axios.post('http://localhost:8001/inventory/analyze', {
+      // Step 2: Send summary to AI engine via backend (routed through n8n)
+      const token2 = localStorage.getItem('token');
+      const aiResponse = await axios.post('/api/ai/inventory/analyze', {
         action: 'analyze'
+      }, {
+        headers: { 'x-auth-token': token2 }
       });
       setAiInventoryResult(aiResponse.data);
     } catch (err) {
@@ -1027,6 +1031,7 @@ const OwnerDashboard = () => {
           <Tab label={t('dashboard.predictions')} />
           <Tab label={t('dashboard.loanPortfolio')} />
           <Tab label={t('dashboard.alertsCenter')} />
+          <Tab label="AI Workflows" icon={<SmartToy sx={{ fontSize: 18 }} />} iconPosition="start" />
         </Tabs>
       </Box>
 
@@ -1057,6 +1062,7 @@ const OwnerDashboard = () => {
       {activeTab === 6 && <PredictionsTab />}
       {activeTab === 7 && <LoanPortfolioManager />}
       {activeTab === 8 && <AlertsCenter />}
+      {activeTab === 9 && <AIWorkflowRunner />}
 
       {/* AI Inventory Analysis Dialog */}
       <Dialog open={aiInventoryDialog} onClose={() => { setAiInventoryDialog(false); setAiInventoryResult(null); setAiInventoryError(''); setAiInventorySummary(null); }} maxWidth="md" fullWidth>

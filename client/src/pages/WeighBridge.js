@@ -200,14 +200,15 @@ const WeighBridge = () => {
       setAiAnomalyVehicleId(vehicle._id);
       setAiAnomalyResult(null);
       setAiAnomalyError('');
-      const response = await axios.post('http://localhost:8001/anomaly/detect', {
+      const token = localStorage.getItem('token');
+      const response = await axios.post('/api/ai/anomaly/detect', {
         vehicle_number: vehicle.vehicleNumber,
         gross_weight: vehicle.weighBridgeData?.grossWeight || 0,
         tare_weight: vehicle.weighBridgeData?.tareWeight || 0,
         net_weight: vehicle.weighBridgeData?.netWeight || 0,
         vehicle_type: vehicle.vehicleType || 'truck',
         timestamp: new Date().toISOString()
-      });
+      }, { headers: { 'x-auth-token': token } });
       setAiAnomalyResult(response.data);
     } catch (err) {
       console.error('AI Anomaly Check error:', err);

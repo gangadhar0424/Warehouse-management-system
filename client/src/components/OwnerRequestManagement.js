@@ -123,10 +123,11 @@ const OwnerRequestManagement = () => {
     const reqId = request._id;
     try {
       setAiLoading(prev => ({ ...prev, [reqId]: true }));
-      const response = await axios.post('http://localhost:8001/loan-risk/assess', {
+      const token = localStorage.getItem('token');
+      const response = await axios.post('/api/ai/loan-risk/assess', {
         user_id: request.customer?._id || request.customer,
         loan_amount: request.loanDetails?.requestedAmount || 0
-      });
+      }, { headers: { 'x-auth-token': token } });
       setAiAssessments(prev => ({ ...prev, [reqId]: response.data }));
     } catch (err) {
       console.error('AI Assessment error:', err);

@@ -1,10 +1,9 @@
 const express = require('express');
-const axios = require('axios');
 const auth = require('../middleware/auth');
 
 const router = express.Router();
 
-// Live market data cache - refreshes from Agmarknet every 5 minutes
+// Live market data cache - simulated grain prices with realistic fluctuations
 let marketPricesCache = {
   'Wheat': { price: 2500, change: +50, trend: 'up', lastUpdated: new Date() },
   'Rice': { price: 3200, change: -30, trend: 'down', lastUpdated: new Date() },
@@ -22,71 +21,8 @@ let previousPricesCache = {
 let lastFetchTime = null;
 const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
-// Agmarknet API fetcher for real grain prices
-const fetchAgmarknetPrices = async () => {
-  try {
-    const today = new Date();
-    const dateStr = today.toISOString().split('T')[0];
-    
-    // Try Agmarknet commodity data API
-    const agmarknetUrl = `https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070?api-key=${process.env.AGMARKNET_API_KEY || 'demo'}&format=json&limit=100&filters[arrival_date]=${dateStr}`;
-    
-    const response = await axios.get(agmarknetUrl, { timeout: 10000 });
-    
-    if (response.data?.records?.length > 0) {
-      const grainMapping = {
-        'Wheat': ['wheat', 'gehun'],
-        'Rice': ['rice', 'paddy', 'chawal'],
-        'Corn': ['maize', 'corn', 'makka'],
-        'Barley': ['barley', 'jau'],
-        'Sorghum': ['jowar', 'sorghum'],
-        'Millet': ['bajra', 'ragi', 'millet']
-      };
-
-      const newPrices = {};
-      
-      for (const [grain, keywords] of Object.entries(grainMapping)) {
-        const records = response.data.records.filter(r =>
-          keywords.some(kw => r.commodity?.toLowerCase().includes(kw))
-        );
-        
-        if (records.length > 0) {
-          const avgPrice = records.reduce((sum, r) => sum + parseFloat(r.modal_price || 0), 0) / records.length;
-          if (avgPrice > 0) {
-            newPrices[grain] = Math.round(avgPrice);
-          }
-        }
-      }
-
-      if (Object.keys(newPrices).length > 0) {
-        // Store previous prices for change calculation
-        Object.keys(newPrices).forEach(grain => {
-          if (marketPricesCache[grain]) {
-            previousPricesCache[grain] = marketPricesCache[grain].price;
-          }
-        });
-
-        // Update with new prices
-        Object.keys(newPrices).forEach(grain => {
-          const prevPrice = previousPricesCache[grain] || newPrices[grain];
-          const change = newPrices[grain] - prevPrice;
-          marketPricesCache[grain] = {
-            price: newPrices[grain],
-            change: change,
-            trend: change > 0 ? 'up' : change < 0 ? 'down' : 'stable',
-            lastUpdated: new Date()
-          };
-        });
-
-        console.log('✅ Market prices updated from Agmarknet API');
-        return true;
-      }
-    }
-  } catch (error) {
-    console.log('⚠️ Agmarknet API unavailable, using cached/simulated prices:', error.message);
-  }
-  
-  // Simulate realistic price fluctuations when API is unavailable
+// Simulate realistic price fluctuations
+const simulatePriceUpdate = () => {
   Object.keys(marketPricesCache).forEach(grain => {
     const currentPrice = marketPricesCache[grain].price;
     previousPricesCache[grain] = currentPrice;
@@ -101,17 +37,16 @@ const fetchAgmarknetPrices = async () => {
       lastUpdated: new Date()
     };
   });
-  
-  return false;
 };
 
 // Auto-refresh prices every 5 minutes
-const refreshPrices = async () => {
-  await fetchAgmarknetPrices();
+const refreshPrices = () => {
+  simulatePriceUpdate();
   lastFetchTime = new Date();
+  console.log('✅ Market prices updated (simulated)');
 };
 
-// Initial fetch
+// Initial update
 refreshPrices();
 // Schedule refresh every 5 minutes
 setInterval(refreshPrices, REFRESH_INTERVAL);
@@ -133,7 +68,7 @@ router.get('/live-prices', auth, (req, res) => {
       previousPrice: previousPrices[grainType] || marketPrices[grainType].price,
       change: marketPrices[grainType].change,
       trend: marketPrices[grainType].trend,
-      market: 'Agmarknet - Indian Commodity Market',
+      market: 'Indian Commodity Market (Simulated)',
       lastUpdated: marketPrices[grainType].lastUpdated
     }));
 

@@ -174,7 +174,8 @@ const CombinedAnalytics = () => {
         quantity_kg: aiStorageForm.quantity_kg,
         include_fraud_check: 'true'
       });
-      const response = await axios.post(`http://localhost:8001/inventory/analyze`, { action: 'analyze' });
+      const token = localStorage.getItem('token');
+      const response = await axios.post('/api/ai/inventory/analyze', { action: 'analyze' }, { headers: { 'x-auth-token': token } });
       setAiStorageResult(response.data);
     } catch (err) {
       console.error('AI Storage Analysis error:', err);
