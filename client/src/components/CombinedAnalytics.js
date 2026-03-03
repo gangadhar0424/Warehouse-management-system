@@ -37,7 +37,6 @@ import {
   AccountBalance,
   Grain,
   Refresh,
-  Download,
   Analytics as AnalyticsIcon,
   Receipt,
   CurrencyRupee,
@@ -110,7 +109,7 @@ const CombinedAnalytics = () => {
 
   // AI Storage Analysis states
   const [aiStorageDialog, setAiStorageDialog] = useState(false);
-  const [aiStorageForm, setAiStorageForm] = useState({ customer_id: '', grain_type: '', quantity_kg: '' });
+  const [aiStorageForm, setAiStorageForm] = useState({ customer_name: '', grain_type: '', quantity_kg: '' });
   const [aiStorageLoading, setAiStorageLoading] = useState(false);
   const [aiStorageResult, setAiStorageResult] = useState(null);
   const [aiStorageError, setAiStorageError] = useState('');
@@ -153,30 +152,87 @@ const CombinedAnalytics = () => {
 
   useEffect(() => {
     fetchAllData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPeriod]);
 
   const handleRefresh = () => {
     fetchAllData();
   };
 
+  // Fallback data for dropdowns when no active storage allocations exist
+  const defaultGrains = ['Rice', 'Wheat', 'Maize', 'Jowar', 'Bajra', 'Cotton', 'Soybean', 'Groundnut', 'Red Gram', 'Bengal Gram', 'Sunflower', 'Sesame', 'Paddy', 'Tur Dal', 'Chana'];
+  const defaultQuantities = [500, 1000, 2000, 3000, 5000, 7500, 10000, 15000, 20000, 25000, 50000];
+
+  // Derive dropdown options from live storage duration data + fallbacks
+  const storageCustomers = React.useMemo(() => {
+    const customers = (storageDurationData?.currentlyStoring || []).map(item => item.customer).filter(Boolean);
+    return [...new Set(customers)];
+  }, [storageDurationData]);
+
+  const storageGrainOptions = React.useMemo(() => {
+    const items = (storageDurationData?.currentlyStoring || []).filter(
+      item => !aiStorageForm.customer_name || item.customer === aiStorageForm.customer_name
+    );
+    const grains = items.flatMap(item => (item.grainTypes || '').split(',').map(g => g.trim())).filter(Boolean);
+    const unique = [...new Set(grains)];
+    return unique.length > 0 ? unique : defaultGrains;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storageDurationData, aiStorageForm.customer_name]);
+
+  const storageQuantityOptions = React.useMemo(() => {
+    const items = (storageDurationData?.currentlyStoring || []).filter(item => {
+      const matchCustomer = !aiStorageForm.customer_name || item.customer === aiStorageForm.customer_name;
+      const matchGrain = !aiStorageForm.grain_type || (item.grainTypes || '').toLowerCase().includes(aiStorageForm.grain_type.toLowerCase());
+      return matchCustomer && matchGrain;
+    });
+    const weights = items.map(item => item.weight).filter(w => w > 0);
+    const unique = [...new Set(weights)].sort((a, b) => a - b);
+    return unique.length > 0 ? unique : defaultQuantities;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storageDurationData, aiStorageForm.customer_name, aiStorageForm.grain_type]);
+
   const handleAiStorageAnalysis = async () => {
-    if (!aiStorageForm.customer_id.trim() || !aiStorageForm.grain_type.trim() || !aiStorageForm.quantity_kg) {
-      setAiStorageError('Please fill all fields');
+    if (!aiStorageForm.grain_type || !aiStorageForm.quantity_kg) {
+      setAiStorageError('Please select at least grain type and quantity');
       return;
     }
     try {
       setAiStorageLoading(true);
       setAiStorageError('');
       setAiStorageResult(null);
-      const params = new URLSearchParams({
-        customer_id: aiStorageForm.customer_id.trim(),
-        grain_type: aiStorageForm.grain_type.trim(),
-        quantity_kg: aiStorageForm.quantity_kg,
-        include_fraud_check: 'true'
-      });
       const token = localStorage.getItem('token');
-      const response = await axios.post('/api/ai/inventory/analyze', { action: 'analyze' }, { headers: { 'x-auth-token': token } });
-      setAiStorageResult(response.data);
+      const totalBags = Math.ceil(Number(aiStorageForm.quantity_kg) / 50);
+
+      // Call both endpoints in parallel: Storage Duration + Market Prediction
+      const [durationRes, marketRes] = await Promise.allSettled([
+        axios.post('/api/ai/predict-duration', {
+          action: 'predict_duration',
+          grainType: aiStorageForm.grain_type,
+          totalBags: totalBags,
+          totalWeightKg: Number(aiStorageForm.quantity_kg),
+          monthlyRentPerBag: 50,
+          customerId: aiStorageForm.customer_name
+        }, { headers: { 'x-auth-token': token } }),
+        axios.post('/api/ai/market/predict', {
+          grainType: aiStorageForm.grain_type,
+          horizon: '3months',
+          action: 'predict'
+        }, { headers: { 'x-auth-token': token } })
+      ]);
+
+      const rawDuration = durationRes.status === 'fulfilled' ? durationRes.value.data : null;
+      // Normalize: AI engine returns {data:{...}}, n8n may return {prediction:{...}} or {data:{...}}
+      const durationData = rawDuration?.data || rawDuration?.prediction || rawDuration || null;
+      const rawMarket = marketRes.status === 'fulfilled' ? marketRes.value.data : null;
+      const marketData = rawMarket?.data || rawMarket?.prediction || rawMarket || null;
+
+      setAiStorageResult({
+        duration: durationData,
+        market: marketData,
+        customer: aiStorageForm.customer_name,
+        grain: aiStorageForm.grain_type,
+        quantity: aiStorageForm.quantity_kg
+      });
     } catch (err) {
       console.error('AI Storage Analysis error:', err);
       setAiStorageError(err.response?.data?.error || err.response?.data?.detail || 'Failed to analyze. Is the AI Engine running?');
@@ -1318,142 +1374,272 @@ const CombinedAnalytics = () => {
 
       {/* AI Storage Analysis Dialog */}
       <Dialog open={aiStorageDialog} onClose={() => { setAiStorageDialog(false); setAiStorageResult(null); setAiStorageError(''); }} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <SmartToy color="primary" />
-          <Typography variant="h6">AI Storage Comprehensive Analysis</Typography>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white' }}>
+          <SmartToy />
+          <Typography variant="h6" fontWeight="bold">AI Storage Comprehensive Analysis</Typography>
         </DialogTitle>
-        <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 0.5 }}>
+        <DialogContent sx={{ pt: 3 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2, mt: 1 }}>
+            Select a customer, grain type and quantity from your active storage to get AI-powered analysis with market prediction and sell timing recommendations.
+          </Typography>
+          <Grid container spacing={2} sx={{ mb: 2 }}>
             <Grid item xs={12} sm={4}>
               <TextField
+                select
                 fullWidth
-                label="Customer ID"
-                placeholder="e.g., CUST001"
-                value={aiStorageForm.customer_id}
-                onChange={(e) => setAiStorageForm(prev => ({ ...prev, customer_id: e.target.value }))}
-              />
+                label="Customer"
+                value={aiStorageForm.customer_name}
+                onChange={(e) => setAiStorageForm(prev => ({ ...prev, customer_name: e.target.value, grain_type: '', quantity_kg: '' }))}
+                InputProps={{ startAdornment: <People sx={{ mr: 1, color: 'action.active' }} /> }}
+              >
+                <MenuItem value="">
+                  <em>All Customers</em>
+                </MenuItem>
+                {storageCustomers.map((name) => (
+                  <MenuItem key={name} value={name}>{name}</MenuItem>
+                ))}
+              </TextField>
             </Grid>
             <Grid item xs={12} sm={4}>
               <TextField
+                select
                 fullWidth
                 label="Grain Type"
-                placeholder="e.g., Rice, Wheat"
                 value={aiStorageForm.grain_type}
-                onChange={(e) => setAiStorageForm(prev => ({ ...prev, grain_type: e.target.value }))}
-              />
+                onChange={(e) => setAiStorageForm(prev => ({ ...prev, grain_type: e.target.value, quantity_kg: '' }))}
+                InputProps={{ startAdornment: <Grain sx={{ mr: 1, color: 'action.active' }} /> }}
+              >
+                {storageGrainOptions.length === 0 ? (
+                  <MenuItem value="" disabled>No grains found</MenuItem>
+                ) : (
+                  storageGrainOptions.map((grain) => (
+                    <MenuItem key={grain} value={grain}>{grain}</MenuItem>
+                  ))
+                )}
+              </TextField>
             </Grid>
             <Grid item xs={12} sm={4}>
               <TextField
+                select
                 fullWidth
                 label="Quantity (kg)"
-                type="number"
-                placeholder="e.g., 5000"
                 value={aiStorageForm.quantity_kg}
                 onChange={(e) => setAiStorageForm(prev => ({ ...prev, quantity_kg: e.target.value }))}
-              />
+                InputProps={{ startAdornment: <Inventory sx={{ mr: 1, color: 'action.active' }} /> }}
+              >
+                {storageQuantityOptions.length === 0 ? (
+                  <MenuItem value="" disabled>No quantities found</MenuItem>
+                ) : (
+                  storageQuantityOptions.map((wt) => (
+                    <MenuItem key={wt} value={wt}>{wt.toLocaleString()} kg</MenuItem>
+                  ))
+                )}
+              </TextField>
             </Grid>
           </Grid>
           <Button
             fullWidth
             variant="contained"
             onClick={handleAiStorageAnalysis}
-            disabled={aiStorageLoading}
-            startIcon={aiStorageLoading ? <CircularProgress size={20} /> : <Psychology />}
-            sx={{ mt: 2, mb: 2, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}
+            disabled={aiStorageLoading || !aiStorageForm.grain_type}
+            startIcon={aiStorageLoading ? <CircularProgress size={20} color="inherit" /> : <Psychology />}
+            sx={{ mb: 2, py: 1.5, fontSize: '1rem', fontWeight: 'bold', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', '&:hover': { background: 'linear-gradient(135deg, #5a6fd6 0%, #6a4299 100%)' } }}
           >
-            {aiStorageLoading ? 'Analyzing...' : 'Run Comprehensive Analysis'}
+            {aiStorageLoading ? 'Analyzing Market & Storage Data...' : 'Run Comprehensive Analysis'}
           </Button>
 
           {aiStorageError && (
-            <Alert severity="error" sx={{ mb: 2 }}>{aiStorageError}</Alert>
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setAiStorageError('')}>{aiStorageError}</Alert>
           )}
 
           {aiStorageResult && (
             <Paper sx={{ p: 2 }}>
               <Typography variant="h6" fontWeight="bold" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <SmartToy color="primary" /> Analysis Results
+                <SmartToy color="primary" /> Analysis & Recommendations — {aiStorageResult.grain} ({aiStorageResult.quantity?.toLocaleString()} kg)
               </Typography>
 
-              {/* Pricing Section */}
-              {aiStorageResult.pricing && (
-                <Paper sx={{ p: 2, mb: 2, bgcolor: 'success.50', border: 1, borderColor: 'success.light', borderRadius: 2 }}>
-                  <Typography variant="subtitle1" fontWeight="bold" color="success.dark" gutterBottom>💰 Pricing Analysis</Typography>
-                  <Grid container spacing={2}>
-                    {aiStorageResult.pricing.current_price && (
-                      <Grid item xs={6} sm={3}>
-                        <Typography variant="caption" color="text.secondary">Current Price</Typography>
-                        <Typography variant="h6" fontWeight="bold">₹{aiStorageResult.pricing.current_price?.toLocaleString()}</Typography>
-                      </Grid>
-                    )}
-                    {aiStorageResult.pricing.predicted_price && (
-                      <Grid item xs={6} sm={3}>
-                        <Typography variant="caption" color="text.secondary">Predicted Price</Typography>
-                        <Typography variant="h6" fontWeight="bold" color="primary">₹{aiStorageResult.pricing.predicted_price?.toLocaleString()}</Typography>
-                      </Grid>
-                    )}
-                    {aiStorageResult.pricing.recommendation && (
-                      <Grid item xs={12}>
-                        <Chip label={aiStorageResult.pricing.recommendation} color="primary" variant="outlined" />
-                      </Grid>
-                    )}
-                  </Grid>
-                  {aiStorageResult.pricing.reasoning && (
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>{aiStorageResult.pricing.reasoning}</Typography>
-                  )}
-                </Paper>
-              )}
-
-              {/* Duration Section */}
+              {/* === STORAGE DURATION ANALYSIS === */}
               {aiStorageResult.duration && (
                 <Paper sx={{ p: 2, mb: 2, bgcolor: 'info.50', border: 1, borderColor: 'info.light', borderRadius: 2 }}>
-                  <Typography variant="subtitle1" fontWeight="bold" color="info.dark" gutterBottom>⏱️ Duration Recommendations</Typography>
+                  <Typography variant="subtitle1" fontWeight="bold" color="info.dark" gutterBottom>⏱️ Storage Duration Analysis</Typography>
                   <Grid container spacing={2}>
-                    {aiStorageResult.duration.recommended_duration && (
-                      <Grid item xs={6} sm={4}>
-                        <Typography variant="caption" color="text.secondary">Recommended Duration</Typography>
-                        <Typography variant="h6" fontWeight="bold">{aiStorageResult.duration.recommended_duration}</Typography>
+                    {(aiStorageResult.duration.optimal_months || aiStorageResult.duration.recommended_duration) && (
+                      <Grid item xs={6} sm={3}>
+                        <Typography variant="caption" color="text.secondary">Optimal Duration</Typography>
+                        <Typography variant="h6" fontWeight="bold">{aiStorageResult.duration.optimal_months ? `${aiStorageResult.duration.optimal_months} months` : aiStorageResult.duration.recommended_duration}</Typography>
                       </Grid>
                     )}
-                    {aiStorageResult.duration.optimal_sell_date && (
-                      <Grid item xs={6} sm={4}>
-                        <Typography variant="caption" color="text.secondary">Optimal Sell Date</Typography>
-                        <Typography variant="body1" fontWeight="bold">{aiStorageResult.duration.optimal_sell_date}</Typography>
+                    {aiStorageResult.duration.recommended_sell_month && (
+                      <Grid item xs={6} sm={3}>
+                        <Typography variant="caption" color="text.secondary">Best Sell Month</Typography>
+                        <Typography variant="h6" fontWeight="bold" color="success.main">{aiStorageResult.duration.recommended_sell_month}</Typography>
                       </Grid>
                     )}
-                    {aiStorageResult.duration.storage_cost_estimate && (
-                      <Grid item xs={6} sm={4}>
-                        <Typography variant="caption" color="text.secondary">Storage Cost Est.</Typography>
-                        <Typography variant="body1" fontWeight="bold">₹{aiStorageResult.duration.storage_cost_estimate?.toLocaleString()}</Typography>
+                    {aiStorageResult.duration.current_price_per_quintal && (
+                      <Grid item xs={6} sm={3}>
+                        <Typography variant="caption" color="text.secondary">Current Price/Quintal</Typography>
+                        <Typography variant="h6" fontWeight="bold">₹{aiStorageResult.duration.current_price_per_quintal?.toLocaleString()}</Typography>
+                      </Grid>
+                    )}
+                    {aiStorageResult.duration.predicted_price_per_quintal && (
+                      <Grid item xs={6} sm={3}>
+                        <Typography variant="caption" color="text.secondary">Predicted Price/Quintal</Typography>
+                        <Typography variant="h6" fontWeight="bold" color="primary.main">₹{aiStorageResult.duration.predicted_price_per_quintal?.toLocaleString()}</Typography>
                       </Grid>
                     )}
                   </Grid>
+                  <Divider sx={{ my: 1.5 }} />
+                  <Grid container spacing={2}>
+                    {aiStorageResult.duration.total_storage_cost != null && (
+                      <Grid item xs={6} sm={3}>
+                        <Typography variant="caption" color="text.secondary">Total Storage Cost</Typography>
+                        <Typography variant="body1" fontWeight="bold" color="error.main">₹{aiStorageResult.duration.total_storage_cost?.toLocaleString()}</Typography>
+                      </Grid>
+                    )}
+                    {aiStorageResult.duration.net_gain != null && (
+                      <Grid item xs={6} sm={3}>
+                        <Typography variant="caption" color="text.secondary">Net Gain</Typography>
+                        <Typography variant="body1" fontWeight="bold" color="success.main">₹{aiStorageResult.duration.net_gain?.toLocaleString()}</Typography>
+                      </Grid>
+                    )}
+                    {aiStorageResult.duration.confidence_percent && (
+                      <Grid item xs={6} sm={3}>
+                        <Typography variant="caption" color="text.secondary">Confidence</Typography>
+                        <Chip label={`${aiStorageResult.duration.confidence_percent}%`} color="primary" size="small" sx={{ fontWeight: 'bold' }} />
+                      </Grid>
+                    )}
+                    {aiStorageResult.duration.risk_level && (
+                      <Grid item xs={6} sm={3}>
+                        <Typography variant="caption" color="text.secondary">Risk Level</Typography>
+                        <Chip label={aiStorageResult.duration.risk_level} size="small" color={aiStorageResult.duration.risk_level === 'low' ? 'success' : aiStorageResult.duration.risk_level === 'high' ? 'error' : 'warning'} sx={{ fontWeight: 'bold' }} />
+                      </Grid>
+                    )}
+                  </Grid>
+                  {aiStorageResult.duration.best_action && (
+                    <Alert severity={aiStorageResult.duration.best_action === 'sell_now' ? 'warning' : aiStorageResult.duration.best_action === 'hold' ? 'info' : 'success'} sx={{ mt: 1.5 }}>
+                      <Typography variant="subtitle2" fontWeight="bold">Recommended Action: {aiStorageResult.duration.best_action.replace(/_/g, ' ').toUpperCase()}</Typography>
+                    </Alert>
+                  )}
                   {aiStorageResult.duration.reasoning && (
                     <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>{aiStorageResult.duration.reasoning}</Typography>
                   )}
                 </Paper>
               )}
 
-              {/* Fraud Check Section */}
-              {aiStorageResult.fraud_check && (
-                <Paper sx={{ p: 2, bgcolor: aiStorageResult.fraud_check.is_suspicious ? 'error.50' : 'success.50', border: 1, borderColor: aiStorageResult.fraud_check.is_suspicious ? 'error.light' : 'success.light', borderRadius: 2 }}>
-                  <Typography variant="subtitle1" fontWeight="bold" color={aiStorageResult.fraud_check.is_suspicious ? 'error.dark' : 'success.dark'} gutterBottom>
-                    🔍 Fraud Check: {aiStorageResult.fraud_check.is_suspicious ? '⚠️ SUSPICIOUS' : '✅ CLEAR'}
-                  </Typography>
-                  {aiStorageResult.fraud_check.risk_score != null && (
-                    <Chip label={`Risk Score: ${aiStorageResult.fraud_check.risk_score}`} color={aiStorageResult.fraud_check.is_suspicious ? 'error' : 'success'} sx={{ mb: 1 }} />
-                  )}
-                  {aiStorageResult.fraud_check.reasons && aiStorageResult.fraud_check.reasons.length > 0 && (
-                    <Box sx={{ mt: 1 }}>
-                      {aiStorageResult.fraud_check.reasons.map((reason, idx) => (
-                        <Alert key={idx} severity={aiStorageResult.fraud_check.is_suspicious ? 'warning' : 'info'} sx={{ mb: 0.5, py: 0 }}>{reason}</Alert>
-                      ))}
-                    </Box>
-                  )}
-                </Paper>
-              )}
+              {/* === MARKET PREDICTION === */}
+              {aiStorageResult.market && (() => {
+                const predictions = aiStorageResult.market.predictions || [aiStorageResult.market];
+                const pred = predictions[0] || {};
+                const trend = pred.trend || aiStorageResult.market.trend || 'stable';
+                const confidence = pred.confidence || aiStorageResult.market.confidence || 0;
+                const factors = pred.factors || aiStorageResult.market.key_factors || [];
+                const marketSummary = aiStorageResult.market.market_summary || '';
+                const bestTimeToSell = aiStorageResult.market.best_time_to_sell || {};
+                const predictedPrices = pred.predicted_prices || {};
+                const alerts = aiStorageResult.market.alerts || [];
 
-              {/* Fallback: show raw result if structured fields are missing */}
-              {!aiStorageResult.pricing && !aiStorageResult.duration && !aiStorageResult.fraud_check && (
+                const trendLower = trend.toLowerCase();
+                const isUp = trendLower.includes('bull') || trendLower === 'up' || trendLower === 'rising';
+                const isDown = trendLower.includes('bear') || trendLower === 'down' || trendLower === 'falling';
+
+                return (
+                  <>
+                    <Paper sx={{ p: 2, mb: 2, background: isUp ? 'linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%)' : isDown ? 'linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%)' : 'linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%)', borderRadius: 2 }}>
+                      <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                        📊 Live Market Prediction — {aiStorageResult.grain}
+                      </Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
+                        {isUp ? <TrendingUp sx={{ fontSize: 40 }} color="success" /> : isDown ? <TrendingDown sx={{ fontSize: 40 }} color="error" /> : <Timeline sx={{ fontSize: 40 }} color="info" />}
+                        <Box sx={{ flex: 1 }}>
+                          <Typography variant="h5" fontWeight="bold" color={isUp ? 'success.main' : isDown ? 'error.main' : 'info.main'}>
+                            {isUp ? '📈 Price will RISE' : isDown ? '📉 Price will FALL' : '➡️ Price will remain STABLE'}
+                          </Typography>
+                        </Box>
+                        {confidence > 0 && <Chip label={`${confidence}% confidence`} color={isUp ? 'success' : isDown ? 'error' : 'info'} sx={{ fontWeight: 'bold' }} />}
+                      </Box>
+                      {/* Price forecast cards */}
+                      {Object.keys(predictedPrices).length > 0 && (
+                        <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mt: 1 }}>
+                          {pred.current_price && (
+                            <Paper sx={{ p: 1, minWidth: 100, textAlign: 'center', bgcolor: 'grey.100' }}>
+                              <Typography variant="caption" color="text.secondary">Current</Typography>
+                              <Typography variant="subtitle1" fontWeight="bold">₹{pred.current_price?.toLocaleString('en-IN')}</Typography>
+                            </Paper>
+                          )}
+                          {predictedPrices.one_week && (
+                            <Paper sx={{ p: 1, minWidth: 100, textAlign: 'center' }}>
+                              <Typography variant="caption" color="text.secondary">1 Week</Typography>
+                              <Typography variant="subtitle1" fontWeight="bold" color="primary.main">₹{predictedPrices.one_week?.toLocaleString('en-IN')}</Typography>
+                            </Paper>
+                          )}
+                          {predictedPrices.one_month && (
+                            <Paper sx={{ p: 1, minWidth: 100, textAlign: 'center' }}>
+                              <Typography variant="caption" color="text.secondary">1 Month</Typography>
+                              <Typography variant="subtitle1" fontWeight="bold" color="info.main">₹{predictedPrices.one_month?.toLocaleString('en-IN')}</Typography>
+                            </Paper>
+                          )}
+                          {predictedPrices.three_months && (
+                            <Paper sx={{ p: 1, minWidth: 100, textAlign: 'center' }}>
+                              <Typography variant="caption" color="text.secondary">3 Months</Typography>
+                              <Typography variant="subtitle1" fontWeight="bold" color="warning.main">₹{predictedPrices.three_months?.toLocaleString('en-IN')}</Typography>
+                            </Paper>
+                          )}
+                        </Box>
+                      )}
+                    </Paper>
+
+                    {/* Key Factors */}
+                    {factors.length > 0 && (
+                      <Paper sx={{ p: 2, mb: 2 }}>
+                        <Typography variant="subtitle1" fontWeight="bold" gutterBottom>🔍 Key Factors</Typography>
+                        {factors.map((factor, idx) => (
+                          <Box key={idx} sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mb: 0.5 }}>
+                            <Typography variant="body2" color="primary.main" fontWeight="bold">•</Typography>
+                            <Typography variant="body2">{factor}</Typography>
+                          </Box>
+                        ))}
+                      </Paper>
+                    )}
+
+                    {/* Market Summary */}
+                    {marketSummary && (
+                      <Alert severity="info" sx={{ mb: 2 }} icon={<Psychology />}>
+                        <Typography variant="subtitle2" fontWeight="bold">Market Summary</Typography>
+                        <Typography variant="body2">{marketSummary}</Typography>
+                      </Alert>
+                    )}
+
+                    {/* Best Time to Sell */}
+                    {bestTimeToSell && Object.keys(bestTimeToSell).length > 0 && (
+                      <Alert severity="success" sx={{ mb: 2 }}>
+                        <Typography variant="subtitle2" fontWeight="bold">💡 Best Time to Sell</Typography>
+                        {typeof bestTimeToSell === 'string' ? (
+                          <Typography variant="body2">{bestTimeToSell}</Typography>
+                        ) : (
+                          Object.entries(bestTimeToSell).map(([key, value]) => (
+                            <Typography variant="body2" key={key}>
+                              <strong>{key}:</strong> {typeof value === 'object' ? JSON.stringify(value) : value}
+                            </Typography>
+                          ))
+                        )}
+                      </Alert>
+                    )}
+
+                    {/* Alerts */}
+                    {alerts.length > 0 && (
+                      <Paper sx={{ p: 2, mb: 2 }}>
+                        <Typography variant="subtitle1" fontWeight="bold" gutterBottom>⚠️ Alerts</Typography>
+                        {alerts.map((alert, idx) => (
+                          <Alert key={idx} severity="warning" sx={{ mb: idx < alerts.length - 1 ? 0.5 : 0 }}>{alert}</Alert>
+                        ))}
+                      </Paper>
+                    )}
+                  </>
+                );
+              })()}
+
+              {/* Fallback: raw result if no structured data */}
+              {!aiStorageResult.duration && !aiStorageResult.market && (
                 <Paper sx={{ p: 2, bgcolor: 'grey.50' }}>
                   <Typography variant="body2" component="pre" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.85rem' }}>
                     {JSON.stringify(aiStorageResult, null, 2)}

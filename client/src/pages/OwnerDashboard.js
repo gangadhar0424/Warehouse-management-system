@@ -19,9 +19,7 @@ import {
   MenuItem,
   Alert,
   CircularProgress,
-  Fab,
   Chip,
-  Divider,
   Tab,
   Tabs,
   Table,
@@ -30,7 +28,6 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  IconButton,
   Tooltip
 } from '@mui/material';
 import {
@@ -41,11 +38,7 @@ import {
   CurrencyRupee,
   Analytics,
   GridView,
-  PersonAdd,
-  Assignment,
   Download,
-  Edit,
-  Delete,
   Visibility,
   Home,
   Inventory,
@@ -67,7 +60,6 @@ import DynamicWarehouseLayoutManager from '../components/DynamicWarehouseLayoutM
 import UserManagementPanel from '../components/UserManagementPanel';
 import VehicleManagement from './VehicleManagement';
 import PredictionsTab from '../components/PredictionsTab';
-import OwnerRequestManagement from '../components/OwnerRequestManagement';
 import AIWorkflowRunner from '../components/AIWorkflowRunner';
 
 const OwnerDashboard = () => {
@@ -80,10 +72,9 @@ const OwnerDashboard = () => {
   // Data states
   const [stats, setStats] = useState(null);
   const [customers, setCustomers] = useState([]);
-  const [vehicles, setVehicles] = useState([]);
 
   // Dialog states
-  const [customerDialog, setCustomerDialog] = useState(false);
+  const [customerDialog] = useState(false);
   const [allocationDialog, setAllocationDialog] = useState(false);
 
   // AI Inventory Analysis states
@@ -94,7 +85,7 @@ const OwnerDashboard = () => {
   const [aiInventorySummary, setAiInventorySummary] = useState(null);
 
   // Form states
-  const [customerForm, setCustomerForm] = useState({
+  const [customerForm] = useState({
     username: '',
     email: '',
     password: ''
@@ -123,13 +114,17 @@ const OwnerDashboard = () => {
     }
   });
 
-  const { user } = useAuth();
+  useAuth();
   const { addNotification, socket } = useSocket();
 
   useEffect(() => {
     fetchDashboardData();
     
-    // Listen for real-time payment notifications
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // dummy re-init to keep socket listener (real effect below)
+  useEffect(() => {
     if (socket) {
       socket.on('payment_received', (data) => {
         console.log('Payment received notification:', data);
@@ -152,6 +147,7 @@ const OwnerDashboard = () => {
         socket.off('payment_received');
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket]);
 
   const fetchDashboardData = async () => {
@@ -160,17 +156,14 @@ const OwnerDashboard = () => {
       
       const [
         vehicleStatsRes,
-        customersRes,
-        vehiclesRes
+        customersRes
       ] = await Promise.all([
         axios.get('/api/vehicles/stats/dashboard'),
-        axios.get('/api/customers'),
-        axios.get('/api/vehicles')
+        axios.get('/api/customers')
       ]);
 
       setStats(vehicleStatsRes.data);
       setCustomers(customersRes.data.customers);
-      setVehicles(vehiclesRes.data.vehicles);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
       setError('Failed to load dashboard data');
@@ -232,14 +225,7 @@ const OwnerDashboard = () => {
     }
   };
 
-  const getRiskColor = (riskLevel) => {
-    switch (riskLevel?.toLowerCase()) {
-      case 'low': return 'success';
-      case 'medium': return 'warning';
-      case 'high': case 'critical': return 'error';
-      default: return 'info';
-    }
-  };
+
 
   const handleExportData = async (type) => {
     try {
@@ -269,10 +255,7 @@ const OwnerDashboard = () => {
 
 
 
-  const handleViewCustomer = (customerId) => {
-    // Navigate to customer detail view or show detailed modal
-    window.open(`/customer-profile/${customerId}`, '_blank');
-  };
+
 
   const handleComprehensiveReport = async () => {
     try {
@@ -420,6 +403,7 @@ const OwnerDashboard = () => {
 
     useEffect(() => {
       fetchTransactions();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [transactionFilter, dateFilter]);
 
     const handleViewTransaction = (transaction) => {
@@ -808,6 +792,7 @@ const OwnerDashboard = () => {
     );
   };
 
+  // eslint-disable-next-line no-unused-vars
   const ReportsAnalytics = () => (
     <Paper sx={{ p: 3 }}>
       <Typography variant="h6" gutterBottom>
@@ -1026,7 +1011,6 @@ const OwnerDashboard = () => {
           <Tab label={t('dashboard.userManagement')} />
           <Tab label={t('dashboard.vehicleManagement')} />
           <Tab label={t('dashboard.transactions')} />
-          <Tab label={t('dashboard.customerRequests')} />
           <Tab label={t('dashboard.analytics')} />
           <Tab label={t('dashboard.predictions')} />
           <Tab label={t('dashboard.loanPortfolio')} />
@@ -1057,12 +1041,11 @@ const OwnerDashboard = () => {
       {activeTab === 1 && <UserManagementPanel />}
       {activeTab === 2 && <VehicleManagement />}
       {activeTab === 3 && <WarehouseTransactions />}
-      {activeTab === 4 && <OwnerRequestManagement />}
-      {activeTab === 5 && <CombinedAnalytics />}
-      {activeTab === 6 && <PredictionsTab />}
-      {activeTab === 7 && <LoanPortfolioManager />}
-      {activeTab === 8 && <AlertsCenter />}
-      {activeTab === 9 && <AIWorkflowRunner />}
+      {activeTab === 4 && <CombinedAnalytics />}
+      {activeTab === 5 && <PredictionsTab />}
+      {activeTab === 6 && <LoanPortfolioManager />}
+      {activeTab === 7 && <AlertsCenter />}
+      {activeTab === 8 && <AIWorkflowRunner />}
 
       {/* AI Inventory Analysis Dialog */}
       <Dialog open={aiInventoryDialog} onClose={() => { setAiInventoryDialog(false); setAiInventoryResult(null); setAiInventoryError(''); setAiInventorySummary(null); }} maxWidth="md" fullWidth>

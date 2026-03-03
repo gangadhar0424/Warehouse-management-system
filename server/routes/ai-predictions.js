@@ -113,10 +113,20 @@ router.post('/weighbridge/analyze', auth, async (req, res) => {
   }
 });
 
-// POST /api/ai/loan-risk/assess - Loan risk assessment
+// POST /api/ai/loan-risk/assess - Individual loan risk assessment (WMS - Loan Risk Assessment)
 router.post('/loan-risk/assess', auth, async (req, res) => {
   try {
     const result = await proxyVian8n('loan_risk_assess', '/loan-risk/assess', 'POST', req.body);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/ai/risk-assessment - Portfolio-level risk assessment (WMS - Risk Assessment)
+router.post('/risk-assessment', auth, async (req, res) => {
+  try {
+    const result = await proxyVian8n('risk_assessment', '/risk-assessment', 'POST', req.body);
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });

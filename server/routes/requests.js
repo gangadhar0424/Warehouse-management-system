@@ -24,7 +24,7 @@ router.post('/', auth, async (req, res) => {
     });
 
     await request.save();
-    await request.populate('customer', 'name email phone');
+    await request.populate('customer', 'username email profile');
 
     res.status(201).json(request);
   } catch (error) {
@@ -60,7 +60,7 @@ router.get('/pending', auth, async (req, res) => {
     }
 
     const requests = await Request.find({ status: 'pending' })
-      .populate('customer', 'name email phone')
+      .populate('customer', 'username email profile')
       .sort({ createdAt: -1 });
 
     res.json(requests);
@@ -84,8 +84,8 @@ router.get('/all', auth, async (req, res) => {
     if (type) filter.type = type;
 
     const requests = await Request.find(filter)
-      .populate('customer', 'name email phone')
-      .populate('processedBy', 'name')
+      .populate('customer', 'username email profile')
+      .populate('processedBy', 'username')
       .populate('createdLoan')
       .sort({ createdAt: -1 });
 
@@ -106,7 +106,7 @@ router.put('/:requestId/process', auth, async (req, res) => {
     const { requestId } = req.params;
     const { action, rejectionReason, loanData } = req.body;
 
-    const request = await Request.findById(requestId).populate('customer', 'name email phone');
+    const request = await Request.findById(requestId).populate('customer', 'username email profile');
     
     if (!request) {
       return res.status(404).json({ message: 'Request not found' });

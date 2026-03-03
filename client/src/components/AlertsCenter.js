@@ -45,7 +45,9 @@ import {
   Delete,
   Email as EmailIcon,
   Send,
-  MailOutline
+  MailOutline,
+  Psychology,
+  AlarmOn
 } from '@mui/icons-material';
 import { useTranslation } from '../i18n/LanguageContext';
 import axios from 'axios';
@@ -68,6 +70,9 @@ const AlertsCenter = () => {
   });
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailResult, setEmailResult] = useState(null);
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [loanDueAlerts, setLoanDueAlerts] = useState([]);
+  const [loadingDueLoans, setLoadingDueLoans] = useState(false);
 
   const fetchAlerts = async () => {
     try {
@@ -127,6 +132,58 @@ const AlertsCenter = () => {
     fetchCustomersList();
     setEmailDialogOpen(true);
     setEmailResult(null);
+  };
+
+  const handleOpenLoanReminderDialog = async () => {
+    setLoadingDueLoans(true);
+    setEmailResult(null);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get('/api/email/loan-due-customers', { headers: { 'x-auth-token': token } });
+      const dueCusts = res.data.customers || [];
+      if (dueCusts.length === 0) {
+        alert('No customers have loans due within the next 7 days.');
+        return;
+      }
+      // Build customersList with due-loan details
+      setCustomersList(dueCusts.map(c => ({
+        id: c.id,
+        name: c.name,
+        email: c.email,
+        daysLeft: c.daysLeft,
+        remainingAmount: c.remainingAmount,
+        dueDate: c.dueDate
+      })));
+      setSelectedCustomers(dueCusts.map(c => c.id.toString()));
+      setLoanDueAlerts(dueCusts);
+      setEmailDialogOpen(true);
+    } catch (err) {
+      alert('Failed to fetch due loan customers.');
+    } finally {
+      setLoadingDueLoans(false);
+    }
+  };
+
+  const handleAiGenerate = async () => {
+    setAiGenerating(true);
+    try {
+      const token = localStorage.getItem('token');
+      const loanCustomers = customersList
+        .filter(c => selectedCustomers.includes(c.id?.toString() || c.id))
+        .map(c => ({
+          name: c.name,
+          email: c.email,
+          remainingAmount: c.remainingAmount || 0,
+          dueDate: c.dueDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          daysLeft: c.daysLeft || 7
+        }));
+      const res = await axios.post('/api/email/ai-generate-reminder', { loanCustomers }, { headers: { 'x-auth-token': token } });
+      setEmailData(prev => ({ ...prev, subject: res.data.subject || '', message: res.data.message || '' }));
+    } catch (err) {
+      alert('AI generation failed. Please write the message manually.');
+    } finally {
+      setAiGenerating(false);
+    }
   };
 
   const handleCloseEmailDialog = () => {
@@ -214,6 +271,14 @@ const AlertsCenter = () => {
 
   useEffect(() => {
     fetchAlerts();
+    // fetch loan due customers for badge + inline alerts
+    (async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await axios.get('/api/email/loan-due-customers', { headers: { 'x-auth-token': token } });
+        setLoanDueAlerts(res.data.customers || []);
+      } catch (e) {}
+    })();
   }, []);
 
   const handleRefresh = () => {
@@ -353,6 +418,20 @@ const AlertsCenter = () => {
               Send Email
             </Button>
           </Tooltip>
+          <Tooltip title="Send loan payment reminders to customers due within 7 days">
+            <Badge badgeContent={loanDueAlerts.length} color="warning">
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={loadingDueLoans ? <CircularProgress size={14} color="inherit" /> : <AlarmOn />}
+                onClick={handleOpenLoanReminderDialog}
+                disabled={loadingDueLoans}
+                sx={{ background: 'linear-gradient(135deg, #e65100 0%, #ff9800 100%)' }}
+              >
+                Loan Reminders
+              </Button>
+            </Badge>
+          </Tooltip>
           <Tooltip title={t('alerts.markAllReadTooltip')}>
             <Button
               variant="outlined"
@@ -425,6 +504,20 @@ const AlertsCenter = () => {
               </Typography>
               <Typography variant="body2" color="textSecondary">
                 {t('alerts.mlPredictions')}
+              </Typography>
+            </Box>
+          </Box>
+        </Paper>
+
+        <Paper sx={{ p: 2, flex: 1, minWidth: 200, backgroundColor: '#fff3e0', borderLeft: '4px solid #e65100', cursor: loanDueAlerts.length > 0 ? 'pointer' : 'default' }} onClick={loanDueAlerts.length > 0 ? handleOpenLoanReminderDialog : undefined}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <AlarmOn sx={{ fontSize: 32, color: '#e65100' }} />
+            <Box>
+              <Typography variant="h4" fontWeight="bold" sx={{ color: '#e65100' }}>
+                {loanDueAlerts.length}
+              </Typography>
+              <Typography variant="body2" color="textSecondary">
+                Loans Due (7 days)
               </Typography>
             </Box>
           </Box>
@@ -560,6 +653,73 @@ const AlertsCenter = () => {
         </CardContent>
       </Card>
 
+      {/* Loan Due Alerts Section */}
+      {loanDueAlerts.length > 0 && (
+        <Card sx={{ mt: 3, border: '2px solid #ff9800' }}>
+          <CardContent>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+              <AlarmOn sx={{ color: '#e65100', fontSize: 28 }} />
+              <Typography variant="h6" fontWeight="bold" color="#e65100">
+                Loan Payments Due — Next 7 Days
+              </Typography>
+              <Chip
+                label={`${loanDueAlerts.length} customer${loanDueAlerts.length > 1 ? 's' : ''}`}
+                color="warning"
+                size="small"
+              />
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<Send />}
+                onClick={handleOpenLoanReminderDialog}
+                disabled={loadingDueLoans}
+                sx={{ ml: 'auto', background: 'linear-gradient(135deg, #e65100 0%, #ff9800 100%)' }}
+              >
+                Send Reminders
+              </Button>
+            </Box>
+            <List disablePadding>
+              {loanDueAlerts.map((customer, idx) => (
+                <ListItem
+                  key={idx}
+                  sx={{
+                    backgroundColor: customer.daysLeft <= 2 ? '#ffebee' : '#fff8e1',
+                    borderLeft: `4px solid ${customer.daysLeft <= 2 ? '#f44336' : '#ff9800'}`,
+                    mb: 1,
+                    borderRadius: 1
+                  }}
+                >
+                  <ListItemIcon>
+                    <AlarmOn sx={{ color: customer.daysLeft <= 2 ? '#f44336' : '#ff9800' }} />
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="body1" fontWeight="bold">{customer.name}</Typography>
+                        <Chip
+                          label={customer.daysLeft <= 0 ? 'OVERDUE' : `${customer.daysLeft} day${customer.daysLeft === 1 ? '' : 's'} left`}
+                          color={customer.daysLeft <= 0 ? 'error' : customer.daysLeft <= 2 ? 'error' : 'warning'}
+                          size="small"
+                        />
+                      </Box>
+                    }
+                    secondary={
+                      <Box sx={{ mt: 0.5 }}>
+                        <Typography variant="caption" color="text.secondary" display="block">{customer.email}</Typography>
+                        <Typography variant="body2" sx={{ mt: 0.25 }}>
+                          Outstanding: <strong>Rs.{Number(customer.remainingAmount || 0).toLocaleString()}</strong>
+                          {' '}— Due: <strong>{customer.dueDate ? new Date(customer.dueDate).toLocaleDateString() : 'N/A'}</strong>
+                        </Typography>
+                      </Box>
+                    }
+                  />
+                </ListItem>
+              ))}
+            </List>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Email Alert Dialog */}
       <Dialog open={emailDialogOpen} onClose={handleCloseEmailDialog} maxWidth="md" fullWidth>
         <DialogTitle>
@@ -649,12 +809,29 @@ const AlertsCenter = () => {
                 sx={{ mb: 2 }}
               />
 
+              {/* AI Generate button */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  color="secondary"
+                  startIcon={aiGenerating ? <CircularProgress size={14} /> : <Psychology />}
+                  onClick={handleAiGenerate}
+                  disabled={aiGenerating || selectedCustomers.length === 0}
+                >
+                  {aiGenerating ? 'Generating...' : 'AI Generate Subject & Message'}
+                </Button>
+                {emailData.subject && (
+                  <Typography variant="caption" color="text.secondary">AI content ready — edit freely below</Typography>
+                )}
+              </Box>
+
               <TextField
                 fullWidth
                 multiline
                 rows={4}
                 label="Email Message"
-                placeholder="Enter your email message here..."
+                placeholder="Click AI Generate above, or write your own message..."
                 value={emailData.message}
                 onChange={(e) => setEmailData(prev => ({ ...prev, message: e.target.value }))}
                 sx={{ mb: 3 }}
@@ -678,11 +855,11 @@ const AlertsCenter = () => {
                   {customersList.map((customer) => (
                     <ListItemButton
                       key={customer.id}
-                      onClick={() => customer.email && handleCustomerToggle(customer.id)}
+                      onClick={() => customer.email && handleCustomerToggle(customer.id?.toString() || customer.id)}
                       disabled={!customer.email}
                     >
                       <Checkbox
-                        checked={selectedCustomers.includes(customer.id)}
+                        checked={selectedCustomers.includes(customer.id?.toString() || customer.id)}
                         disabled={!customer.email}
                       />
                       <ListItemIcon>
@@ -695,6 +872,11 @@ const AlertsCenter = () => {
                             <Typography variant="caption" display="block" color={customer.email ? 'success.main' : 'error'}>
                               {customer.email || 'No email address'}
                             </Typography>
+                            {customer.daysLeft != null && (
+                              <Typography variant="caption" display="block" color={customer.daysLeft <= 2 ? 'error' : 'warning.main'} fontWeight="bold">
+                                ⏰ Due in {customer.daysLeft} day{customer.daysLeft === 1 ? '' : 's'} — Rs.{Number(customer.remainingAmount || 0).toLocaleString()} outstanding
+                              </Typography>
+                            )}
                           </Box>
                         }
                       />

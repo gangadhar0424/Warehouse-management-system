@@ -8,11 +8,11 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 
 # Fallback model chain: try primary model first, then alternatives
 FALLBACK_MODELS = [
-    GEMINI_MODEL,          # gemini-2.0-flash (configured)
-    'gemini-2.0-flash-lite',
-    'gemma-3-27b-it',
+    GEMINI_MODEL,          # gemma-3-27b-it (configured - working)
     'gemma-3-4b-it',
     'gemma-3-1b-it',
+    'gemini-2.0-flash',    # currently rate-limited, keep as fallback
+    'gemini-2.0-flash-lite',
 ]
 
 class GeminiClient:

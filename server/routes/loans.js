@@ -6,6 +6,7 @@ const Loan = require('../models/Loan');
 const StorageAllocation = require('../models/StorageAllocation');
 const User = require('../models/User');
 const Transaction = require('../models/Transaction');
+const DynamicWarehouseLayout = require('../models/DynamicWarehouseLayout');
 
 const router = express.Router();
 
@@ -387,48 +388,62 @@ router.get('/all-customer-loans', auth, authorize('owner'), async (req, res) => 
       .populate('customer', 'profile email')
       .sort({ createdAt: -1 });
 
-    // Add grain details and calculations for each loan
-    const loansWithDetails = await Promise.all(
-      loans.map(async (loan) => {
-        const allocations = await StorageAllocation.find({
-          customer: loan.customer._id,
-          status: 'active'
-        });
+    // Load all active warehouse layouts once (avoid N+1 queries)
+    const warehouses = await DynamicWarehouseLayout.find({ isActive: true });
 
-        // Calculate grain details
-        let totalBags = 0;
-        let totalWeightKg = 0;
-        let avgMarketValue = 1500; // Default market value per quintal
+    const marketPrices = {
+      'Wheat': 2500, 'Rice': 3200, 'Corn': 1800, 'Barley': 2200,
+      'Sorghum': 2000, 'Millet': 1900, 'Maize': 1800, 'Paddy': 1600,
+      'Jowar': 1700, 'Bajra': 1650, 'Cotton': 6500, 'Soybean': 4200,
+      'Groundnut': 5500, 'Sunflower': 5000, 'Sesame': 12000,
+      'Red Gram': 6600, 'Bengal Gram': 5440, 'Tur Dal': 6600,
+      'Chana': 5440
+    };
 
-        allocations.forEach(allocation => {
-          const items = allocation.storageDetails?.items || [];
-          items.forEach(item => {
-            totalBags += item.quantity || 0;
-            totalWeightKg += item.weight || 0;
+    const loansWithDetails = loans.map((loan) => {
+      const customerId = loan.customer._id.toString();
+
+      let totalBags = 0;
+      let totalWeightKg = 0;
+      let grainTypes = {};
+
+      // Scan all warehouse slots for this customer's allocations
+      warehouses.forEach(warehouse => {
+        (warehouse.layout || []).forEach(building => {
+          (building.blocks || []).forEach(block => {
+            (block.slots || []).forEach(slot => {
+              (slot.allocations || []).forEach(alloc => {
+                if (alloc.customer && alloc.customer.toString() === customerId) {
+                  totalBags += alloc.bags || 0;
+                  totalWeightKg += alloc.weight || 0;
+                  const gt = alloc.grainType || 'Rice';
+                  grainTypes[gt] = (grainTypes[gt] || 0) + (alloc.bags || 0);
+                }
+              });
+            });
           });
         });
+      });
 
-        // If we have allocation pricing, use it
-        if (allocations.length > 0 && allocations[0].pricing) {
-          avgMarketValue = allocations[0].pricing.ratePerKg || 15; // Rate per kg
+      // Pick dominant grain type for pricing
+      const dominantGrain = Object.keys(grainTypes).sort((a, b) => grainTypes[b] - grainTypes[a])[0] || 'Rice';
+      const pricePerQuintal = marketPrices[dominantGrain] || 2000;
+      const quintals = totalWeightKg / 100;
+      const grainValue = quintals * pricePerQuintal;
+
+      return {
+        ...loan.toObject(),
+        grainDetails: {
+          numberOfBags: totalBags,
+          bagWeight: totalBags > 0 ? totalWeightKg / totalBags : 50,
+          totalWeightKg,
+          quintals: parseFloat(quintals.toFixed(2)),
+          grainType: dominantGrain,
+          marketValue: pricePerQuintal,
+          totalValue: parseFloat(grainValue.toFixed(2))
         }
-
-        const quintals = totalWeightKg / 100;
-        const grainValue = quintals * (avgMarketValue * 100); // Convert kg rate to quintal rate
-
-        return {
-          ...loan.toObject(),
-          grainDetails: {
-            numberOfBags: totalBags,
-            bagWeight: totalBags > 0 ? totalWeightKg / totalBags : 50,
-            totalWeightKg,
-            quintals: quintals.toFixed(2),
-            marketValue: avgMarketValue * 100,
-            totalValue: grainValue
-          }
-        };
-      })
-    );
+      };
+    });
 
     res.json({ loans: loansWithDetails });
 
