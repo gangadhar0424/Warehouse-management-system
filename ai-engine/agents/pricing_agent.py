@@ -4,7 +4,34 @@ from tools.db_connector import DBConnector
 from config.prompts import PRICING_AGENT_PROMPT
 import json
 import httpx
+import os
 from datetime import datetime
+
+
+# ─── data.gov.in Agmarknet config ─────────────────────────────────────────────
+DATAGOV_API_KEY   = os.getenv("DATAGOV_API_KEY", "")
+DATAGOV_RESOURCE  = "9ef84268-d588-465a-a308-a864a43d0070"
+DATAGOV_STATE     = os.getenv("DATAGOV_STATE", "Telangana")
+
+# Maps Agmarknet commodity names → our normalized grain names
+COMMODITY_MAP = {
+    "Wheat":               "wheat",
+    "Rice":                "rice",
+    "Paddy":               "rice",
+    "Maize":               "maize",
+    "Jowar(Sorghum)":      "jowar",
+    "Jowar":               "jowar",
+    "Bajra(Pearl Millet)": "bajra",
+    "Bajra":               "bajra",
+    "Barley":              "barley",
+    "Red Gram(Tur)":       "red_gram",
+    "Bengal Gram(Desi)":   "chana",
+    "Soyabean":            "soybean",
+    "Groundnut":           "groundnut",
+    "Cotton":              "cotton",
+    "Sunflower":           "sunflower",
+    "Sesame(Sesame/Gingelly)": "sesame",
+}
 
 
 class PricingAgent(BaseAgent):
@@ -115,22 +142,95 @@ Respond in JSON: {{
             )
     
     async def _fetch_market_data(self):
-        """Fetch live market data from APIs or generate realistic prices."""
-        # Generate realistic Indian grain prices using AI
-        prompt = f"""Generate current realistic Indian grain market prices as of {datetime.now().strftime('%Y-%m-%d')}.
-Include these grains: Rice (Paddy), Wheat, Maize, Jowar (Sorghum), Bajra (Pearl Millet), Cotton, Soybean, Groundnut, Red Gram (Tur), Bengal Gram (Chana), Sunflower, Sesame.
+        """Fetch live mandi prices from data.gov.in Agmarknet API.
+        Falls back to AI-generated estimates if API key is not configured."""
 
-Base prices on ACTUAL current Indian market rates (Telangana/AP region).
-Include MSP where applicable.
+        if not DATAGOV_API_KEY:
+            # No API key — generate AI estimates and mark them clearly
+            return await self._fetch_ai_estimated_prices()
+
+        url = f"https://api.data.gov.in/resource/{DATAGOV_RESOURCE}"
+        params = {
+            "api-key": DATAGOV_API_KEY,
+            "format":  "json",
+            "limit":   500,
+            "filters[State]": DATAGOV_STATE,
+        }
+
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(url, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+
+        records = data.get("records", [])
+        if not records:
+            raise ValueError("Agmarknet API returned no records")
+
+        # Aggregate: grain → {total, count, markets, min_price, max_price}
+        accum = {}
+        for rec in records:
+            raw = rec.get("commodity") or rec.get("Commodity", "")
+            grain_key = COMMODITY_MAP.get(raw)
+            if not grain_key:
+                continue
+            modal = float(rec.get("modal_price") or rec.get("Modal Price") or 0)
+            mn    = float(rec.get("min_price")   or rec.get("Min Price")   or 0)
+            mx    = float(rec.get("max_price")   or rec.get("Max Price")   or 0)
+            mkt   = rec.get("market") or rec.get("Market", "")
+            if modal <= 0:
+                continue
+            if grain_key not in accum:
+                accum[grain_key] = {"total": 0, "count": 0, "mins": [], "maxs": [], "markets": []}
+            accum[grain_key]["total"] += modal
+            accum[grain_key]["count"] += 1
+            accum[grain_key]["mins"].append(mn)
+            accum[grain_key]["maxs"].append(mx)
+            accum[grain_key]["markets"].append(mkt)
+
+        result = {}
+        for grain_key, a in accum.items():
+            avg_modal = round(a["total"] / a["count"])
+            result[grain_key] = {
+                "price":     avg_modal,
+                "unit":      "quintal",
+                "min_price": round(min(a["mins"])),
+                "max_price": round(max(a["maxs"])),
+                "trend":     "stable",
+                "source":    "agmarknet",
+                "state":     DATAGOV_STATE,
+                "markets":   list(set(a["markets"]))[:5],
+                "market_count": a["count"],
+                "date":      datetime.now().strftime("%Y-%m-%d"),
+            }
+
+        return result
+
+    async def _fetch_ai_estimated_prices(self):
+        """Generate AI price estimates — used only when no Agmarknet API key is set."""
+        prompt = f"""Generate current realistic Indian grain market prices as of {datetime.now().strftime('%Y-%m-%d')}.
+Include: Rice (Paddy), Wheat, Maize, Jowar (Sorghum), Bajra (Pearl Millet), Cotton, Soybean, Groundnut, Red Gram (Tur), Bengal Gram (Chana).
+Base on ACTUAL current Indian market rates (Telangana/AP region). Include MSP where applicable.
 
 Respond in JSON: {{
-    "rice": {{"price": int, "unit": "quintal", "trend": str, "msp": int, "market": "Nizamabad"}},
-    "wheat": {{"price": int, "unit": "quintal", "trend": str, "msp": int, "market": "Hyderabad"}},
-    ... (for each grain)
+    "rice":       {{"price": int, "unit": "quintal", "trend": str, "msp": int, "source": "ai_estimate"}},
+    "wheat":      {{"price": int, "unit": "quintal", "trend": str, "msp": int, "source": "ai_estimate"}},
+    "maize":      {{"price": int, "unit": "quintal", "trend": str, "msp": int, "source": "ai_estimate"}},
+    "jowar":      {{"price": int, "unit": "quintal", "trend": str, "msp": int, "source": "ai_estimate"}},
+    "bajra":      {{"price": int, "unit": "quintal", "trend": str, "msp": int, "source": "ai_estimate"}},
+    "chana":      {{"price": int, "unit": "quintal", "trend": str, "msp": int, "source": "ai_estimate"}},
+    "red_gram":   {{"price": int, "unit": "quintal", "trend": str, "msp": int, "source": "ai_estimate"}},
+    "soybean":    {{"price": int, "unit": "quintal", "trend": str, "msp": int, "source": "ai_estimate"}},
+    "groundnut":  {{"price": int, "unit": "quintal", "trend": str, "msp": int, "source": "ai_estimate"}},
+    "cotton":     {{"price": int, "unit": "quintal", "trend": str, "msp": int, "source": "ai_estimate"}}
 }}"""
-        
         result = await GeminiClient.generate_json(prompt, PRICING_AGENT_PROMPT)
+        # Tag all items as AI estimates
+        if isinstance(result, dict):
+            for k in result:
+                if isinstance(result[k], dict):
+                    result[k]["source"] = "ai_estimate"
         return result
+
     
     async def _price_advisory(self, data):
         """Provide price advisory for a specific customer's grain."""

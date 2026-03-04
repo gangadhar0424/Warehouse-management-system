@@ -112,13 +112,17 @@ const WeighBridge = () => {
   // Payment Form
   const [paymentForm, setPaymentForm] = useState({
     weighingFee: 100, // Fixed fee for weighing
-    paymentMethod: 'cash' // 'cash' or 'upi'
+    paymentMethod: 'cash', // 'cash' or 'upi'
+    weight: '' // weight input when paying-to-weigh from active vehicles list
   });
+
+  const [weighMode, setWeighMode] = useState(false); // true when weigh button triggers payment
 
   const [paymentDialog, setPaymentDialog] = useState(false);
   const [upiQrDialog, setUpiQrDialog] = useState(false);
   const [upiQrCode, setUpiQrCode] = useState('');
   const [registeredVehicle, setRegisteredVehicle] = useState(null);
+  const [lastTransactionId, setLastTransactionId] = useState(null); // for bill download
 
   const { user } = useAuth();
   const { addNotification } = useSocket();
@@ -342,53 +346,21 @@ const WeighBridge = () => {
   };
 
   const handleWeighVehicle = async (vehicle) => {
-    const weight = prompt('Enter vehicle weight (kg):');
-    if (!weight || isNaN(weight)) {
-      setError(t('vehicles.invalidWeight'));
-      return;
-    }
-
-    setLoading(true);
-    try {
-      // Determine if this is first or second weighing
-      const isSecondWeigh = vehicle.weighingStatus === 'partial';
-      
-      const response = await axios.put(`/api/vehicles/${vehicle._id}/weigh`, {
-        weight: parseFloat(weight),
-        weighType: isSecondWeigh ? 'gross' : 'tare'
-      });
-      
-      const isPartial = response.data.vehicle.weighingStatus === 'partial';
-      setSuccess(isPartial 
-        ? 'First weighing (Empty) recorded! Vehicle can come back with load for second weighing.' 
-        : 'Vehicle weighed successfully! Both weighings completed.');
-      
-      addNotification({
-        type: 'success',
-        title: 'Vehicle Weighed',
-        message: isPartial 
-          ? `Empty weight recorded: ${weight} kg` 
-          : `Net weight: ${response.data.vehicle.weighBridgeData.netWeight} kg`,
-        timestamp: new Date()
-      });
-
-      // Trigger AI anomaly detection when weighing is completed
-      if (!isPartial && response.data.vehicle.weighingStatus === 'completed') {
-        setAnomalyVehicle(response.data.vehicle);
-        setShowAnomalyAlert(true);
-      }
-
-      fetchVehicles();
-      
-    } catch (error) {
-      setError(error.response?.data?.message || 'Failed to weigh vehicle');
-    } finally {
-      setLoading(false);
-    }
+    // Instead of a bare prompt, open the payment dialog with weight entry
+    setWeighMode(true);
+    setRegisteredVehicle(vehicle);
+    setPaymentForm(prev => ({ ...prev, weight: '', paymentMethod: 'cash' }));
+    setPaymentDialog(true);
   };
 
   const handlePayment = async () => {
     if (!registeredVehicle) return;
+
+    // Validate weight when in weigh mode
+    if (weighMode && (!paymentForm.weight || isNaN(paymentForm.weight) || parseFloat(paymentForm.weight) <= 0)) {
+      setError('Please enter a valid weight in kg.');
+      return;
+    }
 
     setLoading(true);
     setError('');
@@ -396,9 +368,9 @@ const WeighBridge = () => {
     try {
       const weighingFee = parseFloat(paymentForm.weighingFee) || 100;
 
-      // For UPI, show QR code dialog
+      // For UPI, use Razorpay checkout
       if (paymentForm.paymentMethod === 'upi') {
-        await generateUPIQRCode(weighingFee);
+        await initiateRazorpayPayment(weighingFee);
         return;
       }
 
@@ -415,29 +387,88 @@ const WeighBridge = () => {
     }
   };
 
-  const generateUPIQRCode = async (amount) => {
+  const initiateRazorpayPayment = async (amount) => {
     try {
-      // Create UPI payment string
-      const upiString = `upi://pay?pa=warehouse@upi&pn=Warehouse Management&am=${amount}&cu=INR&tn=Weighbridge Fee - ${registeredVehicle.vehicleNumber}`;
-      
-      // Request QR code from backend
-      const response = await axios.post('/api/payments/generate-upi-qr', {
-        upiString,
+      // Try Razorpay first (real payment gateway)
+      const orderRes = await axios.post('/api/payments/create-order', {
         amount,
-        vehicleNumber: registeredVehicle.vehicleNumber
+        type: 'weigh_bridge',
+        vehicle: registeredVehicle._id,
+        description: `Weighbridge fee for ${registeredVehicle.vehicleNumber}`
       });
 
+      if (!orderRes.data.success || !orderRes.data.keyId) {
+        throw new Error('Razorpay not configured');
+      }
+
+      const { orderId, keyId } = orderRes.data;
+
+      const options = {
+        key: keyId,
+        amount: Math.round(amount * 100),
+        currency: 'INR',
+        name: 'Siva Weigh Bridge',
+        description: `Weighbridge Fee - ${registeredVehicle.vehicleNumber}`,
+        order_id: orderId,
+        handler: async (response) => {
+          setLoading(true);
+          try {
+            // Verify payment signature on backend
+            await axios.post('/api/payments/verify-payment', {
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature
+            });
+            await processPayment(amount, 'upi', response.razorpay_payment_id);
+          } catch (err) {
+            setError('Payment verification failed. Please contact support.');
+          } finally {
+            setLoading(false);
+          }
+        },
+        prefill: {
+          name: registeredVehicle.driverName || '',
+          contact: registeredVehicle.driverPhone || ''
+        },
+        notes: { vehicleNumber: registeredVehicle.vehicleNumber },
+        theme: { color: '#1976d2' },
+        method: { upi: true, card: false, netbanking: false, wallet: false, emi: false },
+        modal: { ondismiss: () => { setLoading(false); } }
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.on('payment.failed', () => { setError('Payment failed. Please try again.'); setLoading(false); });
+      setPaymentDialog(false);
+      setLoading(false);
+      rzp.open();
+
+    } catch (err) {
+      // Razorpay not configured — fall back to static UPI QR
+      console.warn('Razorpay not available, falling back to static UPI QR:', err.message);
+      await generateStaticUPIQR(amount);
+    }
+  };
+
+  const generateStaticUPIQR = async (amount) => {
+    try {
+      const upiString = `upi://pay?pa=${process.env.REACT_APP_UPI_ID || 'warehouse@paytm'}&pn=Siva+Weigh+Bridge&am=${amount}&cu=INR&tn=Weighbridge+Fee+-+${registeredVehicle.vehicleNumber}`;
+      const response = await axios.post('/api/payments/generate-upi-qr', {
+        upiString, amount, vehicleNumber: registeredVehicle.vehicleNumber
+      });
       setUpiQrCode(response.data.qrCode);
       setUpiQrDialog(true);
       setPaymentDialog(false);
       setLoading(false);
-      
     } catch (error) {
       console.error('QR generation error:', error);
       setError('Failed to generate UPI QR code');
       setLoading(false);
     }
   };
+
+  // kept for static UPI fallback dialog
+  const generateUPIQRCode = generateStaticUPIQR;
+
 
   const confirmUPIPayment = async () => {
     const weighingFee = parseFloat(paymentForm.weighingFee) || 100;
@@ -452,7 +483,7 @@ const WeighBridge = () => {
     }
   };
 
-  const processPayment = async (amount, paymentMethod) => {
+  const processPayment = async (amount, paymentMethod, gatewayPaymentId = null) => {
     try {
       // Create payment transaction
       const paymentData = {
@@ -466,7 +497,8 @@ const WeighBridge = () => {
         payment: {
           method: paymentMethod,
           status: 'completed',
-          transactionDate: new Date()
+          transactionDate: new Date(),
+          ...(gatewayPaymentId && { gatewayTransactionId: gatewayPaymentId })
         },
         description: `Weighbridge charges for vehicle ${registeredVehicle.vehicleNumber}`,
         items: [{
@@ -478,6 +510,10 @@ const WeighBridge = () => {
       };
 
       const response = await axios.post('/api/payments/create', paymentData);
+      const newTxnId = response.data.transaction?._id;
+      setLastTransactionId(newTxnId);
+      // Auto-open bill in new tab immediately after payment
+      if (newTxnId) openBill('weighbridge', newTxnId);
 
       // Update vehicle payment status
       await axios.put(`/api/vehicles/${registeredVehicle._id}`, {
@@ -487,8 +523,37 @@ const WeighBridge = () => {
         paymentDate: new Date()
       });
 
-      setSuccess(`✅ Payment of ₹${amount} received successfully via ${paymentMethod.toUpperCase()}!`);
+      setSuccess(`Payment of ₹${amount} received via ${paymentMethod.toUpperCase()}! Bill opened in a new tab.`);
       setPaymentDialog(false);
+
+      // If this was a weigh-mode payment, now record the weight
+      if (weighMode && paymentForm.weight) {
+        const weightKg = parseFloat(paymentForm.weight);
+        const isSecondWeigh = registeredVehicle.weighingStatus === 'partial';
+        try {
+          const weighRes = await axios.put(`/api/vehicles/${registeredVehicle._id}/weigh`, {
+            weight: weightKg,
+            weighType: isSecondWeigh ? 'gross' : 'tare'
+          });
+          const isPartial = weighRes.data.vehicle?.weighingStatus === 'partial';
+          addNotification({
+            type: 'success',
+            title: 'Vehicle Weighed',
+            message: isPartial
+              ? `Empty weight recorded: ${weightKg} kg`
+              : `Net weight: ${weighRes.data.vehicle?.weighBridgeData?.netWeight} kg`,
+            timestamp: new Date()
+          });
+          if (!isPartial && weighRes.data.vehicle?.weighingStatus === 'completed') {
+            setAnomalyVehicle(weighRes.data.vehicle);
+            setShowAnomalyAlert(true);
+          }
+        } catch (weighErr) {
+          console.error('Weight record error:', weighErr);
+        }
+      }
+      setWeighMode(false);
+      setPaymentForm(prev => ({ ...prev, weight: '' }));
       
       // Notify via socket
       addNotification({
@@ -506,6 +571,23 @@ const WeighBridge = () => {
     } catch (error) {
       console.error('Payment processing error:', error);
       throw error;
+    }
+  };
+
+  // Download bill as PDF through the axios proxy (avoids React Router intercept)
+  // Open bill PDF in a new tab — browser PDF viewer handles viewing & downloading
+  const openBill = async (type, transactionId) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`/api/payments/bill/${type}/${transactionId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: 'blob'
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+      window.open(url, '_blank');
+    } catch (err) {
+      console.error('Bill open error:', err);
+      setError('Failed to open bill. Please try again.');
     }
   };
 
@@ -757,7 +839,24 @@ const WeighBridge = () => {
       )}
 
       {success && (
-        <Alert severity="success" sx={{ mb: 3 }} onClose={() => setSuccess('')}>
+        <Alert
+          severity="success"
+          sx={{ mb: 3 }}
+          onClose={() => { setSuccess(''); setLastTransactionId(null); }}
+          action={
+            lastTransactionId && (
+              <Button
+                size="small"
+                variant="contained"
+                color="success"
+                onClick={() => openBill('weighbridge', lastTransactionId)}
+                startIcon={<Receipt />}
+              >
+                View Bill Again
+              </Button>
+            )
+          }
+        >
           {success}
         </Alert>
       )}
@@ -1151,9 +1250,13 @@ const WeighBridge = () => {
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Payment color="primary" />
-              <Typography variant="h6">{t('vehicles.weighbridgePayment')}</Typography>
+              <Typography variant="h6">
+                {weighMode
+                  ? (registeredVehicle?.weighingStatus === 'partial' ? 'Second Weigh — Pay & Record' : 'Weigh Vehicle — Pay & Record')
+                  : t('vehicles.weighbridgePayment')}
+              </Typography>
             </Box>
-            <IconButton onClick={() => setPaymentDialog(false)} size="small">
+            <IconButton onClick={() => { setPaymentDialog(false); setWeighMode(false); }} size="small">
               <Close />
             </IconButton>
           </Box>
@@ -1173,6 +1276,23 @@ const WeighBridge = () => {
                   ₹{paymentForm.weighingFee}
                 </Typography>
               </Paper>
+
+              {/* Weight input — shown only when triggered from active vehicles weigh button */}
+              {weighMode && (
+                <TextField
+                  label={registeredVehicle?.weighingStatus === 'partial' ? 'Loaded Weight (kg)' : 'Empty Weight (kg)'}
+                  type="number"
+                  fullWidth
+                  required
+                  value={paymentForm.weight}
+                  onChange={(e) => setPaymentForm(prev => ({ ...prev, weight: e.target.value }))}
+                  inputProps={{ min: 0, step: 0.01 }}
+                  sx={{ mb: 3 }}
+                  helperText={registeredVehicle?.weighingStatus === 'partial'
+                    ? 'Enter the gross (loaded) weight. Net = Gross − Tare will be calculated.'
+                    : 'Enter the tare (empty) weight of the vehicle.'}
+                />
+              )}
 
               <FormControl component="fieldset" fullWidth>
                 <FormLabel component="legend">{t('vehicles.selectPaymentMethod')}</FormLabel>
@@ -1207,7 +1327,7 @@ const WeighBridge = () => {
           )}
         </DialogContent>
         <DialogActions sx={{ p: 3 }}>
-          <Button onClick={() => setPaymentDialog(false)} variant="outlined">
+          <Button onClick={() => { setPaymentDialog(false); setWeighMode(false); setPaymentForm(prev => ({ ...prev, weight: '' })); }} variant="outlined">
             {t('common.cancel')}
           </Button>
           <Button 

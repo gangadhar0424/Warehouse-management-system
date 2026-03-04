@@ -1,54 +1,163 @@
 const express = require('express');
+const axios = require('axios');
 const auth = require('../middleware/auth');
 
 const router = express.Router();
 
-// Live market data cache - simulated grain prices with realistic fluctuations
-let marketPricesCache = {
-  'Wheat': { price: 2500, change: +50, trend: 'up', lastUpdated: new Date() },
-  'Rice': { price: 3200, change: -30, trend: 'down', lastUpdated: new Date() },
-  'Corn': { price: 1800, change: 0, trend: 'stable', lastUpdated: new Date() },
-  'Barley': { price: 2200, change: +20, trend: 'up', lastUpdated: new Date() },
-  'Sorghum': { price: 2000, change: -10, trend: 'down', lastUpdated: new Date() },
-  'Millet': { price: 1900, change: +15, trend: 'up', lastUpdated: new Date() }
+// ─── data.gov.in Agmarknet API config ────────────────────────────────────────
+// Resource: "Current Daily Price of Various Commodities at Various Markets (Mandi)"
+// Resource ID: 9ef84268-d588-465a-a308-a864a43d0070
+// Get your free API key at: https://data.gov.in → Login → My Account → API Keys
+// Add to server/.env:  DATAGOV_API_KEY=your_key_here
+const DATAGOV_API_KEY = process.env.DATAGOV_API_KEY || null;
+const DATAGOV_RESOURCE_ID = '9ef84268-d588-465a-a308-a864a43d0070';
+const DATAGOV_STATE = process.env.DATAGOV_STATE || 'Telangana'; // change to your state
+
+// Maps data.gov.in commodity names → our grain names
+const COMMODITY_MAP = {
+  'Wheat':              'Wheat',
+  'Rice':               'Rice',
+  'Paddy(Desi)(Orissa)':'Rice',
+  'Paddy':              'Rice',
+  'Maize':              'Corn',
+  'Jowar(Sorghum)':     'Sorghum',
+  'Jowar':              'Sorghum',
+  'Bajra(Pearl Millet)':'Millet',
+  'Bajra':              'Millet',
+  'Barley':             'Barley',
 };
 
-let previousPricesCache = {
-  'Wheat': 2450, 'Rice': 3230, 'Corn': 1800,
-  'Barley': 2180, 'Sorghum': 2010, 'Millet': 1885
+// Fallback seed prices (used when API key is absent or API is down)
+const FALLBACK_PRICES = {
+  'Wheat':   2500, 'Rice': 3200, 'Corn': 1800,
+  'Barley':  2200, 'Sorghum': 2000, 'Millet': 1900
 };
 
+let marketPricesCache = {};   // { GrainName: { price, change, trend, market, source, lastUpdated } }
+let previousPricesCache = {}; // { GrainName: previousModalPrice }
 let lastFetchTime = null;
-const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
+let dataSource = 'simulated'; // 'agmarknet' | 'simulated'
+const REFRESH_INTERVAL = 30 * 60 * 1000; // 30 minutes (API data changes once/day)
 
-// Simulate realistic price fluctuations
+// ─── Fetch real prices from data.gov.in Agmarknet ────────────────────────────
+const fetchAgmarknetPrices = async () => {
+  if (!DATAGOV_API_KEY) {
+    throw new Error('DATAGOV_API_KEY not set in .env');
+  }
+
+  const url = `https://api.data.gov.in/resource/${DATAGOV_RESOURCE_ID}`;
+  const response = await axios.get(url, {
+    params: {
+      'api-key': DATAGOV_API_KEY,
+      format:    'json',
+      limit:     200,
+      'filters[State]': DATAGOV_STATE,
+    },
+    timeout: 10000,
+  });
+
+  const records = response.data?.records || [];
+  if (!records.length) throw new Error('No records returned from Agmarknet API');
+
+  // Aggregate: for each grain, collect modal prices from all markets, take average
+  const priceAccum = {}; // { GrainName: { total, count, markets: [] } }
+
+  records.forEach(rec => {
+    const rawCommodity = rec.commodity || rec.Commodity || '';
+    const grainName = COMMODITY_MAP[rawCommodity];
+    if (!grainName) return; // skip unmapped commodities
+
+    const modal = parseFloat(rec.modal_price || rec['Modal Price'] || 0);
+    if (!modal || isNaN(modal)) return;
+
+    if (!priceAccum[grainName]) {
+      priceAccum[grainName] = { total: 0, count: 0, markets: [] };
+    }
+    priceAccum[grainName].total  += modal;
+    priceAccum[grainName].count  += 1;
+    priceAccum[grainName].markets.push(rec.market || rec.Market || '');
+  });
+
+  // Build new cache from aggregated data
+  const newPrices = {};
+  Object.keys(FALLBACK_PRICES).forEach(grain => {
+    const accum = priceAccum[grain];
+
+    // Save previous price before updating
+    const prevPrice = marketPricesCache[grain]?.price || FALLBACK_PRICES[grain];
+    previousPricesCache[grain] = prevPrice;
+
+    if (accum && accum.count > 0) {
+      const avgPrice = Math.round(accum.total / accum.count);
+      const change   = avgPrice - prevPrice;
+      newPrices[grain] = {
+        price:       avgPrice,
+        change:      change,
+        trend:       change > 5 ? 'up' : change < -5 ? 'down' : 'stable',
+        market:      `${DATAGOV_STATE} Mandis (${accum.count} markets)`,
+        source:      'agmarknet',
+        lastUpdated: new Date(),
+      };
+    } else {
+      // Grain not found in today's Agmarknet data — keep last known or fallback
+      newPrices[grain] = marketPricesCache[grain]
+        ? { ...marketPricesCache[grain], source: 'cached' }
+        : { price: FALLBACK_PRICES[grain], change: 0, trend: 'stable',
+            market: 'Fallback', source: 'fallback', lastUpdated: new Date() };
+    }
+  });
+
+  return newPrices;
+};
+
+// ─── Simulate fluctuation (fallback when no API key) ─────────────────────────
 const simulatePriceUpdate = () => {
-  Object.keys(marketPricesCache).forEach(grain => {
-    const currentPrice = marketPricesCache[grain].price;
+  const base = Object.keys(marketPricesCache).length
+    ? null  // already have prices, fluctuate from them
+    : FALLBACK_PRICES;
+
+  Object.keys(FALLBACK_PRICES).forEach(grain => {
+    const currentPrice = marketPricesCache[grain]?.price || FALLBACK_PRICES[grain];
     previousPricesCache[grain] = currentPrice;
-    // Random fluctuation between -2% and +2%
     const fluctuation = currentPrice * (Math.random() * 0.04 - 0.02);
     const newPrice = Math.round(currentPrice + fluctuation);
-    const change = newPrice - currentPrice;
+    const change   = newPrice - currentPrice;
     marketPricesCache[grain] = {
-      price: newPrice,
-      change: change,
-      trend: change > 0 ? 'up' : change < 0 ? 'down' : 'stable',
-      lastUpdated: new Date()
+      price:       newPrice,
+      change:      change,
+      trend:       change > 0 ? 'up' : change < 0 ? 'down' : 'stable',
+      market:      'Simulated (set DATAGOV_API_KEY for real prices)',
+      source:      'simulated',
+      lastUpdated: new Date(),
     };
   });
 };
 
-// Auto-refresh prices every 5 minutes
-const refreshPrices = () => {
-  simulatePriceUpdate();
-  lastFetchTime = new Date();
-  console.log('✅ Market prices updated (simulated)');
+// ─── Master refresh function ─────────────────────────────────────────────────
+const refreshPrices = async () => {
+  try {
+    if (DATAGOV_API_KEY) {
+      const realPrices = await fetchAgmarknetPrices();
+      marketPricesCache = realPrices;
+      dataSource = 'agmarknet';
+      lastFetchTime = new Date();
+      console.log(`[Market] Prices updated from Agmarknet (${DATAGOV_STATE}) — ${Object.keys(realPrices).length} grains`);
+    } else {
+      simulatePriceUpdate();
+      dataSource = 'simulated';
+      lastFetchTime = new Date();
+      console.log('[Market] Prices updated (simulated) — set DATAGOV_API_KEY in .env for real prices');
+    }
+  } catch (err) {
+    console.error('[Market] Failed to fetch real prices, falling back to simulated:', err.message);
+    simulatePriceUpdate();
+    dataSource = 'simulated_fallback';
+    lastFetchTime = new Date();
+  }
 };
 
-// Initial update
+// Initial fetch + scheduled refresh
 refreshPrices();
-// Schedule refresh every 5 minutes
 setInterval(refreshPrices, REFRESH_INTERVAL);
 
 // Helper to get current market prices
@@ -56,7 +165,7 @@ const getMarketPrices = () => marketPricesCache;
 const getPreviousPrices = () => previousPricesCache;
 
 // @route   GET /api/market/live-prices
-// @desc    Get live market prices with previous day comparison
+// @desc    Get live market prices (real Agmarknet data or simulated fallback)
 // @access  Private
 router.get('/live-prices', auth, (req, res) => {
   try {
@@ -64,19 +173,23 @@ router.get('/live-prices', auth, (req, res) => {
     const previousPrices = getPreviousPrices();
     const prices = Object.keys(marketPrices).map(grainType => ({
       grainType,
-      currentPrice: marketPrices[grainType].price,
+      currentPrice:  marketPrices[grainType].price,
       previousPrice: previousPrices[grainType] || marketPrices[grainType].price,
-      change: marketPrices[grainType].change,
-      trend: marketPrices[grainType].trend,
-      market: 'Indian Commodity Market (Simulated)',
-      lastUpdated: marketPrices[grainType].lastUpdated
+      change:        marketPrices[grainType].change,
+      trend:         marketPrices[grainType].trend,
+      market:        marketPrices[grainType].market,
+      source:        marketPrices[grainType].source,
+      lastUpdated:   marketPrices[grainType].lastUpdated,
     }));
 
     res.json({ 
       success: true,
       prices,
-      lastUpdated: lastFetchTime || new Date(),
-      refreshInterval: REFRESH_INTERVAL / 1000 // seconds
+      dataSource,          // 'agmarknet' | 'simulated' | 'simulated_fallback'
+      isRealData: dataSource === 'agmarknet',
+      lastUpdated:     lastFetchTime || new Date(),
+      refreshInterval: REFRESH_INTERVAL / 1000,
+      apiConfigured:   !!DATAGOV_API_KEY,
     });
   } catch (error) {
     console.error('Error fetching live market prices:', error);

@@ -145,30 +145,67 @@ router.get('/owner/dashboard', auth, authorize('owner'), async (req, res) => {
 
     const averageStorageDuration = allocationCount > 0 ? Math.round(totalDays / allocationCount) : 0;
 
+    // ── Format monthlyTrends for charts (month name + revenue/expenses/profit) ──
+    const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const monthlyTrends = monthlyRevenue.map(item => {
+      const rev = item.revenue || 0;
+      // Fixed operating expenses estimate (no expense model exists yet)
+      const exp = Math.round(rev * 0.12);
+      return {
+        month: MONTH_NAMES[(item._id.month || 1) - 1] + ' ' + item._id.year,
+        revenue: rev,
+        expenses: exp,
+        profit: rev - exp
+      };
+    });
+
+    // ── Grain inventory summary for summary cards ──────────────────────────────
+    const totalBags = Object.values(grainInventory).reduce((s, g) => s + (g.quantity || 0), 0);
+    const WAREHOUSE_CAPACITY_BAGS = 10000; // configurable
+    const inventoryUtilization = WAREHOUSE_CAPACITY_BAGS > 0
+      ? Math.min(100, Math.round((totalBags / WAREHOUSE_CAPACITY_BAGS) * 100))
+      : 0;
+
+    // ── Active loans count ─────────────────────────────────────────────────────
+    const activeLoansCount = loans.filter(l => l.status === 'active').length;
+
     res.json({
       revenue: {
+        // Fields the CombinedAnalytics component reads directly:
+        total: rentRevenue + interestEarned + vehicleCharges + otherCharges,
+        storage:    rentRevenue,
+        weighbridge: vehicleCharges,
+        loans:      interestEarned,
+        other:      otherCharges,
+        growth:     0,        // future: compare to prior period
+        // Legacy fields kept for backward compatibility:
         rentCollected: rentRevenue,
-        loanInterest: interestEarned,
+        loanInterest:  interestEarned,
         vehicleCharges,
-        otherCharges,
-        total: rentRevenue + interestEarned + vehicleCharges + otherCharges
+        otherCharges
       },
-      monthlyRevenue,
+      monthlyTrends,          // ← CombinedAnalytics reads this for all 3 charts
+      monthlyRevenue,         // kept for legacy consumers
       customers: {
         total: totalCustomers,
         active: activeCustomers.length,
         topCustomers
       },
       loans: {
+        active: activeLoansCount,             // ← summary card reads this
+        totalAmount: activeLoanAmount,         // ← summary card reads this
         totalIssued: loans.length,
         activeLoanAmount,
         pendingApprovals,
         defaultedLoans,
         interestEarned,
-        riskMetrics: {
-          healthyLoans,
-          atRiskLoans
-        }
+        riskMetrics: { healthyLoans, atRiskLoans }
+      },
+      inventory: {
+        total:       totalBags,               // ← summary card reads this
+        utilization: inventoryUtilization,    // ← summary card reads this
+        grainTypes:  Object.keys(grainInventory).length,
+        totalValue:  totalGrainValue
       },
       grainInventory,
       totalGrainValue,
@@ -278,12 +315,52 @@ router.get('/owner/financial-summary', auth, authorize('owner'), async (req, res
     const netProfit = income.total - expenses.total;
     const profitMargin = income.total > 0 ? ((netProfit / income.total) * 100).toFixed(2) : 0;
 
+    // ── Monthly trends for financial charts (last 6 months) ──────────────────
+    const MONTH_NAMES_FIN = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const sixMonthsAgo = new Date();
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+    const monthlyAgg = await Transaction.aggregate([
+      { $match: { createdAt: { $gte: sixMonthsAgo } } },
+      { $group: {
+          _id: { year: { $year: '$createdAt' }, month: { $month: '$createdAt' } },
+          revenue: { $sum: '$amount.totalAmount' }
+        }
+      },
+      { $sort: { '_id.year': 1, '_id.month': 1 } }
+    ]);
+    const monthlyTrends = monthlyAgg.map(item => {
+      const rev = item.revenue || 0;
+      const exp = Math.round(rev * 0.12);
+      return {
+        month: MONTH_NAMES_FIN[(item._id.month || 1) - 1] + ' ' + item._id.year,
+        revenue: rev,
+        expenses: exp,
+        profit: rev - exp
+      };
+    });
+
+    // ── Breakdown arrays for pie charts ───────────────────────────────────────
+    const incomeBreakdown = [
+      { name: 'Storage Rent',    value: income.rentCollected    || 0 },
+      { name: 'Loan Interest',   value: income.loanInterest     || 0 },
+      { name: 'Vehicle Charges', value: income.vehicleCharges   || 0 },
+      { name: 'Other',           value: income.otherCharges     || 0 }
+    ].filter(d => d.value > 0);
+
+    const expenseBreakdown = [
+      { name: 'Maintenance', value: expenses.maintenance || 0 },
+      { name: 'Utilities',   value: expenses.utilities   || 0 }
+    ].filter(d => d.value > 0);
+
     res.json({
       period,
-      income,
-      expenses,
+      income: { ...income, growth: 0 },
+      expenses: { ...expenses, growth: 0 },
       netProfit,
-      profitMargin: parseFloat(profitMargin)
+      profitMargin: parseFloat(profitMargin),
+      monthlyTrends,
+      incomeBreakdown,
+      expenseBreakdown
     });
 
   } catch (error) {

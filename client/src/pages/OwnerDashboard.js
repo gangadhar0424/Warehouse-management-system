@@ -28,7 +28,10 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  Tooltip
+  Tooltip,
+  Collapse,
+  LinearProgress,
+  IconButton
 } from '@mui/material';
 import {
   Add,
@@ -45,7 +48,15 @@ import {
   Scale,
   MonetizationOn,
   SmartToy,
-  Psychology
+  Psychology,
+  Security,
+  Shield,
+  CheckCircle,
+  Refresh,
+  ExpandMore,
+  ExpandLess,
+  Warning,
+  Error as ErrorIcon
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
@@ -60,7 +71,6 @@ import DynamicWarehouseLayoutManager from '../components/DynamicWarehouseLayoutM
 import UserManagementPanel from '../components/UserManagementPanel';
 import VehicleManagement from './VehicleManagement';
 import PredictionsTab from '../components/PredictionsTab';
-import AIWorkflowRunner from '../components/AIWorkflowRunner';
 
 const OwnerDashboard = () => {
   const { t } = useTranslation();
@@ -401,10 +411,37 @@ const OwnerDashboard = () => {
     const [viewDialogOpen, setViewDialogOpen] = useState(false);
     const [selectedTransaction, setSelectedTransaction] = useState(null);
 
+    // Anomaly scan state
+    const [anomalyScanLoading, setAnomalyScanLoading] = useState(false);
+    const [anomalyScanResults, setAnomalyScanResults] = useState(null);
+    const [anomalyScanError, setAnomalyScanError] = useState(null);
+    const [anomalyPanelOpen, setAnomalyPanelOpen] = useState(true);
+
     useEffect(() => {
       fetchTransactions();
+      runAnomalyScan();
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [transactionFilter, dateFilter]);
+
+    const runAnomalyScan = async () => {
+      try {
+        setAnomalyScanLoading(true);
+        setAnomalyScanError(null);
+        setAnomalyPanelOpen(true);
+        const token = localStorage.getItem('token');
+        const response = await axios.get('/api/ai/anomaly/alerts', {
+          headers: { 'x-auth-token': token }
+        });
+        const data = response.data;
+        const alerts = data?.data?.alerts || data?.alerts || data?.data || data || [];
+        setAnomalyScanResults(Array.isArray(alerts) ? alerts : (alerts ? [alerts] : []));
+      } catch (err) {
+        setAnomalyScanError(err.response?.data?.message || 'Anomaly scan failed. Ensure AI engine and n8n are running.');
+        setAnomalyScanResults([]);
+      } finally {
+        setAnomalyScanLoading(false);
+      }
+    };
 
     const handleViewTransaction = (transaction) => {
       setSelectedTransaction(transaction);
@@ -513,6 +550,18 @@ const OwnerDashboard = () => {
             Warehouse Transactions
           </Typography>
           <Box sx={{ display: 'flex', gap: 2 }}>
+            <Tooltip title="Run AI fraud & anomaly scan across all transactions">
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={anomalyScanLoading ? <CircularProgress size={16} /> : <Security />}
+                onClick={runAnomalyScan}
+                disabled={anomalyScanLoading}
+                sx={{ borderColor: '#795548', color: '#795548', '&:hover': { borderColor: '#5d4037', backgroundColor: '#efebe9' } }}
+              >
+                {anomalyScanLoading ? 'Scanning...' : 'Anomaly Scan'}
+              </Button>
+            </Tooltip>
             <FormControl size="small" sx={{ minWidth: 150 }}>
               <InputLabel>Date Range</InputLabel>
               <Select
@@ -600,6 +649,116 @@ const OwnerDashboard = () => {
             </Card>
           </Grid>
         </Grid>
+
+        {/* ── AI Anomaly Detection Panel ── */}
+        <Paper
+          sx={{
+            mb: 3,
+            border: '1px solid',
+            borderColor: anomalyScanLoading ? '#bdbdbd'
+              : anomalyScanError ? '#f44336'
+              : anomalyScanResults && anomalyScanResults.length > 0 ? '#ff9800'
+              : anomalyScanResults !== null ? '#4caf50'
+              : '#795548',
+            overflow: 'hidden'
+          }}
+        >
+          <Box
+            sx={{
+              px: 2.5, py: 1.5, display: 'flex', alignItems: 'center', gap: 1.5, cursor: 'pointer',
+              background: anomalyScanLoading ? 'linear-gradient(135deg,#546e7a 0%,#795548 100%)'
+                : anomalyScanError ? 'linear-gradient(135deg,#c62828 0%,#b71c1c 100%)'
+                : anomalyScanResults && anomalyScanResults.length > 0 ? 'linear-gradient(135deg,#e65100 0%,#ff9800 100%)'
+                : anomalyScanResults !== null ? 'linear-gradient(135deg,#2e7d32 0%,#388e3c 100%)'
+                : 'linear-gradient(135deg,#37474f 0%,#795548 100%)',
+              color: '#fff'
+            }}
+            onClick={() => setAnomalyPanelOpen(p => !p)}
+          >
+            {anomalyScanLoading
+              ? <CircularProgress size={20} sx={{ color: '#fff' }} />
+              : anomalyScanError ? <ErrorIcon fontSize="small" />
+              : anomalyScanResults && anomalyScanResults.length > 0 ? <Warning fontSize="small" />
+              : <Shield fontSize="small" />}
+            <Typography variant="subtitle2" sx={{ fontWeight: 'bold', flex: 1 }}>
+              {anomalyScanLoading
+                ? 'AI Anomaly Detection — Scanning transactions...'
+                : anomalyScanError
+                  ? 'AI Anomaly Detection — Scan failed'
+                  : anomalyScanResults && anomalyScanResults.length > 0
+                    ? `⚠️ AI Anomaly Detection — ${anomalyScanResults.length} suspicious pattern${anomalyScanResults.length > 1 ? 's' : ''} found`
+                    : '✅ AI Anomaly Detection — No anomalies detected'}
+            </Typography>
+            <Chip label="n8n + Gemini AI" size="small" sx={{ backgroundColor: 'rgba(255,255,255,0.2)', color: '#fff', fontSize: '0.7rem' }} />
+            <Tooltip title="Re-scan">
+              <IconButton size="small" sx={{ color: '#fff' }} onClick={e => { e.stopPropagation(); runAnomalyScan(); }} disabled={anomalyScanLoading}>
+                <Refresh fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            {anomalyPanelOpen ? <ExpandLess fontSize="small" /> : <ExpandMore fontSize="small" />}
+          </Box>
+          {anomalyScanLoading && <LinearProgress color="warning" />}
+          <Collapse in={anomalyPanelOpen}>
+            <Box sx={{ p: 2 }}>
+              {anomalyScanLoading && (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 1 }}>
+                  <CircularProgress size={24} sx={{ color: '#795548' }} />
+                  <Typography variant="body2" color="text.secondary">
+                    Analysing transaction patterns, payment anomalies and fraud indicators...
+                  </Typography>
+                </Box>
+              )}
+              {!anomalyScanLoading && anomalyScanError && (
+                <Alert severity="error" action={<Button size="small" onClick={runAnomalyScan}>Retry</Button>}>
+                  {anomalyScanError}
+                </Alert>
+              )}
+              {!anomalyScanLoading && !anomalyScanError && anomalyScanResults !== null && anomalyScanResults.length === 0 && (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  <CheckCircle sx={{ color: '#4caf50' }} />
+                  <Typography variant="body2" color="text.secondary">
+                    All transactions look normal. No suspicious patterns or fraud indicators detected.
+                  </Typography>
+                </Box>
+              )}
+              {!anomalyScanLoading && !anomalyScanError && anomalyScanResults && anomalyScanResults.length > 0 && (
+                <Grid container spacing={2}>
+                  {anomalyScanResults.map((item, idx) => {
+                    const sev = (item.severity || item.priority || item.level || '').toLowerCase();
+                    const muiSev = ['critical','high','error'].includes(sev) ? 'error' : ['medium','warning'].includes(sev) ? 'warning' : 'info';
+                    const borderColor = muiSev === 'error' ? '#f44336' : muiSev === 'warning' ? '#ff9800' : '#2196f3';
+                    const bgColor = muiSev === 'error' ? '#ffebee' : muiSev === 'warning' ? '#fff3e0' : '#e3f2fd';
+                    return (
+                      <Grid item xs={12} md={6} key={idx}>
+                        <Paper sx={{ p: 2, borderLeft: `4px solid ${borderColor}`, backgroundColor: bgColor }}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 0.5 }}>
+                            <Typography variant="subtitle2" fontWeight="bold">
+                              {item.title || item.type || item.category || `Anomaly #${idx + 1}`}
+                            </Typography>
+                            {sev && <Chip label={sev.toUpperCase()} size="small" color={muiSev === 'error' ? 'error' : muiSev === 'warning' ? 'warning' : 'info'} />}
+                          </Box>
+                          <Typography variant="body2" color="text.secondary">
+                            {item.message || item.description || item.summary || JSON.stringify(item)}
+                          </Typography>
+                          {item.details && (
+                            <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                              {typeof item.details === 'string' ? item.details : JSON.stringify(item.details)}
+                            </Typography>
+                          )}
+                          <Box sx={{ mt: 1, display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                            {item.entity && <Chip label={`Entity: ${item.entity}`} size="small" variant="outlined" />}
+                            {item.transactionId && <Chip label={`TXN: ${item.transactionId}`} size="small" variant="outlined" color="warning" />}
+                            {item.confidence != null && <Chip label={`Confidence: ${item.confidence}%`} size="small" variant="outlined" />}
+                          </Box>
+                        </Paper>
+                      </Grid>
+                    );
+                  })}
+                </Grid>
+              )}
+            </Box>
+          </Collapse>
+        </Paper>
 
         <TableContainer>
           <Table>
@@ -1015,7 +1174,6 @@ const OwnerDashboard = () => {
           <Tab label={t('dashboard.predictions')} />
           <Tab label={t('dashboard.loanPortfolio')} />
           <Tab label={t('dashboard.alertsCenter')} />
-          <Tab label="AI Workflows" icon={<SmartToy sx={{ fontSize: 18 }} />} iconPosition="start" />
         </Tabs>
       </Box>
 
@@ -1045,7 +1203,6 @@ const OwnerDashboard = () => {
       {activeTab === 5 && <PredictionsTab />}
       {activeTab === 6 && <LoanPortfolioManager />}
       {activeTab === 7 && <AlertsCenter />}
-      {activeTab === 8 && <AIWorkflowRunner />}
 
       {/* AI Inventory Analysis Dialog */}
       <Dialog open={aiInventoryDialog} onClose={() => { setAiInventoryDialog(false); setAiInventoryResult(null); setAiInventoryError(''); setAiInventorySummary(null); }} maxWidth="md" fullWidth>

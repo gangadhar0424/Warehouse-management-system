@@ -1,0 +1,50 @@
+{
+  "inventory": {
+    "success_rate": 100.0,
+    "mean_latency_ms": 4799.0,
+    "std_latency_ms": 633.0,
+    "min_latency_ms": 4166.0,
+    "max_latency_ms": 5431.0,
+    "keyword_completeness": 37.5
+  },
+  "pricing": {
+    "success_rate": 100.0,
+    "mean_latency_ms": 22621.0,
+    "std_latency_ms": 196.0,
+    "min_latency_ms": 22425.0,
+    "max_latency_ms": 22818.0,
+    "keyword_completeness": 75.0
+  },
+  "duration": {
+    "success_rate": 100.0,
+    "mean_latency_ms": 6460.0,
+    "std_latency_ms": 290.0,
+    "min_latency_ms": 6170.0,
+    "max_latency_ms": 6751.0,
+    "keyword_completeness": 37.5
+  },
+  "loan_risk": {
+    "success_rate": 100.0,
+    "mean_latency_ms": 4365.0,
+    "std_latency_ms": 51.0,
+    "min_latency_ms": 4314.0,
+    "max_latency_ms": 4416.0,
+    "keyword_completeness": 42.9
+  },
+  "anomaly": {
+    "success_rate": 100.0,
+    "mean_latency_ms": 15199.0,
+    "std_latency_ms": 252.0,
+    "min_latency_ms": 14947.0,
+    "max_latency_ms": 15451.0,
+    "keyword_completeness": 28.6
+  },
+  "email": {
+    "success_rate": 100.0,
+    "mean_latency_ms": 5079.0,
+    "std_latency_ms": 168.0,
+    "min_latency_ms": 4911.0,
+    "max_latency_ms": 5247.0,
+    "keyword_completeness": 85.7
+  }
+}

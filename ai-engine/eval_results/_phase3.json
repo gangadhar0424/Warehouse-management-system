@@ -1,0 +1,23 @@
+[
+  {
+    "query_label": "inventory",
+    "direct_mean": 4958.0,
+    "master_mean": 9026.0,
+    "overhead_ms": 4068.0,
+    "overhead_pct": 45.1
+  },
+  {
+    "query_label": "pricing",
+    "direct_mean": 6641.0,
+    "master_mean": 29284.0,
+    "overhead_ms": 22644.0,
+    "overhead_pct": 77.3
+  },
+  {
+    "query_label": "anomaly",
+    "direct_mean": 16940.0,
+    "master_mean": 24759.0,
+    "overhead_ms": 7818.0,
+    "overhead_pct": 31.6
+  }
+]

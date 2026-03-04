@@ -76,20 +76,38 @@ const proxyVian8n = async (webhookKey, aiEndpoint, method = 'POST', data = null,
 
 // ==================== Routes ====================
 
-// POST /api/ai/chat - Chat with AI assistant
+// POST /api/ai/chat - WMS AI Master Chat (auto-routes to best specialist)
 router.post('/chat', auth, async (req, res) => {
   try {
     const { message, context } = req.body;
     const payload = {
       message,
       userId: req.user.id,
-      role: req.user.role,
-      history: context?.history || []
+      role:   req.user.role,
+      // Send conversation history so the master has full context
+      history: (context?.history || []).map(m => ({
+        role:    m.role,
+        content: m.content || m.text || ''
+      })).slice(-20), // keep last 20 turns to stay within token limits
     };
     const result = await proxyVian8n('chat', '/chat', 'POST', payload);
     res.json(result);
   } catch (error) {
-    res.status(500).json({ error: error.message, response: 'AI service is currently unavailable. Please try again later.' });
+    res.status(500).json({
+      error: error.message,
+      response: 'AI service is currently unavailable. Please try again later.'
+    });
+  }
+});
+
+// POST /api/ai/full-analysis - Run all 5 specialist agents + synthesise summary
+router.post('/full-analysis', auth, async (req, res) => {
+  try {
+    const payload = { role: req.user.role, userId: req.user.id };
+    const result = await proxyVian8n('full_analysis', '/full-analysis', 'POST', payload);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 

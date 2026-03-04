@@ -314,9 +314,9 @@ const CombinedAnalytics = () => {
   const expenses = financial.expenses || {};
   const netProfit = financial.netProfit || 0;
   const profitMargin = financial.profitMargin || 0;
-  const financialTrends = financial.monthlyTrends || [];
-  const incomeBreakdown = financial.incomeBreakdown || [];
-  const expenseBreakdown = financial.expenseBreakdown || [];
+  const financialTrends = financial.monthlyTrends || [];   // ← was financialData.financialTrends (undefined)
+  const incomeBreakdown = (financial.incomeBreakdown || []);   // [{name, value}]
+  const expenseBreakdown = (financial.expenseBreakdown || []); // [{name, value}]
 
   // ---- Derived chart data ----
 
@@ -403,34 +403,19 @@ const CombinedAnalytics = () => {
         </Box>
       </Box>
 
-      {/* ====== TABS (Data Exports & Warehouse Capacity removed) ====== */}
+      {/* ====== TABS ====== */}
       <Tabs
         value={activeTab}
         onChange={(e, val) => setActiveTab(val)}
-        sx={{ mb: 3 }}
+        sx={{ mb: 3, borderBottom: 1, borderColor: 'divider' }}
         variant="scrollable"
         scrollButtons="auto"
       >
-        <Tab
-          label={
-            <Box sx={{ display: 'flex', alignItems: 'center' }}>
-              Revenue & Analytics
-              <SectionBadge label="Live Data" color="#1976d2" emoji="📊" />
-              <SectionBadge label="Hot" color="#f44336" emoji="🔥" />
-            </Box>
-          }
-        />
-        <Tab
-          label={
-            <Box sx={{ display: 'flex', alignItems: 'center' }}>
-              Financial Reports
-              <SectionBadge label="Premium" color="#9c27b0" emoji="⭐" />
-            </Box>
-          }
-        />
-        <Tab icon={<Grain />} label="Grain Analytics" />
-        <Tab icon={<Timeline />} label="Storage Duration" />
-        <Tab icon={<People />} label="Customer Analytics" />
+        <Tab label="Revenue & Analytics" />
+        <Tab label="Financial Reports" />
+        <Tab icon={<Grain sx={{ fontSize: 16 }} />} iconPosition="start" label="Grain Analytics" />
+        <Tab icon={<Timeline sx={{ fontSize: 16 }} />} iconPosition="start" label="Storage Duration" />
+        <Tab icon={<People sx={{ fontSize: 16 }} />} iconPosition="start" label="Customer Analytics" />
       </Tabs>
 
       {/* ================================================================ */}
@@ -731,10 +716,10 @@ const CombinedAnalytics = () => {
                   <ResponsiveContainer width="100%" height={300}>
                     <BarChart data={incomeBreakdown}>
                       <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="category" />
+                      <XAxis dataKey="name" />
                       <YAxis />
                       <RechartsTooltip formatter={(value) => `₹${value.toLocaleString()}`} />
-                      <Bar dataKey="amount" fill="#4caf50" />
+                      <Bar dataKey="value" fill="#4caf50" name="Income" />
                     </BarChart>
                   </ResponsiveContainer>
                 </CardContent>
@@ -751,10 +736,10 @@ const CombinedAnalytics = () => {
                   <ResponsiveContainer width="100%" height={300}>
                     <BarChart data={expenseBreakdown}>
                       <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="category" />
+                      <XAxis dataKey="name" />
                       <YAxis />
                       <RechartsTooltip formatter={(value) => `₹${value.toLocaleString()}`} />
-                      <Bar dataKey="amount" fill="#f44336" />
+                      <Bar dataKey="value" fill="#f44336" name="Expense" />
                     </BarChart>
                   </ResponsiveContainer>
                 </CardContent>
@@ -830,9 +815,9 @@ const CombinedAnalytics = () => {
                       <YAxis />
                       <RechartsTooltip formatter={(value) => `₹${value.toLocaleString()}`} />
                       <Legend />
-                      <Line type="monotone" dataKey="income" stroke="#4caf50" strokeWidth={2} />
-                      <Line type="monotone" dataKey="expenses" stroke="#f44336" strokeWidth={2} />
-                      <Line type="monotone" dataKey="profit" stroke="#1976d2" strokeWidth={2} />
+                      <Line type="monotone" dataKey="revenue" stroke="#4caf50" strokeWidth={2} name="Revenue" />
+                      <Line type="monotone" dataKey="expenses" stroke="#f44336" strokeWidth={2} name="Expenses" />
+                      <Line type="monotone" dataKey="profit" stroke="#1976d2" strokeWidth={2} name="Profit" />
                     </LineChart>
                   </ResponsiveContainer>
                 </CardContent>

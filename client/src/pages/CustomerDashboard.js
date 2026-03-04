@@ -25,7 +25,17 @@ import {
   LinearProgress,
   Divider,
   Tab,
-  Tabs
+  Tabs,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  Radio,
+  RadioGroup,
+  FormControlLabel,
+  FormLabel,
+  InputAdornment,
+  IconButton
 } from '@mui/material';
 import {
   Warehouse,
@@ -42,7 +52,12 @@ import {
   ShowChart,
   NotificationsActive,
   Calculate,
-  Send
+  Send,
+  PhoneAndroid,
+  AccountBalanceWallet,
+  CheckCircle,
+  Visibility,
+  VisibilityOff
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
@@ -77,6 +92,24 @@ const CustomerDashboard = () => {
     confirmPassword: ''
   });
 
+  // Payment state
+  const [paymentForm, setPaymentForm] = useState({
+    type: 'rent',       // 'rent' | 'loan'
+    amount: '',
+    method: 'upi',      // 'upi' | 'netbanking'
+    description: '',
+    allocationId: '',
+    loanId: '',
+  });
+  const [pendingTxns, setPendingTxns] = useState([]);
+  const [paymentHistory, setPaymentHistory] = useState([]);
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [paymentSuccess, setPaymentSuccess] = useState('');
+  const [paymentError, setPaymentError] = useState('');
+  const [allocations, setAllocations] = useState([]);
+  const [loans, setLoans] = useState([]);
+  const [lastPaymentTxnId, setLastPaymentTxnId] = useState(null);
+
   const { user } = useAuth();
   const { addNotification } = useSocket();
 
@@ -95,6 +128,17 @@ const CustomerDashboard = () => {
       
       const statsRes = await axios.get('/api/customers/stats/dashboard');
       setStats(statsRes.data);
+
+      // Load allocations and loans for payment dropdowns
+      const [allocRes, loanRes, histRes] = await Promise.allSettled([
+        axios.get('/api/warehouse/my-allocations'),
+        axios.get('/api/loans/my-loans'),
+        axios.get('/api/payments/history'),
+      ]);
+      if (allocRes.status === 'fulfilled') setAllocations(allocRes.value.data?.allocations || allocRes.value.data || []);
+      if (loanRes.status === 'fulfilled')  setLoans(loanRes.value.data?.loans || loanRes.value.data || []);
+      if (histRes.status === 'fulfilled')  setPaymentHistory(histRes.value.data?.transactions || histRes.value.data || []);
+
     } catch (error) {
       console.error('Error fetching customer data:', error);
       setError('Failed to load dashboard data');
@@ -134,6 +178,111 @@ const CustomerDashboard = () => {
       setError(error.response?.data?.message || 'Failed to change password');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Download bill PDF through axios proxy (avoids React Router intercept)
+  // Open receipt PDF in a new tab — browser PDF viewer handles viewing & downloading
+  const openBill = async (type, transactionId) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`/api/payments/bill/${type}/${transactionId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        responseType: 'blob'
+      });
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
+      window.open(url, '_blank');
+    } catch (err) {
+      console.error('Bill open error:', err);
+      setPaymentError('Failed to open receipt. Please try again.');
+    }
+  };
+
+  const handleCustomerPayment = async () => {
+    if (!paymentForm.amount || parseFloat(paymentForm.amount) <= 0) {
+      setPaymentError('Enter a valid amount'); return;
+    }
+    setPaymentLoading(true);
+    setPaymentError('');
+    setPaymentSuccess('');
+
+    try {
+      // Create Razorpay order
+      const orderRes = await axios.post('/api/payments/create-order', {
+        amount: parseFloat(paymentForm.amount),
+        type: paymentForm.type === 'loan' ? 'storage' : 'storage',
+        description: paymentForm.description || `${paymentForm.type} payment`,
+      });
+
+      if (!orderRes.data.success || !orderRes.data.keyId) {
+        throw new Error('Payment gateway not configured. Please contact the warehouse.');
+      }
+
+      const { orderId, keyId } = orderRes.data;
+
+      const options = {
+        key: keyId,
+        amount: Math.round(parseFloat(paymentForm.amount) * 100),
+        currency: 'INR',
+        name: 'Sarvani Farmers Warehouse',
+        description: paymentForm.type === 'rent' ? 'Storage Rent Payment' : 'Loan Repayment',
+        order_id: orderId,
+        handler: async (response) => {
+          try {
+            // Verify payment
+            await axios.post('/api/payments/verify-payment', {
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+            });
+
+            // Record in customer-payment endpoint
+            const recordRes = await axios.post('/api/payments/customer-payment', {
+              type:           paymentForm.type,
+              amount:         parseFloat(paymentForm.amount),
+              method:         paymentForm.method,
+              description:    paymentForm.description || `${paymentForm.type} payment`,
+              allocationId:   paymentForm.allocationId || undefined,
+              loanId:         paymentForm.loanId       || undefined,
+              razorpayPaymentId: response.razorpay_payment_id,
+              razorpayOrderId:   response.razorpay_order_id,
+              razorpaySignature: response.razorpay_signature,
+            });
+
+            const newTxnId = recordRes.data.transaction?._id;
+            setLastPaymentTxnId(newTxnId);
+            // Auto-open receipt in a new tab immediately after payment
+            if (newTxnId) openBill('storage', newTxnId);
+            setPaymentSuccess(`Payment of Rs. ${paymentForm.amount} received! Receipt opened in a new tab.`);
+            setPaymentForm(prev => ({ ...prev, amount: '', description: '' }));
+            fetchCustomerData();
+          } catch (err) {
+            setPaymentError('Payment recorded with gateway but verification failed. Contact support.');
+          } finally {
+            setPaymentLoading(false);
+          }
+        },
+        prefill: { name: user?.name || '', contact: user?.phone || '' },
+        theme:  { color: '#1976d2' },
+        // Only UPI and Net Banking
+        method: {
+          upi:         paymentForm.method === 'upi',
+          netbanking:  paymentForm.method === 'netbanking',
+          card:        false,
+          wallet:      false,
+          emi:         false,
+        },
+        modal: { ondismiss: () => setPaymentLoading(false) }
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.on('payment.failed', () => { setPaymentError('Payment failed. Please try again.'); setPaymentLoading(false); });
+      rzp.open();
+
+    } catch (err) {
+      console.error('Payment error:', err);
+      setPaymentError(err.response?.data?.message || err.message || 'Payment initiation failed.');
+      setPaymentLoading(false);
     }
   };
 
@@ -280,6 +429,7 @@ const CustomerDashboard = () => {
           <Tab icon={<NotificationsActive />} label={t('customer.loanAlerts')} />
           <Tab icon={<Calculate />} label={t('customer.loanCalculator')} />
           <Tab icon={<Send />} label={t('customer.myRequests')} />
+          <Tab icon={<Payment />} label="My Payments" />
         </Tabs>
       </Box>
 
@@ -288,6 +438,243 @@ const CustomerDashboard = () => {
       {activeTab === 2 && <CustomerLoanAlerts />}
       {activeTab === 3 && <CustomerLoanCalculatorAndRequest />}
       {activeTab === 4 && <CustomerRequestForm />}
+
+      {/* ── Payments Tab ────────────────────────────────────────────── */}
+      {activeTab === 5 && (
+        <Grid container spacing={3}>
+          {/* Payment Form */}
+          <Grid item xs={12} md={5}>
+            <Card elevation={3}>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  <Payment sx={{ verticalAlign: 'middle', mr: 1 }} color="primary" />
+                  Make a Payment
+                </Typography>
+                <Divider sx={{ mb: 2 }} />
+
+                {paymentError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setPaymentError('')}>{paymentError}</Alert>}
+                {paymentSuccess && (
+                  <Alert
+                    severity="success"
+                    sx={{ mb: 2 }}
+                    onClose={() => { setPaymentSuccess(''); setLastPaymentTxnId(null); }}
+                    action={
+                      lastPaymentTxnId && (
+                        <Button
+                          size="small"
+                          variant="contained"
+                          color="success"
+                          onClick={() => openBill('storage', lastPaymentTxnId)}
+                          startIcon={<Receipt />}
+                        >
+                          View Receipt Again
+                        </Button>
+                      )
+                    }
+                  >
+                    {paymentSuccess}
+                  </Alert>
+                )}
+
+                <Grid container spacing={2}>
+                  {/* Payment Type */}
+                  <Grid item xs={12}>
+                    <FormControl fullWidth>
+                      <InputLabel>Payment For</InputLabel>
+                      <Select
+                        value={paymentForm.type}
+                        label="Payment For"
+                        onChange={(e) => setPaymentForm(prev => ({ ...prev, type: e.target.value, allocationId: '', loanId: '' }))}
+                      >
+                        <MenuItem value="rent">Storage Rent</MenuItem>
+                        <MenuItem value="loan">Loan Repayment</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+
+                  {/* Allocation / Loan selector */}
+                  {paymentForm.type === 'rent' && allocations.length > 0 && (
+                    <Grid item xs={12}>
+                      <FormControl fullWidth>
+                        <InputLabel>Select Allocation</InputLabel>
+                        <Select
+                          value={paymentForm.allocationId}
+                          label="Select Allocation"
+                          onChange={(e) => setPaymentForm(prev => ({ ...prev, allocationId: e.target.value }))}
+                        >
+                          <MenuItem value="">-- Select --</MenuItem>
+                          {allocations.filter(a => a.status === 'active').map(a => (
+                            <MenuItem key={a._id} value={a._id}>
+                              Box {a.boxNumber || a._id?.toString().slice(-4)} — {a.grainType || 'Grain'}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                  )}
+                  {paymentForm.type === 'loan' && loans.length > 0 && (
+                    <Grid item xs={12}>
+                      <FormControl fullWidth>
+                        <InputLabel>Select Loan</InputLabel>
+                        <Select
+                          value={paymentForm.loanId}
+                          label="Select Loan"
+                          onChange={(e) => setPaymentForm(prev => ({ ...prev, loanId: e.target.value }))}
+                        >
+                          <MenuItem value="">-- Select --</MenuItem>
+                          {loans.filter(l => ['active','approved'].includes(l.status)).map(l => (
+                            <MenuItem key={l._id} value={l._id}>
+                              Loan #{l._id?.toString().slice(-5)} — Due: Rs. {l.remainingAmount || l.amount}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                  )}
+
+                  {/* Amount */}
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      label="Amount (Rs.)"
+                      type="number"
+                      value={paymentForm.amount}
+                      onChange={(e) => setPaymentForm(prev => ({ ...prev, amount: e.target.value }))}
+                      InputProps={{ startAdornment: <InputAdornment position="start">₹</InputAdornment> }}
+                    />
+                  </Grid>
+
+                  {/* Description */}
+                  <Grid item xs={12}>
+                    <TextField
+                      fullWidth
+                      label="Note (optional)"
+                      value={paymentForm.description}
+                      onChange={(e) => setPaymentForm(prev => ({ ...prev, description: e.target.value }))}
+                    />
+                  </Grid>
+
+                  {/* Payment Method — UPI or Net Banking ONLY */}
+                  <Grid item xs={12}>
+                    <FormLabel component="legend" sx={{ fontSize: 13, mb: 1 }}>Payment Method</FormLabel>
+                    <RadioGroup
+                      row
+                      value={paymentForm.method}
+                      onChange={(e) => setPaymentForm(prev => ({ ...prev, method: e.target.value }))}
+                    >
+                      <FormControlLabel
+                        value="upi"
+                        control={<Radio />}
+                        label={
+                          <Box sx={{ display:'flex', alignItems:'center', gap:0.5 }}>
+                            <PhoneAndroid color="success" fontSize="small" />
+                            <Typography variant="body2">UPI</Typography>
+                          </Box>
+                        }
+                      />
+                      <FormControlLabel
+                        value="netbanking"
+                        control={<Radio />}
+                        label={
+                          <Box sx={{ display:'flex', alignItems:'center', gap:0.5 }}>
+                            <AccountBalanceWallet color="primary" fontSize="small" />
+                            <Typography variant="body2">Net Banking</Typography>
+                          </Box>
+                        }
+                      />
+                    </RadioGroup>
+                  </Grid>
+
+                  {/* Pay Button */}
+                  <Grid item xs={12}>
+                    <Button
+                      fullWidth
+                      variant="contained"
+                      size="large"
+                      startIcon={paymentLoading ? <CircularProgress size={20} color="inherit" /> : <Payment />}
+                      onClick={handleCustomerPayment}
+                      disabled={paymentLoading || !paymentForm.amount}
+                      sx={{ py: 1.5 }}
+                    >
+                      {paymentLoading ? 'Opening Payment...' : `Pay Rs. ${paymentForm.amount || '0'}`}
+                    </Button>
+                    <Typography variant="caption" color="text.secondary" sx={{ display:'block', mt:1, textAlign:'center' }}>
+                      Secured by Razorpay. You will be redirected to complete payment.
+                    </Typography>
+                  </Grid>
+                </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          {/* Payment History */}
+          <Grid item xs={12} md={7}>
+            <Card elevation={3}>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  <Receipt sx={{ verticalAlign: 'middle', mr: 1 }} />
+                  Payment History
+                </Typography>
+                <Divider sx={{ mb: 2 }} />
+                {paymentHistory.length === 0 ? (
+                  <Alert severity="info">No payment history yet.</Alert>
+                ) : (
+                  <TableContainer>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>Date</TableCell>
+                          <TableCell>Type</TableCell>
+                          <TableCell>Amount</TableCell>
+                          <TableCell>Method</TableCell>
+                          <TableCell>Receipt</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {paymentHistory.slice(0,20).map((txn) => (
+                          <TableRow key={txn._id} hover>
+                            <TableCell sx={{ fontSize: 12 }}>
+                              {new Date(txn.createdAt).toLocaleDateString('en-IN')}
+                            </TableCell>
+                            <TableCell>
+                              <Chip
+                                label={(txn.type || '').replace(/_/g,' ')}
+                                size="small"
+                                color={txn.type === 'weighbridge_fee' ? 'info' : txn.type === 'loan_repayment' ? 'warning' : 'default'}
+                              />
+                            </TableCell>
+                            <TableCell sx={{ fontWeight: 600 }}>
+                              Rs. {(txn.amount?.totalAmount || txn.amount?.baseAmount || 0).toLocaleString('en-IN')}
+                            </TableCell>
+                            <TableCell sx={{ fontSize: 12, textTransform:'uppercase' }}>
+                              {txn.payment?.method || 'N/A'}
+                            </TableCell>
+                            <TableCell>
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                startIcon={<Receipt />}
+                                onClick={() =>
+                                  openBill(
+                                    txn.type === 'weighbridge_fee' ? 'weighbridge' : 'storage',
+                                    txn._id
+                                  )
+                                }
+                              >
+                                View
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+      )}
 
       {/* Customer Contact Form */}
       <CustomerContactForm 

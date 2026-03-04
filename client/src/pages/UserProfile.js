@@ -28,7 +28,9 @@ import {
   Select,
   MenuItem,
   Alert,
-  Divider
+  Divider,
+  InputAdornment,
+  IconButton
 } from '@mui/material';
 import {
   Person,
@@ -40,7 +42,9 @@ import {
   Assessment,
   Grain,
   Lock,
-  ContactSupport
+  ContactSupport,
+  Visibility,
+  VisibilityOff
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
@@ -79,6 +83,8 @@ const UserProfile = () => {
   const [passwordData, setPasswordData] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
+  const [showPass, setShowPass] = useState({ current: false, new: false, confirm: false });
+  const toggleShowPass = (field) => setShowPass(prev => ({ ...prev, [field]: !prev[field] }));
   const [contactForm, setContactForm] = useState({ subject: '', message: '' });
   const [contactSuccess, setContactSuccess] = useState('');
 
@@ -407,6 +413,15 @@ const UserProfile = () => {
         {user.role === 'customer' && (
           <TabPanel value={tabValue} index={2}>
             <Grid container spacing={3} sx={{ maxWidth: 500 }}>
+              <Grid item xs={12}>
+                <Typography variant="h6" gutterBottom>
+                  <Lock sx={{ verticalAlign: 'middle', mr: 1 }} />
+                  Change Password
+                </Typography>
+                <Typography variant="body2" color="text.secondary" gutterBottom>
+                  Enter your current password to verify your identity, then set a new password.
+                </Typography>
+              </Grid>
               {passwordError && (
                 <Grid item xs={12}>
                   <Alert severity="error">{passwordError}</Alert>
@@ -421,32 +436,69 @@ const UserProfile = () => {
                 <TextField
                   fullWidth
                   label="Current Password"
-                  type="password"
+                  type={showPass.current ? 'text' : 'password'}
                   value={passwordData.currentPassword}
                   onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton onClick={() => toggleShowPass('current')} edge="end">
+                          {showPass.current ? <VisibilityOff /> : <Visibility />}
+                        </IconButton>
+                      </InputAdornment>
+                    )
+                  }}
                 />
               </Grid>
               <Grid item xs={12}>
                 <TextField
                   fullWidth
                   label="New Password"
-                  type="password"
+                  type={showPass.new ? 'text' : 'password'}
                   value={passwordData.newPassword}
                   onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton onClick={() => toggleShowPass('new')} edge="end">
+                          {showPass.new ? <VisibilityOff /> : <Visibility />}
+                        </IconButton>
+                      </InputAdornment>
+                    )
+                  }}
+                  helperText="Minimum 6 characters"
                 />
               </Grid>
               <Grid item xs={12}>
                 <TextField
                   fullWidth
                   label="Confirm New Password"
-                  type="password"
+                  type={showPass.confirm ? 'text' : 'password'}
                   value={passwordData.confirmPassword}
                   onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <IconButton onClick={() => toggleShowPass('confirm')} edge="end">
+                          {showPass.confirm ? <VisibilityOff /> : <Visibility />}
+                        </IconButton>
+                      </InputAdornment>
+                    )
+                  }}
+                  error={passwordData.confirmPassword && passwordData.newPassword !== passwordData.confirmPassword}
+                  helperText={passwordData.confirmPassword && passwordData.newPassword !== passwordData.confirmPassword ? 'Passwords do not match' : ''}
                 />
               </Grid>
               <Grid item xs={12}>
-                <Button variant="contained" color="primary" onClick={handleChangePassword} startIcon={<Lock />}>
-                  Change Password
+                <Button
+                  variant="contained"
+                  color="primary"
+                  onClick={handleChangePassword}
+                  startIcon={<Lock />}
+                  disabled={!passwordData.currentPassword || !passwordData.newPassword || !passwordData.confirmPassword}
+                  size="large"
+                >
+                  Update Password
                 </Button>
               </Grid>
             </Grid>
@@ -660,6 +712,92 @@ const UserProfile = () => {
                             <Typography variant="h6">Bank Transfer</Typography>
                             <Chip label="Active" color="success" />
                           </Box>
+                        </Grid>
+                      </Grid>
+                    </CardContent>
+                  </Card>
+                </Grid>
+
+                {/* Owner: Change Password */}
+                <Grid item xs={12}>
+                  <Card>
+                    <CardContent>
+                      <Typography variant="h6" gutterBottom>
+                        <Lock sx={{ verticalAlign: 'middle', mr: 1 }} />
+                        Change Password
+                      </Typography>
+                      <Divider sx={{ mb: 3 }} />
+                      {passwordError && <Alert severity="error" sx={{ mb: 2 }}>{passwordError}</Alert>}
+                      {passwordSuccess && <Alert severity="success" sx={{ mb: 2 }}>{passwordSuccess}</Alert>}
+                      <Grid container spacing={2} sx={{ maxWidth: 500 }}>
+                        <Grid item xs={12}>
+                          <TextField
+                            fullWidth
+                            label="Current Password"
+                            type={showPass.current ? 'text' : 'password'}
+                            value={passwordData.currentPassword}
+                            onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
+                            InputProps={{
+                              endAdornment: (
+                                <InputAdornment position="end">
+                                  <IconButton onClick={() => toggleShowPass('current')} edge="end">
+                                    {showPass.current ? <VisibilityOff /> : <Visibility />}
+                                  </IconButton>
+                                </InputAdornment>
+                              )
+                            }}
+                          />
+                        </Grid>
+                        <Grid item xs={12}>
+                          <TextField
+                            fullWidth
+                            label="New Password"
+                            type={showPass.new ? 'text' : 'password'}
+                            value={passwordData.newPassword}
+                            onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
+                            InputProps={{
+                              endAdornment: (
+                                <InputAdornment position="end">
+                                  <IconButton onClick={() => toggleShowPass('new')} edge="end">
+                                    {showPass.new ? <VisibilityOff /> : <Visibility />}
+                                  </IconButton>
+                                </InputAdornment>
+                              )
+                            }}
+                            helperText="Minimum 6 characters"
+                          />
+                        </Grid>
+                        <Grid item xs={12}>
+                          <TextField
+                            fullWidth
+                            label="Confirm New Password"
+                            type={showPass.confirm ? 'text' : 'password'}
+                            value={passwordData.confirmPassword}
+                            onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
+                            InputProps={{
+                              endAdornment: (
+                                <InputAdornment position="end">
+                                  <IconButton onClick={() => toggleShowPass('confirm')} edge="end">
+                                    {showPass.confirm ? <VisibilityOff /> : <Visibility />}
+                                  </IconButton>
+                                </InputAdornment>
+                              )
+                            }}
+                            error={!!passwordData.confirmPassword && passwordData.newPassword !== passwordData.confirmPassword}
+                            helperText={passwordData.confirmPassword && passwordData.newPassword !== passwordData.confirmPassword ? 'Passwords do not match' : ''}
+                          />
+                        </Grid>
+                        <Grid item xs={12}>
+                          <Button
+                            variant="contained"
+                            color="primary"
+                            size="large"
+                            onClick={handleChangePassword}
+                            startIcon={<Lock />}
+                            disabled={!passwordData.currentPassword || !passwordData.newPassword || !passwordData.confirmPassword}
+                          >
+                            Update Password
+                          </Button>
                         </Grid>
                       </Grid>
                     </CardContent>

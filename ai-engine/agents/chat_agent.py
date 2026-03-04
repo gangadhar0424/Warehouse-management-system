@@ -13,30 +13,59 @@ class ChatAgent(BaseAgent):
     
     async def process(self, data: dict) -> dict:
         try:
-            message = data.get('message', '')
-            role = data.get('role', 'owner')
-            history = data.get('history', [])
-            user_id = data.get('userId')
-            
-            # Build context with real data
+            message    = data.get('message', '')
+            role       = data.get('role', 'owner')
+            history    = data.get('history', [])
+            user_id    = data.get('userId')
+            # Specialist agent results passed by MasterAgent.auto_route
+            agent_results = data.get('agent_results')
+            agent_name    = data.get('agent_name', '')
+
+            # Build DB context for richer replies
             context = await self._build_context(role, user_id)
-            
-            system_prompt = CHAT_AGENT_PROMPT + f"\n\nCurrent Context:\n{json.dumps(context, default=str)}"
-            system_prompt += f"\nUser Role: {role}"
-            
+
+            if agent_results:
+                # ── Specialist mode ────────────────────────────────────────
+                # The master routed this to a specialist first. We now have
+                # real analysis data → weave it into a natural language reply.
+                agent_label = agent_name.replace('_', ' ').upper()
+                system_prompt = CHAT_AGENT_PROMPT
+                system_prompt += f"\n\nUser Role: {role}"
+                system_prompt += f"\n\nDatabase Context:\n{json.dumps(context, default=str)}"
+                system_prompt += (
+                    f"\n\n{'='*60}\n"
+                    f"SPECIALIST ANALYSIS — {agent_label} AGENT\n"
+                    f"{'='*60}\n"
+                    f"{json.dumps(agent_results, default=str, indent=2)}\n"
+                    f"{'='*60}\n"
+                )
+                system_prompt += (
+                    "\n⚡ CRITICAL INSTRUCTIONS:"
+                    "\n- The specialist agent above has produced REAL data from the warehouse database."
+                    "\n- You MUST use the specific numbers, findings, and recommendations from that analysis."
+                    "\n- Answer the user's question conversationally, highlighting key insights."
+                    "\n- Use bullet points, bold numbers, and clear sections."
+                    "\n- Do NOT say you lack data — the data is provided above."
+                    "\n- Always use ₹ for currency. Use Indian numbering (lakhs/crores when appropriate)."
+                )
+            else:
+                # ── Pure chat mode ─────────────────────────────────────────
+                system_prompt  = CHAT_AGENT_PROMPT
+                system_prompt += f"\n\nCurrent Context:\n{json.dumps(context, default=str)}"
+                system_prompt += f"\nUser Role: {role}"
+
             messages = history + [{'role': 'user', 'content': message}]
-            
             response = await GeminiClient.chat(messages, system_prompt)
-            
+
             return self.format_response(
                 success=True,
                 data={"reply": response, "context": context},
-                message="Chat response generated"
+                message="Chat response generated",
             )
         except Exception as e:
             return self.format_response(
                 success=False,
-                message=f"Chat error: {str(e)}"
+                message=f"Chat error: {str(e)}",
             )
     
     async def _build_context(self, role, user_id=None):

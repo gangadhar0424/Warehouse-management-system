@@ -113,6 +113,7 @@ app.use('/api/ai', require('./routes/ai-predictions'));
 app.use('/api/workflows', require('./routes/workflows'));
 app.use('/api/translate', require('./routes/translate'));
 app.use('/api/email', require('./routes/email'));
+app.use('/api/evaluation', require('./routes/evaluation'));
 
 // Serve static uploads folder
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));

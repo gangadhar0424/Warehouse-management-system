@@ -522,6 +522,7 @@ const AlertsCenter = () => {
             </Box>
           </Box>
         </Paper>
+
       </Box>
 
 

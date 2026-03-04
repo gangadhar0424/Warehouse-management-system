@@ -2,8 +2,11 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
+const { PDFDocument, StandardFonts, rgb, degrees } = require('pdf-lib');
 const Transaction = require('../models/Transaction');
 const Vehicle = require('../models/Vehicle');
+const WarehouseLayout = require('../models/WarehouseLayout');
+const DynamicWarehouseLayout = require('../models/DynamicWarehouseLayout');
 const QRCode = require('qrcode');
 const auth = require('../middleware/auth');
 const { authorize } = require('../middleware/auth');
@@ -909,6 +912,329 @@ router.post('/customer-payment', [auth, authorize('customer')], [
       message: 'Server error while processing payment', 
       error: error.message 
     });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// BILL GENERATION ENDPOINTS
+// ═══════════════════════════════════════════════════════════════════════
+
+// Helper: draw rupees symbol
+const rupee = (n) => `Rs. ${Number(n || 0).toLocaleString('en-IN')}`;
+
+// Helper: number to words (for bill)
+const ones = ['', 'One','Two','Three','Four','Five','Six','Seven','Eight','Nine',
+               'Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen',
+               'Seventeen','Eighteen','Nineteen'];
+const tens = ['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
+function numToWords(n) {
+  n = Math.round(n);
+  if (n === 0) return 'Zero';
+  if (n < 20) return ones[n];
+  if (n < 100) return tens[Math.floor(n/10)] + (n%10 ? ' ' + ones[n%10] : '');
+  if (n < 1000) return ones[Math.floor(n/100)] + ' Hundred' + (n%100 ? ' ' + numToWords(n%100) : '');
+  if (n < 100000) return numToWords(Math.floor(n/1000)) + ' Thousand' + (n%1000 ? ' ' + numToWords(n%1000) : '');
+  if (n < 10000000) return numToWords(Math.floor(n/100000)) + ' Lakh' + (n%100000 ? ' ' + numToWords(n%100000) : '');
+  return numToWords(Math.floor(n/10000000)) + ' Crore' + (n%10000000 ? ' ' + numToWords(n%10000000) : '');
+}
+
+// @route  GET /api/payments/bill/weighbridge/:transactionId
+// @desc   Download weighbridge payment bill as PDF
+// @access Private
+router.get('/bill/weighbridge/:transactionId', auth, async (req, res) => {
+  try {
+    const txn = await Transaction.findById(req.params.transactionId)
+      .populate('vehicle')
+      .populate('customer', 'name email profile')
+      .populate('processedBy', 'name profile');
+
+    if (!txn) return res.status(404).json({ message: 'Transaction not found' });
+
+    // ── Fetch warehouse info from owner's layout ───────────────────────────────
+    const ownerId = txn.processedBy?._id || txn.processedBy;
+    let warehouseLayout = ownerId
+      ? (await DynamicWarehouseLayout.findOne({ owner: ownerId }).select('name')) ||
+        (await WarehouseLayout.findOne({ owner: ownerId }).select('name'))
+      : null;
+    const ownerProfile  = txn.processedBy?.profile || {};
+    const warehouseName = (warehouseLayout?.name || 'FARMERS WAREHOUSE').toUpperCase();
+    const ownerPhone    = ownerProfile.phone || '-';
+    const addrParts     = [
+      ownerProfile.address?.street,
+      ownerProfile.address?.city,
+      ownerProfile.address?.state
+    ].filter(Boolean);
+    const warehouseAddr = addrParts.length ? addrParts.join(', ').toUpperCase() : 'INDIA';
+
+    const vehicle   = txn.vehicle || {};
+    const amount    = txn.amount?.totalAmount || txn.amount?.baseAmount || 0;
+    const paidAt    = txn.payment?.paidAt  || txn.createdAt || new Date();
+    const method    = (txn.payment?.method || 'cash').toUpperCase();
+    const inTime    = vehicle.entryTime ? new Date(vehicle.entryTime) : new Date(txn.createdAt);
+    const outTime   = new Date(paidAt);
+
+    // ── Build PDF (A5 landscape = 594 × 420) ──────────────────────────────────
+    const pdfDoc = await PDFDocument.create();
+    const page   = pdfDoc.addPage([594, 420]);
+    const W = 594; const H = 420;
+    const font  = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const bold  = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+    // Background
+    page.drawRectangle({ x:0, y:0, width:W, height:H, color: rgb(1,1,1) });
+
+    // Red border
+    for (let i = 0; i < 3; i++) {
+      page.drawRectangle({ x:i*2, y:i*2, width:W-i*4, height:H-i*4,
+        borderColor: rgb(0.8,0,0), borderWidth: 1, color: rgb(1,1,1) });
+    }
+
+    // ── Header block ──────────────────────────────────────────────────────────
+    let y = H - 30;
+    // Warehouse name as main header
+    const wNameWidth = warehouseName.length * 8.5;
+    page.drawText(warehouseName, { x: W/2 - wNameWidth/2, y, size: 18, font: bold, color: rgb(0.8,0,0) });
+    y -= 16;
+    page.drawText('WEIGH BRIDGE', { x: W/2 - 45, y, size: 11, font: bold, color: rgb(0.8,0,0) });
+    y -= 14;
+    // Address from owner profile
+    const addrWidth = warehouseAddr.length * 5.2;
+    page.drawText(warehouseAddr, { x: Math.max(W/2 - addrWidth/2, 10), y, size: 9, font, color: rgb(0.2,0.2,0.5) });
+    y -= 12;
+    page.drawText('50 TONNE COMPUTERISED AVERY ELECTRONIC WEIGH BRIDGE', { x: W/2 - 160, y, size: 8, font, color: rgb(0.2,0.2,0.5) });
+    y -= 12;
+    page.drawText(`CELL : ${ownerPhone}`, { x: W/2 - ownerPhone.length*3.5 - 18, y, size: 8, font, color: rgb(0.4,0.4,0.4) });
+    y -= 8;
+    page.drawLine({ start: {x:10, y}, end: {x:W-10, y}, thickness:1, color: rgb(0.8,0,0) });
+
+    // Receipt prefix  
+    const receiptNum = txn.invoiceNumber || txn.transactionId || txn._id.toString().slice(-8).toUpperCase();
+    page.drawText(`Receipt No: ${receiptNum}`, { x: 14, y: y-14, size: 8, font: bold });
+    page.drawText(`24 HOURS SERVICE`, { x: W-105, y: y-14, size: 9, font: bold, color: rgb(1,1,1) });
+    page.drawRectangle({ x: W-110, y: y-20, width:100, height:16, color: rgb(0.8,0,0) });
+    page.drawText(`24 HOURS SERVICE`, { x: W-105, y: y-14, size: 9, font: bold, color: rgb(1,1,1) });
+    y -= 28;
+
+    // ── Row 1: IN DATE / IN TIME / OUT DATE / OUT TIME ─────────────────────── 
+    const cols = [14, 155, 295, 440];
+    const fmtDate = (d) => new Date(d).toLocaleDateString('en-IN');
+    const fmtTime = (d) => new Date(d).toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit'});
+
+    const row1Labels = ['IN DATE :', 'IN TIME :', 'OUT DATE :', 'OUT TIME :'];
+    const row1Values = [fmtDate(inTime), fmtTime(inTime), fmtDate(outTime), fmtTime(outTime)];
+    row1Labels.forEach((lbl,i) => {
+      page.drawText(lbl,         { x: cols[i],     y, size: 8, font: bold });
+      page.drawText(row1Values[i],{ x: cols[i]+52, y, size: 8, font });
+    });
+    y -= 14;
+
+    // ── Row 2: VEHICLE REG. NO. / CARD NO. ────────────────────────────────────
+    page.drawText('VEHICLE REG. NO. :', { x:14, y, size:8, font: bold });
+    page.drawText(vehicle.vehicleNumber || 'N/A', { x:100, y, size:9, font: bold, color: rgb(0.1,0.1,0.7) });
+    page.drawText('CARD NO. :', { x:350, y, size:8, font: bold });
+    page.drawText(receiptNum, { x:410, y, size:8, font });
+    y -= 14;
+
+    // ── Weight table ──────────────────────────────────────────────────────────
+    page.drawLine({ start:{x:10,y:y+10}, end:{x:W-10,y:y+10}, thickness:0.5, color: rgb(0.6,0.6,0.6) });
+    const gross = vehicle.weighBridgeData?.grossWeight || 0;
+    const tare  = vehicle.weighBridgeData?.tareWeight  || 0;
+    const net   = vehicle.weighBridgeData?.netWeight   || (gross - tare);
+
+    page.drawText('WEIGHT', { x:14, y, size:8, font: bold });
+    page.drawText('GROSS', { x:80,  y, size:8, font: bold });
+    page.drawText(`${gross.toFixed(2)}`, { x:120, y, size:9, font });
+    page.drawText('KGS.', { x:185, y, size:8, font: bold });
+    page.drawText('TARE',  { x:230, y, size:8, font: bold });
+    page.drawText(`${tare.toFixed(2)}`, { x:270, y, size:9, font });
+    page.drawText('KGS.', { x:335, y, size:8, font: bold });
+    page.drawText('NET',   { x:380, y, size:8, font: bold });
+    page.drawText(`${net.toFixed(2)}`, { x:415, y, size:9, font });
+    page.drawText('KGS.', { x:480, y, size:8, font: bold });
+    y -= 14;
+
+    // ── Weight in words ───────────────────────────────────────────────────────
+    page.drawText('WEIGHT IN WORDS', { x:14, y, size:8, font: bold });
+    page.drawText('GROSS', { x:110, y, size:8, font: bold });
+    page.drawText(numToWords(gross) + ' Kilograms', { x:150, y, size:8, font });
+    y -= 11;
+    page.drawText('', { x:14, y, size:8, font: bold });
+    page.drawText('TARE',  { x:110, y, size:8, font: bold });
+    page.drawText(numToWords(tare) + ' Kilograms', { x:150, y, size:8, font });
+    y -= 11;
+    page.drawText('', { x:14, y, size:8, font: bold });
+    page.drawText('NET',   { x:110, y, size:8, font: bold });
+    page.drawText(numToWords(net) + ' Kilograms', { x:150, y, size:8, font });
+    y -= 16;
+
+    page.drawLine({ start:{x:10,y:y+4}, end:{x:W-10,y:y+4}, thickness:0.5, color: rgb(0.6,0.6,0.6) });
+
+    // ── Payment row ───────────────────────────────────────────────────────────
+    page.drawText('RECEIVED WITH THANKS Rs.', { x:14, y, size:8, font: bold });
+    page.drawText(`${amount}`, { x:175, y, size:11, font: bold, color: rgb(0.1,0.4,0.1) });
+    page.drawText(`(Payment via ${method})`, { x:250, y, size:8, font, color: rgb(0.3,0.3,0.3) });
+    y -= 11;
+    page.drawText('IN WORDS RUPEES', { x:14, y, size:8, font: bold });
+    page.drawText(numToWords(amount) + ' Only', { x:110, y, size:8, font });
+    y -= 20;
+
+    // ── Signature row ─────────────────────────────────────────────────────────
+    page.drawLine({ start:{x:14,   y:y+14}, end:{x:180,  y:y+14}, thickness:0.5, color: rgb(0.5,0.5,0.5) });
+    page.drawLine({ start:{x:W-180,y:y+14}, end:{x:W-14, y:y+14}, thickness:0.5, color: rgb(0.5,0.5,0.5) });
+    page.drawText("Party's Signature",   { x:14,   y, size:7, font, color: rgb(0.4,0.4,0.4) });
+    page.drawText("Operator's Signature",{ x:W-115, y, size:7, font, color: rgb(0.4,0.4,0.4) });
+
+    // ── Footer note ───────────────────────────────────────────────────────────
+    y -= 16;
+    page.drawText('Our responsibility ceases once the vehicle leaves the platform.', {
+      x: W/2 - 130, y, size: 7, font, color: rgb(0.5,0.3,0.3)
+    });
+
+    const pdfBytes = await pdfDoc.save();
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename=weighbridge_bill_${vehicle.vehicleNumber || 'receipt'}_${Date.now()}.pdf`);
+    res.send(Buffer.from(pdfBytes));
+
+  } catch (err) {
+    console.error('Weighbridge bill error:', err);
+    res.status(500).json({ message: 'Failed to generate bill', error: err.message });
+  }
+});
+
+
+// @route  GET /api/payments/bill/storage/:transactionId
+// @desc   Download storage rent / loan repayment payment receipt as PDF
+// @access Private
+router.get('/bill/storage/:transactionId', auth, async (req, res) => {
+  try {
+    const txn = await Transaction.findById(req.params.transactionId)
+      .populate('storageAllocation')
+      .populate('customer', 'name email profile')
+      .populate('processedBy', 'name profile');
+
+    if (!txn) return res.status(404).json({ message: 'Transaction not found' });
+
+    // ── Fetch warehouse info from owner's layout ───────────────────────────────
+    const ownerId = txn.processedBy?._id || txn.processedBy;
+    let warehouseLayout = ownerId
+      ? (await DynamicWarehouseLayout.findOne({ owner: ownerId }).select('name')) ||
+        (await WarehouseLayout.findOne({ owner: ownerId }).select('name'))
+      : null;
+    const ownerProfile  = txn.processedBy?.profile || {};
+    const warehouseName = (warehouseLayout?.name || 'Farmers Warehouse');
+    const ownerPhone    = ownerProfile.phone || '-';
+    const addrParts     = [
+      ownerProfile.address?.street,
+      ownerProfile.address?.city,
+      ownerProfile.address?.state
+    ].filter(Boolean);
+    const warehouseAddr = addrParts.length ? addrParts.join(', ') : 'India';
+
+    const amount   = txn.amount?.totalAmount || txn.amount?.baseAmount || 0;
+    const paidAt   = txn.payment?.paidAt || txn.createdAt || new Date();
+    const method   = (txn.payment?.method || 'cash').toUpperCase();
+    const custName = txn.customer?.name || txn.customer?.profile?.firstName || 'N/A';
+    const custPhone= txn.customer?.profile?.phone || 'N/A';
+    const receiptNum = txn.invoiceNumber || txn.transactionId || txn._id.toString().slice(-8).toUpperCase();
+
+    const typeLabels = {
+      grain_storage_rent: 'Storage Rent',
+      loan_repayment:     'Loan Repayment',
+      weighbridge_fee:    'Weighbridge Fee',
+      grain_release:      'Grain Release',
+    };
+    const txnTypeLabel = typeLabels[txn.type] || txn.type || 'Payment';
+
+    // ── Build PDF (A5 portrait = 420 × 594) ───────────────────────────────────
+    const pdfDoc = await PDFDocument.create();
+    const page   = pdfDoc.addPage([420, 594]);
+    const W = 420; const H = 594;
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+    // Background
+    page.drawRectangle({ x:0, y:0, width:W, height:H, color: rgb(0.98,0.98,1) });
+    page.drawRectangle({ x:4, y:4, width:W-8, height:H-8, borderColor: rgb(0.1,0.2,0.6), borderWidth:2, color: rgb(1,1,1) });
+    
+    // Navy header band
+    page.drawRectangle({ x:4, y:H-70, width:W-8, height:66, color: rgb(0.05,0.15,0.45) });
+
+    let y = H - 30;
+    page.drawText(warehouseName.toUpperCase(), { x:20, y, size:16, font: bold, color: rgb(1,1,1) });
+    y -= 16;
+    page.drawText(warehouseAddr, { x:20, y, size:9, font, color: rgb(0.8,0.85,1) });
+    y -= 12;
+    page.drawText(`Ph: ${ownerPhone}`, { x:20, y, size:8, font, color: rgb(0.8,0.85,1) });
+
+    // Receipt type label (light badge top-right)
+    page.drawRectangle({ x: W-125, y: H-60, width:116, height:22, color: rgb(1,0.85,0.1) });
+    page.drawText(`PAYMENT RECEIPT`, { x: W-118, y: H-52, size: 9, font: bold, color: rgb(0.1,0.1,0.1) });
+
+    y = H - 90;
+    page.drawText('PAYMENT RECEIPT', { x: W/2 - 55, y, size:16, font: bold, color: rgb(0.1,0.2,0.5) });
+    y -= 20;
+
+    // Divider
+    page.drawLine({ start:{x:12,y}, end:{x:W-12,y}, thickness:1, color: rgb(0.1,0.2,0.5) });
+    y -= 18;
+
+    // Info rows
+    const drawRow = (labelTxt, valueTxt, yl, highlight=false) => {
+      page.drawRectangle({ x:12, y:yl-4, width:W-24, height:18,
+        color: highlight ? rgb(0.93,0.96,1) : rgb(1,1,1) });
+      page.drawText(labelTxt, { x:18, y:yl, size:9, font: bold, color: rgb(0.3,0.3,0.3) });
+      page.drawText(valueTxt, { x:W/2, y:yl, size:9, font, color: rgb(0.1,0.1,0.1) });
+    };
+
+    drawRow('Receipt No. :',            receiptNum,                             y, true);  y -= 20;
+    drawRow('Date & Time :',             new Date(paidAt).toLocaleString('en-IN'), y, false); y -= 20;
+    drawRow('Customer Name :',           custName,                               y, true);  y -= 20;
+    drawRow('Contact :',                 custPhone,                              y, false); y -= 20;
+    drawRow('Payment For :',             txnTypeLabel,                           y, true);  y -= 20;
+    drawRow('Payment Method :',          method,                                 y, false); y -= 20;
+
+    if (txn.storageAllocation) {
+      const alloc = txn.storageAllocation;
+      drawRow('Storage Box :', alloc.boxNumber || alloc._id?.toString().slice(-6) || 'N/A', y, true);
+      y -= 20;
+      drawRow('Grain Type :', alloc.grainType || 'N/A', y, false);
+      y -= 20;
+    }
+
+    if (txn.description) {
+      drawRow('Description :', txn.description.substring(0,45), y, true);
+      y -= 20;
+    }
+
+    y -= 10;
+    page.drawLine({ start:{x:12,y}, end:{x:W-12,y}, thickness:1, color: rgb(0.1,0.2,0.5) });
+    y -= 20;
+
+    // Amount box
+    page.drawRectangle({ x:20, y:y-30, width:W-40, height:44, color: rgb(0.05,0.15,0.45) });
+    page.drawText('AMOUNT PAID', { x:35, y:y+4, size:10, font: bold, color: rgb(0.8,0.85,1) });
+    page.drawText(`Rs. ${Number(amount).toLocaleString('en-IN')}`, { x:W/2-10, y:y-16, size:18, font: bold, color: rgb(1,0.85,0.1) });
+    y -= 50;
+
+    page.drawText(`In Words: ${numToWords(amount)} Rupees Only`, { x:20, y, size:8, font, color: rgb(0.4,0.4,0.4) });
+    y -= 30;
+
+    // Thank you
+    page.drawLine({ start:{x:12,y:y+10}, end:{x:W-12,y:y+10}, thickness:0.5, color: rgb(0.7,0.7,0.7) });
+    page.drawText('Thank you for your payment!', { x: W/2 - 60, y, size:10, font: bold, color: rgb(0.1,0.4,0.1) });
+    y -= 16;
+    page.drawText('This is a computer-generated receipt. No signature required.', {
+      x:20, y, size:7, font, color: rgb(0.5,0.5,0.5)
+    });
+
+    const pdfBytes = await pdfDoc.save();
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename=payment_receipt_${receiptNum}.pdf`);
+    res.send(Buffer.from(pdfBytes));
+
+  } catch (err) {
+    console.error('Storage bill error:', err);
+    res.status(500).json({ message: 'Failed to generate receipt', error: err.message });
   }
 });
 

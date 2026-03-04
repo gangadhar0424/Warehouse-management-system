@@ -19,6 +19,7 @@ import VehicleManagement from './pages/VehicleManagement';
 import TransactionManagement from './pages/TransactionManagement';
 import UserProfile from './pages/UserProfile';
 import PaymentManagement from './pages/PaymentManagement';
+import EvaluationDashboard from './pages/EvaluationDashboard';
 import './App.css';
 
 // Create Material-UI theme
@@ -120,6 +121,12 @@ function App() {
                   <ProtectedRoute allowedRoles={['owner']}>
                     <Navbar />
                     <TransactionManagement />
+                  </ProtectedRoute>
+                } />
+                <Route path="/evaluation" element={
+                  <ProtectedRoute allowedRoles={['owner']}>
+                    <Navbar />
+                    <EvaluationDashboard />
                   </ProtectedRoute>
                 } />
                 
