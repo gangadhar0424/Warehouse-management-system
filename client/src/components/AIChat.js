@@ -1153,7 +1153,12 @@ const AIChat = () => {
 
 
 
-      const reply = data?.data?.reply || data?.message || 'Full analysis complete.';
+      const reply = data?.data?.reply   ||
+        data?.data?.message ||
+        data?.reply         ||
+        data?.response      ||
+        (data?.message !== 'Full AI analysis complete' ? data?.message : null) ||
+        'Full analysis complete — check the breakdown below for details.';
 
 
 

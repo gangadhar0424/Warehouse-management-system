@@ -138,44 +138,11 @@ class MasterAgent:
     #  Full Analysis — runs all 5 specialist agents concurrently          #
     # ------------------------------------------------------------------ #
 
-    @staticmethod
-    def _agent_reply(result: dict, max_chars: int = 500) -> str:
-        """Extract the natural-language reply from an agent result dict."""
-        if not result or result.get('success') is False:
-            err = result.get('error', result.get('message', 'Unavailable')) if result else 'Unavailable'
-            return f"Analysis unavailable: {err}"
-        data = result if not isinstance(result.get('data'), dict) else result.get('data', result)
-        reply = (
-            data.get('reply', '')
-            or data.get('summary', '')
-            or data.get('message', '')
-            or str(data)[:300]
-        )
-        return str(reply).strip()[:max_chars] if reply else 'No data returned'
-
-    @staticmethod
-    def _build_fallback_reply(breakdown: dict) -> str:
-        """Build a structured text summary directly from breakdown when Gemini synthesis fails."""
-        sections = {
-            'inventory':  ('📦 Inventory',              ''),
-            'pricing':    ('📈 Market Prices',           ''),
-            'duration':   ('📅 Storage Duration',        ''),
-            'loan_risk':  ('💰 Loan Portfolio',          ''),
-            'anomaly':    ('🔍 Anomaly & Fraud Alerts',  ''),
-        }
-        lines = ['**🔬 Full Warehouse AI Analysis**\n']
-        for key, (label, _) in sections.items():
-            reply = MasterAgent._agent_reply(breakdown.get(key, {}), max_chars=400)
-            lines.append(f'**{label}**\n{reply}\n')
-        lines.append('*Analysis generated from live warehouse data.*')
-        return '\n'.join(lines)
-
     async def full_analysis(self, context: dict = None) -> dict:
         """
         WMS Full AI Analysis workflow:
-          Runs all 5 specialist agents in parallel, then synthesises a
-          comprehensive management summary using Gemini on the agents'
-          natural-language reply texts (not raw JSON, to stay within token limits).
+          Runs all 5 specialist agents in parallel, then uses the ChatAgent
+          to synthesize a comprehensive management summary.
         """
         ctx = context or {}
 
@@ -197,52 +164,41 @@ class MasterAgent:
             else:
                 breakdown[key] = res.get('data') or res
 
-        # --- Synthesise using natural-language summaries (NOT raw JSON) ---
-        # This keeps the prompt small enough for any Gemini model's context window.
-        agent_summaries = {
-            'Inventory Health':       self._agent_reply(breakdown.get('inventory', {}),  500),
-            'Market Price Outlook':   self._agent_reply(breakdown.get('pricing', {}),    500),
-            'Storage Duration':       self._agent_reply(breakdown.get('duration', {}),   500),
-            'Loan Portfolio Risk':    self._agent_reply(breakdown.get('loan_risk', {}),  500),
-            'Anomaly / Fraud Alerts': self._agent_reply(breakdown.get('anomaly', {}),    500),
+        # Synthesize with chat agent
+        synthesis_payload = {
+            **ctx,
+            'message': (
+                "Give me a comprehensive warehouse management summary covering: "
+                "inventory health, market price outlook, storage duration insights, "
+                "loan portfolio risk, and any anomalies or fraud alerts detected."
+            ),
+            'agent_results': {
+                'success': True,
+                'data': {
+                    'inventory_analysis':  breakdown.get('inventory', {}),
+                    'market_predictions':  breakdown.get('pricing', {}),
+                    'storage_duration':    breakdown.get('duration', {}),
+                    'loan_portfolio_risk': breakdown.get('loan_risk', {}),
+                    'anomaly_scan':        breakdown.get('anomaly', {}),
+                },
+            },
+            'agent_name': 'full_analysis',
         }
 
-        summary_lines = '\n\n'.join(
-            f"[{section}]\n{text}" for section, text in agent_summaries.items()
+        summary = await self.chat_agent.process(synthesis_payload)
+
+        reply_text = (
+            summary.get('data', {}).get('reply')
+            or summary.get('message')
+            or ''
         )
-
-        synthesis_prompt = (
-            "You are an expert Warehouse Management System AI assistant.\n"
-            "Below are specialist agent summaries from a live warehouse database.\n"
-            "Write a professional, well-structured management brief (400-600 words) that:\n"
-            "  • Highlights the most important findings and numbers from each section\n"
-            "  • Uses bullet points and bold headings for readability\n"
-            "  • Ends with 3-5 prioritised action recommendations\n"
-            "  • Uses ₹ for currency and Indian numbering (lakhs/crores)\n"
-            "  • Addresses the warehouse owner/manager directly\n\n"
-            "SPECIALIST SUMMARIES:\n"
-            f"{summary_lines}\n\n"
-            "Write the management brief now:"
-        )
-
-        reply = await GeminiClient.generate_text(synthesis_prompt, creative=False)
-
-        # Safety net: if Gemini returned an error string or empty, build structured fallback
-        if (
-            not reply
-            or reply.strip() == ''
-            or 'unavailable' in reply.lower()[:60]
-            or 'trouble' in reply.lower()[:60]
-            or 'sorry' in reply.lower()[:60]
-        ):
-            reply = self._build_fallback_reply(breakdown)
 
         return {
             'success': True,
             'agent': 'full_analysis',
             'agentInfo': self.AGENT_INFO['full_analysis'],
             'data': {
-                'reply': reply,
+                'reply': reply_text,
                 'breakdown': breakdown,
             },
             'message': 'Full AI analysis complete',

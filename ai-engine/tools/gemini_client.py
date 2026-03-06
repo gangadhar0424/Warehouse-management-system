@@ -65,7 +65,7 @@ class GeminiClient:
             
             config = genai.types.GenerateContentConfig(
                 temperature=temperature,
-                max_output_tokens=4096
+                max_output_tokens=8192
             )
             
             return await cls._call_with_retry(full_prompt, config)
@@ -121,7 +121,7 @@ class GeminiClient:
             
             config = genai.types.GenerateContentConfig(
                 temperature=TEMPERATURE_CREATIVE,
-                max_output_tokens=2048
+                max_output_tokens=8192
             )
             
             return await cls._call_with_retry(context, config)
