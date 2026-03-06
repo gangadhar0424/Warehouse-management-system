@@ -1,50 +1,62 @@
 {
   "inventory": {
     "success_rate": 100.0,
-    "mean_latency_ms": 4799.0,
-    "std_latency_ms": 633.0,
-    "min_latency_ms": 4166.0,
-    "max_latency_ms": 5431.0,
-    "keyword_completeness": 37.5
+    "mean_latency_ms": 5760.0,
+    "std_latency_ms": 957.0,
+    "min_latency_ms": 4803.0,
+    "max_latency_ms": 6716.0,
+    "response_precision": 3.3,
+    "response_recall": 37.5,
+    "response_f1": 6.1
   },
   "pricing": {
     "success_rate": 100.0,
-    "mean_latency_ms": 22621.0,
-    "std_latency_ms": 196.0,
-    "min_latency_ms": 22425.0,
-    "max_latency_ms": 22818.0,
-    "keyword_completeness": 75.0
+    "mean_latency_ms": 23283.0,
+    "std_latency_ms": 128.0,
+    "min_latency_ms": 23155.0,
+    "max_latency_ms": 23412.0,
+    "response_precision": 3.2,
+    "response_recall": 75.0,
+    "response_f1": 6.1
   },
   "duration": {
     "success_rate": 100.0,
-    "mean_latency_ms": 6460.0,
-    "std_latency_ms": 290.0,
-    "min_latency_ms": 6170.0,
-    "max_latency_ms": 6751.0,
-    "keyword_completeness": 37.5
+    "mean_latency_ms": 6956.0,
+    "std_latency_ms": 91.0,
+    "min_latency_ms": 6866.0,
+    "max_latency_ms": 7047.0,
+    "response_precision": 2.7,
+    "response_recall": 37.5,
+    "response_f1": 5.1
   },
   "loan_risk": {
     "success_rate": 100.0,
-    "mean_latency_ms": 4365.0,
-    "std_latency_ms": 51.0,
-    "min_latency_ms": 4314.0,
-    "max_latency_ms": 4416.0,
-    "keyword_completeness": 42.9
+    "mean_latency_ms": 4626.0,
+    "std_latency_ms": 110.0,
+    "min_latency_ms": 4516.0,
+    "max_latency_ms": 4736.0,
+    "response_precision": 3.4,
+    "response_recall": 42.9,
+    "response_f1": 6.4
   },
   "anomaly": {
     "success_rate": 100.0,
-    "mean_latency_ms": 15199.0,
-    "std_latency_ms": 252.0,
-    "min_latency_ms": 14947.0,
-    "max_latency_ms": 15451.0,
-    "keyword_completeness": 28.6
+    "mean_latency_ms": 18550.0,
+    "std_latency_ms": 204.0,
+    "min_latency_ms": 18346.0,
+    "max_latency_ms": 18754.0,
+    "response_precision": 1.8,
+    "response_recall": 57.1,
+    "response_f1": 3.5
   },
   "email": {
     "success_rate": 100.0,
-    "mean_latency_ms": 5079.0,
-    "std_latency_ms": 168.0,
-    "min_latency_ms": 4911.0,
-    "max_latency_ms": 5247.0,
-    "keyword_completeness": 85.7
+    "mean_latency_ms": 5737.0,
+    "std_latency_ms": 199.0,
+    "min_latency_ms": 5538.0,
+    "max_latency_ms": 5936.0,
+    "response_precision": 5.0,
+    "response_recall": 85.7,
+    "response_f1": 9.4
   }
 }

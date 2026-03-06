@@ -103,7 +103,6 @@ const CombinedAnalytics = () => {
   const [refreshing, setRefreshing] = useState(false);
 
   // Analytics states (warehouseCapacity removed)
-  const [grainAnalytics, setGrainAnalytics] = useState(null);
   const [storageDurationData, setStorageDurationData] = useState(null);
   const [customerAnalytics, setCustomerAnalytics] = useState(null);
 
@@ -130,15 +129,13 @@ const CombinedAnalytics = () => {
       });
 
       // Fetch additional analytics data (warehouse-capacity removed)
-      const [grainRes, storageRes, customerRes] = await Promise.all([
-        axios.get('/api/analytics/owner/grain-analytics', { headers: { 'x-auth-token': token } }),
+      const [storageRes, customerRes] = await Promise.all([
         axios.get('/api/analytics/owner/storage-duration-analytics', { headers: { 'x-auth-token': token } }),
         axios.get('/api/analytics/owner/customer-analytics', { headers: { 'x-auth-token': token } })
       ]);
 
       setDashboardData(dashboardResponse.data);
       setFinancialData(financialResponse.data);
-      setGrainAnalytics(grainRes.data);
       setStorageDurationData(storageRes.data);
       setCustomerAnalytics(customerRes.data);
       setError(null);
@@ -341,13 +338,6 @@ const CombinedAnalytics = () => {
     { name: 'Total Loss', value: totalLoss || 0 },
   ];
 
-  // Grain In vs Grain Out
-  const grainInOutData = (grainAnalytics?.grainAnalytics || []).map(g => ({
-    grainType: g.grainType,
-    'Grain In (kg)': g.totalWeight || 0,
-    'Grain Out (kg)': g.totalWeightOut || Math.round((g.totalWeight || 0) * 0.3),
-  }));
-
   // Storage Duration: customers × duration per grain type
   const storageDurationByGrain = (storageDurationData?.currentlyStoring || []).map(item => ({
     customer: item.customer,
@@ -413,7 +403,6 @@ const CombinedAnalytics = () => {
       >
         <Tab label="Revenue & Analytics" />
         <Tab label="Financial Reports" />
-        <Tab icon={<Grain sx={{ fontSize: 16 }} />} iconPosition="start" label="Grain Analytics" />
         <Tab icon={<Timeline sx={{ fontSize: 16 }} />} iconPosition="start" label="Storage Duration" />
         <Tab icon={<People sx={{ fontSize: 16 }} />} iconPosition="start" label="Customer Analytics" />
       </Tabs>
@@ -841,140 +830,9 @@ const CombinedAnalytics = () => {
       )}
 
       {/* ================================================================ */}
-      {/* TAB 2 — Grain Analytics                                          */}
+      {/* TAB 2 — Storage Duration Analytics                               */}
       {/* ================================================================ */}
-      {activeTab === 2 && grainAnalytics && (
-        <Grid container spacing={3}>
-          <Grid item xs={12}>
-            <Typography variant="h6" gutterBottom fontWeight="bold">
-              Grain-Based Analytics
-            </Typography>
-            <Alert severity="info" sx={{ mb: 2 }}>
-              Total Grain Types: {grainAnalytics.totalGrainTypes}
-            </Alert>
-          </Grid>
-
-          {/* Grain In vs Grain Out — NEW Bar Chart */}
-          <Grid item xs={12}>
-            <Card>
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                  <Typography variant="h6" fontWeight="bold">
-                    Grain In vs Grain Out
-                  </Typography>
-                  <SectionBadge label="Live Data" color="#ff9800" emoji="📊" />
-                </Box>
-                <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
-                  Comparison of grain received vs grain dispatched per type
-                </Typography>
-                <ResponsiveContainer width="100%" height={350}>
-                  <BarChart data={grainInOutData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="grainType" angle={-45} textAnchor="end" height={100} />
-                    <YAxis />
-                    <RechartsTooltip formatter={(value) => `${value.toLocaleString()} kg`} />
-                    <Legend />
-                    <Bar dataKey="Grain In (kg)" fill="#4caf50" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="Grain Out (kg)" fill="#f44336" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          {/* Grain Weight Distribution */}
-          <Grid item xs={12} lg={6}>
-            <Card>
-              <CardContent>
-                <Typography variant="subtitle1" gutterBottom fontWeight="bold">
-                  Grain Weight Distribution
-                </Typography>
-                <ResponsiveContainer width="100%" height={350}>
-                  <BarChart data={grainAnalytics.grainAnalytics || []}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="grainType" angle={-45} textAnchor="end" height={100} />
-                    <YAxis />
-                    <RechartsTooltip formatter={(value) => `${value.toLocaleString()} kg`} />
-                    <Legend />
-                    <Bar dataKey="totalWeight" fill="#4caf50" name="Weight (kg)" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          {/* Grain Value Pie */}
-          <Grid item xs={12} lg={6}>
-            <Card>
-              <CardContent>
-                <Typography variant="subtitle1" gutterBottom fontWeight="bold">
-                  Grain Value Distribution
-                </Typography>
-                <ResponsiveContainer width="100%" height={350}>
-                  <PieChart>
-                    <Pie
-                      data={grainAnalytics.grainAnalytics || []}
-                      dataKey="totalValue"
-                      nameKey="grainType"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={100}
-                      label={({ grainType, percent }) => `${grainType}: ${(percent * 100).toFixed(1)}%`}
-                    >
-                      {(grainAnalytics.grainAnalytics || []).map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <RechartsTooltip formatter={(value) => `₹${value.toLocaleString()}`} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          {/* Grain Details Table */}
-          <Grid item xs={12}>
-            <Card>
-              <CardContent>
-                <Typography variant="subtitle1" gutterBottom fontWeight="bold">
-                  Grain Inventory Details
-                </Typography>
-                <TableContainer>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell><strong>Grain Type</strong></TableCell>
-                        <TableCell align="right"><strong>Weight (kg)</strong></TableCell>
-                        <TableCell align="right"><strong>Quantity</strong></TableCell>
-                        <TableCell align="right"><strong>Value (₹)</strong></TableCell>
-                        <TableCell align="right"><strong>Customers</strong></TableCell>
-                        <TableCell align="right"><strong>Blocks</strong></TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {(grainAnalytics.grainAnalytics || []).map((grain, index) => (
-                        <TableRow key={index}>
-                          <TableCell>{grain.grainType}</TableCell>
-                          <TableCell align="right">{grain.totalWeight.toLocaleString()}</TableCell>
-                          <TableCell align="right">{grain.totalQuantity.toLocaleString()}</TableCell>
-                          <TableCell align="right">₹{grain.totalValue.toLocaleString()}</TableCell>
-                          <TableCell align="right">{grain.customerCount}</TableCell>
-                          <TableCell align="right">{grain.blockCount}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
-      )}
-
-      {/* ================================================================ */}
-      {/* TAB 3 — Storage Duration Analytics                               */}
-      {/* ================================================================ */}
-      {activeTab === 3 && storageDurationData && (
+      {activeTab === 2 && storageDurationData && (
         <Grid container spacing={3}>
           <Grid item xs={12}>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
@@ -1145,9 +1003,9 @@ const CombinedAnalytics = () => {
       )}
 
       {/* ================================================================ */}
-      {/* TAB 4 — Customer Analytics                                       */}
+      {/* TAB 3 — Customer Analytics                                       */}
       {/* ================================================================ */}
-      {activeTab === 4 && customerAnalytics && (
+      {activeTab === 3 && customerAnalytics && (
         <Grid container spacing={3}>
           <Grid item xs={12}>
             <Typography variant="h6" gutterBottom fontWeight="bold">

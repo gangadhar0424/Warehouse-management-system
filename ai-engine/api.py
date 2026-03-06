@@ -347,7 +347,8 @@ async def eval_summary():
 _ALLOWED_CHARTS = {
     "confusion_matrix.png", "response_latency.png", "success_rate.png",
     "agent_utilization.png", "orchestration_overhead.png", "radar_chart.png",
-    "per_agent_accuracy.png", "architecture_diagram.png"
+    "per_agent_accuracy.png", "architecture_diagram.png",
+    "classification_metrics.png"
 }
 
 @app.get("/eval/charts/{filename}")

@@ -65,7 +65,6 @@ const OwnerAnalyticsDashboard = () => {
   const [tabValue, setTabValue] = useState(0);
   
   // New analytics data states
-  const [grainAnalytics, setGrainAnalytics] = useState(null);
   const [storageDurationData, setStorageDurationData] = useState(null);
   const [customerAnalytics, setCustomerAnalytics] = useState(null);
   const [warehouseCapacity, setWarehouseCapacity] = useState(null);
@@ -82,14 +81,12 @@ const OwnerAnalyticsDashboard = () => {
       setDashboardData(response.data);
       
       // Fetch new analytics data
-      const [grainRes, storageRes, customerRes, capacityRes] = await Promise.all([
-        axios.get('/api/analytics/owner/grain-analytics', { headers: { 'x-auth-token': token } }),
+      const [storageRes, customerRes, capacityRes] = await Promise.all([
         axios.get('/api/analytics/owner/storage-duration-analytics', { headers: { 'x-auth-token': token } }),
         axios.get('/api/analytics/owner/customer-analytics', { headers: { 'x-auth-token': token } }),
         axios.get('/api/analytics/owner/warehouse-capacity-viz', { headers: { 'x-auth-token': token } })
       ]);
       
-      setGrainAnalytics(grainRes.data);
       setStorageDurationData(storageRes.data);
       setCustomerAnalytics(customerRes.data);
       setWarehouseCapacity(capacityRes.data);
@@ -481,7 +478,6 @@ const OwnerAnalyticsDashboard = () => {
             sx={{ borderBottom: 1, borderColor: 'divider' }}
           >
             <Tab icon={<Timeline />} label="Overview" />
-            <Tab icon={<Grain />} label="Grain Analytics" />
             <Tab icon={<Timeline />} label="Storage Duration" />
             <Tab icon={<People />} label="Customer Analytics" />
             <Tab icon={<Business />} label="Warehouse Capacity" />
@@ -551,109 +547,8 @@ const OwnerAnalyticsDashboard = () => {
               </>
             )}
 
-            {/* Tab 1: Grain Analytics */}
-            {tabValue === 1 && grainAnalytics && (
-              <Grid container spacing={3}>
-                <Grid item xs={12}>
-                  <Typography variant="h6" gutterBottom fontWeight="bold">
-                    Grain-Based Analytics - Current Inventory
-                  </Typography>
-                  <Alert severity="info" sx={{ mb: 2 }}>
-                    Total Grain Types: {grainAnalytics.totalGrainTypes}
-                  </Alert>
-                </Grid>
-
-                {/* Grain Distribution Chart */}
-                <Grid item xs={12} lg={6}>
-                  <Card>
-                    <CardContent>
-                      <Typography variant="subtitle1" gutterBottom fontWeight="bold">
-                        Grain Weight Distribution
-                      </Typography>
-                      <ResponsiveContainer width="100%" height={350}>
-                        <BarChart data={grainAnalytics.grainAnalytics || []}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="grainType" angle={-45} textAnchor="end" height={100} />
-                          <YAxis />
-                          <RechartsTooltip formatter={(value) => `${value.toLocaleString()} kg`} />
-                          <Legend />
-                          <Bar dataKey="totalWeight" fill="#4caf50" name="Weight (kg)" />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </CardContent>
-                  </Card>
-                </Grid>
-
-                {/* Grain Value Chart */}
-                <Grid item xs={12} lg={6}>
-                  <Card>
-                    <CardContent>
-                      <Typography variant="subtitle1" gutterBottom fontWeight="bold">
-                        Grain Value Distribution
-                      </Typography>
-                      <ResponsiveContainer width="100%" height={350}>
-                        <PieChart>
-                          <Pie
-                            data={grainAnalytics.grainAnalytics || []}
-                            dataKey="totalValue"
-                            nameKey="grainType"
-                            cx="50%"
-                            cy="50%"
-                            outerRadius={100}
-                            label={({ grainType, percent }) => `${grainType}: ${(percent * 100).toFixed(1)}%`}
-                          >
-                            {(grainAnalytics.grainAnalytics || []).map((entry, index) => (
-                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                            ))}
-                          </Pie>
-                          <RechartsTooltip formatter={(value) => `₹${value.toLocaleString()}`} />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </CardContent>
-                  </Card>
-                </Grid>
-
-                {/* Grain Details Table */}
-                <Grid item xs={12}>
-                  <Card>
-                    <CardContent>
-                      <Typography variant="subtitle1" gutterBottom fontWeight="bold">
-                        Grain Inventory Details
-                      </Typography>
-                      <TableContainer>
-                        <Table size="small">
-                          <TableHead>
-                            <TableRow>
-                              <TableCell><strong>Grain Type</strong></TableCell>
-                              <TableCell align="right"><strong>Weight (kg)</strong></TableCell>
-                              <TableCell align="right"><strong>Quantity</strong></TableCell>
-                              <TableCell align="right"><strong>Value (₹)</strong></TableCell>
-                              <TableCell align="right"><strong>Customers</strong></TableCell>
-                              <TableCell align="right"><strong>Blocks</strong></TableCell>
-                            </TableRow>
-                          </TableHead>
-                          <TableBody>
-                            {(grainAnalytics.grainAnalytics || []).map((grain, index) => (
-                              <TableRow key={index}>
-                                <TableCell>{grain.grainType}</TableCell>
-                                <TableCell align="right">{grain.totalWeight.toLocaleString()}</TableCell>
-                                <TableCell align="right">{grain.totalQuantity.toLocaleString()}</TableCell>
-                                <TableCell align="right">₹{grain.totalValue.toLocaleString()}</TableCell>
-                                <TableCell align="right">{grain.customerCount}</TableCell>
-                                <TableCell align="right">{grain.blockCount}</TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </TableContainer>
-                    </CardContent>
-                  </Card>
-                </Grid>
-              </Grid>
-            )}
-
-            {/* Tab 2: Storage Duration Analytics */}
-            {tabValue === 2 && storageDurationData && (
+            {/* Tab 1: Storage Duration Analytics */}
+            {tabValue === 1 && storageDurationData && (
               <Grid container spacing={3}>
                 <Grid item xs={12}>
                   <Typography variant="h6" gutterBottom fontWeight="bold">
@@ -776,8 +671,8 @@ const OwnerAnalyticsDashboard = () => {
               </Grid>
             )}
 
-            {/* Tab 3: Customer Analytics */}
-            {tabValue === 3 && customerAnalytics && (
+            {/* Tab 2: Customer Analytics */}
+            {tabValue === 2 && customerAnalytics && (
               <Grid container spacing={3}>
                 <Grid item xs={12}>
                   <Typography variant="h6" gutterBottom fontWeight="bold">
@@ -955,8 +850,8 @@ const OwnerAnalyticsDashboard = () => {
               </Grid>
             )}
 
-            {/* Tab 4: Warehouse Capacity Visualization */}
-            {tabValue === 4 && warehouseCapacity && (
+            {/* Tab 3: Warehouse Capacity Visualization */}
+            {tabValue === 3 && warehouseCapacity && (
               <Grid container spacing={3}>
                 <Grid item xs={12}>
                   <Typography variant="h6" gutterBottom fontWeight="bold">

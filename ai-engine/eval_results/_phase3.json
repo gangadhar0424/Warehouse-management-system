@@ -1,23 +1,23 @@
 [
   {
     "query_label": "inventory",
-    "direct_mean": 4958.0,
-    "master_mean": 9026.0,
-    "overhead_ms": 4068.0,
-    "overhead_pct": 45.1
+    "direct_mean": 4306.0,
+    "master_mean": 9729.0,
+    "overhead_ms": 5423.0,
+    "overhead_pct": 55.7
   },
   {
     "query_label": "pricing",
-    "direct_mean": 6641.0,
-    "master_mean": 29284.0,
-    "overhead_ms": 22644.0,
-    "overhead_pct": 77.3
+    "direct_mean": 6904.0,
+    "master_mean": 29013.0,
+    "overhead_ms": 22109.0,
+    "overhead_pct": 76.2
   },
   {
     "query_label": "anomaly",
-    "direct_mean": 16940.0,
-    "master_mean": 24759.0,
-    "overhead_ms": 7818.0,
-    "overhead_pct": 31.6
+    "direct_mean": 18269.0,
+    "master_mean": 29561.0,
+    "overhead_ms": 11292.0,
+    "overhead_pct": 38.2
   }
 ]

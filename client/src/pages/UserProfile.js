@@ -64,7 +64,7 @@ function TabPanel({ children, value, index, ...other }) {
 }
 
 const UserProfile = () => {
-  const { user, updateUser } = useAuth();
+  const { user, loadUser } = useAuth();
   const [tabValue, setTabValue] = useState(0);
   const [editMode, setEditMode] = useState(false);
   const [formData, setFormData] = useState({
@@ -87,6 +87,11 @@ const UserProfile = () => {
   const toggleShowPass = (field) => setShowPass(prev => ({ ...prev, [field]: !prev[field] }));
   const [contactForm, setContactForm] = useState({ subject: '', message: '' });
   const [contactSuccess, setContactSuccess] = useState('');
+
+  // Razorpay / payment settings (owner only)
+  const [rzpSettings, setRzpSettings] = useState({ keyId: '', secret: '', showSecret: false, transactionFee: 2.5, minPayment: 1 });
+  const [rzpMsg, setRzpMsg]       = useState({ type: '', text: '' });
+  const [savingRzp, setSavingRzp] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -136,11 +141,11 @@ const UserProfile = () => {
   const handleSaveProfile = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.put('/api/auth/profile', formData, {
+      await axios.put('/api/auth/profile', formData, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      
-      updateUser(response.data);
+      // Reload user state from server so Navbar / context stays in sync
+      await loadUser();
       setEditMode(false);
       setSuccess('Profile updated successfully');
       setTimeout(() => setSuccess(''), 3000);
@@ -191,6 +196,52 @@ const UserProfile = () => {
       setError('Failed to send message. Please try again.');
     }
   };
+
+  // ── Razorpay settings helpers ───────────────────────────────────────
+  const loadRazorpaySettings = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get('/api/auth/owner-settings', { headers: { Authorization: `Bearer ${token}` } });
+      setRzpSettings(prev => ({
+        ...prev,
+        keyId:          res.data.razorpayKeyId   || '',
+        transactionFee: res.data.transactionFee  ?? 2.5,
+        minPayment:     res.data.minPaymentAmount ?? 1,
+        // never pre-fill secret for security; just indicate whether it's set
+        secret:         '',
+        secretIsSet:    res.data.razorpaySecretSet,
+      }));
+    } catch { /* ignore - no settings yet */ }
+  };
+
+  const handleSaveRazorpaySettings = async () => {
+    setSavingRzp(true);
+    setRzpMsg({ type: '', text: '' });
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put('/api/auth/owner-settings', {
+        razorpayKeyId:     rzpSettings.keyId,
+        razorpaySecret:    rzpSettings.secret,
+        transactionFee:    rzpSettings.transactionFee,
+        minPaymentAmount:  rzpSettings.minPayment,
+      }, { headers: { Authorization: `Bearer ${token}` } });
+      setRzpMsg({ type: 'success', text: 'Razorpay keys saved! Payments will now use these credentials.' });
+      setRzpSettings(prev => ({ ...prev, secret: '' }));
+    } catch (err) {
+      setRzpMsg({ type: 'error', text: err.response?.data?.message || 'Failed to save Razorpay settings' });
+    } finally {
+      setSavingRzp(false);
+    }
+  };
+
+  // Load Razorpay settings whenever owner switches to the Settings tab
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  React.useEffect(() => {
+    const ownerSettingsTabIndex = 3; // Personal Info | Change Password | Dashboard | Settings
+    if (user?.role === 'owner' && tabValue === ownerSettingsTabIndex) {
+      loadRazorpaySettings();
+    }
+  }, [tabValue]);
 
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-IN', {
@@ -290,6 +341,7 @@ const UserProfile = () => {
               {user.role === 'customer' && <Tab label="Transactions" />}
               {user.role === 'customer' && <Tab label="Change Password" icon={<Lock fontSize="small" />} iconPosition="start" />}
               {user.role === 'customer' && <Tab label="Contact Us" icon={<ContactSupport fontSize="small" />} iconPosition="start" />}
+              {user.role === 'owner' && <Tab label="Change Password" icon={<Lock fontSize="small" />} iconPosition="start" />}
               {user.role === 'owner' && <Tab label="Dashboard" />}
               {user.role === 'owner' && <Tab label="Settings" />}
             </Tabs>
@@ -562,9 +614,81 @@ const UserProfile = () => {
           </TabPanel>
         )}
 
-        {/* Owner Dashboard Tab */}
+        {/* Owner Change Password Tab — index 1 */}
         {user.role === 'owner' && (
-            <TabPanel value={tabValue} index={1}>
+          <TabPanel value={tabValue} index={1}>
+            <Grid container spacing={3} sx={{ maxWidth: 520 }}>
+              <Grid item xs={12}>
+                <Typography variant="h6" gutterBottom>
+                  <Lock sx={{ verticalAlign: 'middle', mr: 1 }} />
+                  Change Password
+                </Typography>
+                <Typography variant="body2" color="text.secondary" gutterBottom>
+                  Enter your current password to verify your identity, then set a new password.
+                </Typography>
+              </Grid>
+              {passwordError && <Grid item xs={12}><Alert severity="error">{passwordError}</Alert></Grid>}
+              {passwordSuccess && <Grid item xs={12}><Alert severity="success">{passwordSuccess}</Alert></Grid>}
+              <Grid item xs={12}>
+                <TextField fullWidth label="Current Password"
+                  type={showPass.current ? 'text' : 'password'}
+                  value={passwordData.currentPassword}
+                  onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
+                  InputProps={{ endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton onClick={() => toggleShowPass('current')} edge="end">
+                        {showPass.current ? <VisibilityOff /> : <Visibility />}
+                      </IconButton>
+                    </InputAdornment>
+                  )}}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField fullWidth label="New Password"
+                  type={showPass.new ? 'text' : 'password'}
+                  value={passwordData.newPassword}
+                  onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
+                  helperText="Minimum 6 characters"
+                  InputProps={{ endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton onClick={() => toggleShowPass('new')} edge="end">
+                        {showPass.new ? <VisibilityOff /> : <Visibility />}
+                      </IconButton>
+                    </InputAdornment>
+                  )}}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <TextField fullWidth label="Confirm New Password"
+                  type={showPass.confirm ? 'text' : 'password'}
+                  value={passwordData.confirmPassword}
+                  onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
+                  error={!!passwordData.confirmPassword && passwordData.newPassword !== passwordData.confirmPassword}
+                  helperText={passwordData.confirmPassword && passwordData.newPassword !== passwordData.confirmPassword ? 'Passwords do not match' : ''}
+                  InputProps={{ endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton onClick={() => toggleShowPass('confirm')} edge="end">
+                        {showPass.confirm ? <VisibilityOff /> : <Visibility />}
+                      </IconButton>
+                    </InputAdornment>
+                  )}}
+                />
+              </Grid>
+              <Grid item xs={12}>
+                <Button variant="contained" color="primary" size="large"
+                  onClick={handleChangePassword} startIcon={<Lock />}
+                  disabled={!passwordData.currentPassword || !passwordData.newPassword || !passwordData.confirmPassword}
+                >
+                  Update Password
+                </Button>
+              </Grid>
+            </Grid>
+          </TabPanel>
+        )}
+
+        {/* Owner Dashboard Tab — index 2 */}
+        {user.role === 'owner' && (
+            <TabPanel value={tabValue} index={2}>
               {ownerDashboard ? (
                 <Grid container spacing={3}>
                   <Grid item xs={12} md={6}>
@@ -598,11 +722,85 @@ const UserProfile = () => {
             </TabPanel>
           )}
 
-        {/* Owner Settings Tab */}
+        {/* Owner Settings Tab — index 3 */}
         {user.role === 'owner' && (
-            <TabPanel value={tabValue} index={2}>
+            <TabPanel value={tabValue} index={3}>
               <Grid container spacing={3}>
+
+                {/* ── Change Password ── */}
                 <Grid item xs={12}>
+                  <Typography variant="h6" gutterBottom>
+                    <Lock sx={{ verticalAlign: 'middle', mr: 1 }} />
+                    Change Password
+                  </Typography>
+                  <Divider sx={{ mb: 3 }} />
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Card sx={{ borderLeft: '4px solid #1976d2' }}>
+                    <CardContent>
+                      {passwordError   && <Alert severity="error"   sx={{ mb: 2 }}>{passwordError}</Alert>}
+                      {passwordSuccess && <Alert severity="success" sx={{ mb: 2 }}>{passwordSuccess}</Alert>}
+                      <Grid container spacing={2}>
+                        <Grid item xs={12}>
+                          <TextField fullWidth label="Current Password"
+                            type={showPass.current ? 'text' : 'password'}
+                            value={passwordData.currentPassword}
+                            onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
+                            InputProps={{ endAdornment: (
+                              <InputAdornment position="end">
+                                <IconButton onClick={() => toggleShowPass('current')} edge="end">
+                                  {showPass.current ? <VisibilityOff /> : <Visibility />}
+                                </IconButton>
+                              </InputAdornment>
+                            )}}
+                          />
+                        </Grid>
+                        <Grid item xs={12}>
+                          <TextField fullWidth label="New Password"
+                            type={showPass.new ? 'text' : 'password'}
+                            value={passwordData.newPassword}
+                            helperText="Minimum 6 characters"
+                            onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
+                            InputProps={{ endAdornment: (
+                              <InputAdornment position="end">
+                                <IconButton onClick={() => toggleShowPass('new')} edge="end">
+                                  {showPass.new ? <VisibilityOff /> : <Visibility />}
+                                </IconButton>
+                              </InputAdornment>
+                            )}}
+                          />
+                        </Grid>
+                        <Grid item xs={12}>
+                          <TextField fullWidth label="Confirm New Password"
+                            type={showPass.confirm ? 'text' : 'password'}
+                            value={passwordData.confirmPassword}
+                            error={!!passwordData.confirmPassword && passwordData.newPassword !== passwordData.confirmPassword}
+                            helperText={passwordData.confirmPassword && passwordData.newPassword !== passwordData.confirmPassword ? 'Passwords do not match' : ''}
+                            onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
+                            InputProps={{ endAdornment: (
+                              <InputAdornment position="end">
+                                <IconButton onClick={() => toggleShowPass('confirm')} edge="end">
+                                  {showPass.confirm ? <VisibilityOff /> : <Visibility />}
+                                </IconButton>
+                              </InputAdornment>
+                            )}}
+                          />
+                        </Grid>
+                        <Grid item xs={12}>
+                          <Button variant="contained" color="primary" size="large"
+                            startIcon={<Lock />} onClick={handleChangePassword}
+                            disabled={!passwordData.currentPassword || !passwordData.newPassword || !passwordData.confirmPassword}
+                          >
+                            Update Password
+                          </Button>
+                        </Grid>
+                      </Grid>
+                    </CardContent>
+                  </Card>
+                </Grid>
+
+                {/* ── Payment Gateway Settings ── */}
+                <Grid item xs={12} sx={{ mt: 2 }}>
                   <Typography variant="h6" gutterBottom>
                     Payment Gateway Settings
                   </Typography>
@@ -615,23 +813,43 @@ const UserProfile = () => {
                       <Typography variant="h6" gutterBottom>
                         Razorpay Configuration
                       </Typography>
+                      {rzpMsg.text && (
+                        <Alert severity={rzpMsg.type} sx={{ mb: 2 }} onClose={() => setRzpMsg({ type: '', text: '' })}>
+                          {rzpMsg.text}
+                        </Alert>
+                      )}
                       <Box sx={{ mb: 2 }}>
                         <TextField
                           fullWidth
                           label="Razorpay Key ID"
-                          type="password"
-                          defaultValue="rzp_test_..."
+                          placeholder="rzp_live_... or rzp_test_..."
+                          value={rzpSettings.keyId}
+                          onChange={(e) => setRzpSettings(prev => ({ ...prev, keyId: e.target.value }))}
+                          helperText="Starts with rzp_live_ (production) or rzp_test_ (testing)"
                           sx={{ mb: 2 }}
                         />
                         <TextField
                           fullWidth
                           label="Razorpay Secret Key"
-                          type="password"
-                          defaultValue="..."
+                          type={rzpSettings.showSecret ? 'text' : 'password'}
+                          placeholder={rzpSettings.secretIsSet ? 'Leave blank to keep existing secret' : 'Enter your Razorpay secret'}
+                          value={rzpSettings.secret}
+                          onChange={(e) => setRzpSettings(prev => ({ ...prev, secret: e.target.value }))}
+                          helperText={rzpSettings.secretIsSet ? '✅ Secret is already saved — leave blank to keep it' : 'Required to process Razorpay payments'}
+                          InputProps={{ endAdornment: (
+                            <InputAdornment position="end">
+                              <IconButton onClick={() => setRzpSettings(prev => ({ ...prev, showSecret: !prev.showSecret }))} edge="end">
+                                {rzpSettings.showSecret ? <VisibilityOff /> : <Visibility />}
+                              </IconButton>
+                            </InputAdornment>
+                          )}}
                           sx={{ mb: 2 }}
                         />
-                        <Button variant="contained" color="primary">
-                          Update Razorpay Keys
+                        <Button variant="contained" color="primary"
+                          onClick={handleSaveRazorpaySettings}
+                          disabled={savingRzp || !rzpSettings.keyId}
+                        >
+                          {savingRzp ? 'Saving…' : 'Save Razorpay Keys'}
                         </Button>
                       </Box>
                     </CardContent>
@@ -650,7 +868,8 @@ const UserProfile = () => {
                             fullWidth
                             label="Transaction Fee (%)"
                             type="number"
-                            defaultValue="2.5"
+                            value={rzpSettings.transactionFee}
+                            onChange={(e) => setRzpSettings(prev => ({ ...prev, transactionFee: e.target.value }))}
                             inputProps={{ step: 0.1, min: 0, max: 10 }}
                             sx={{ mb: 2 }}
                           />
@@ -658,9 +877,10 @@ const UserProfile = () => {
                         <Grid item xs={12}>
                           <TextField
                             fullWidth
-                            label="Minimum Payment Amount"
+                            label="Minimum Payment Amount (₹)"
                             type="number"
-                            defaultValue="1"
+                            value={rzpSettings.minPayment}
+                            onChange={(e) => setRzpSettings(prev => ({ ...prev, minPayment: e.target.value }))}
                             inputProps={{ min: 1 }}
                             sx={{ mb: 2 }}
                           />
@@ -675,8 +895,11 @@ const UserProfile = () => {
                           />
                         </Grid>
                       </Grid>
-                      <Button variant="contained" color="primary">
-                        Save Payment Settings
+                      <Button variant="contained" color="primary"
+                        onClick={handleSaveRazorpaySettings}
+                        disabled={savingRzp}
+                      >
+                        {savingRzp ? 'Saving…' : 'Save Payment Settings'}
                       </Button>
                     </CardContent>
                   </Card>
@@ -718,91 +941,6 @@ const UserProfile = () => {
                   </Card>
                 </Grid>
 
-                {/* Owner: Change Password */}
-                <Grid item xs={12}>
-                  <Card>
-                    <CardContent>
-                      <Typography variant="h6" gutterBottom>
-                        <Lock sx={{ verticalAlign: 'middle', mr: 1 }} />
-                        Change Password
-                      </Typography>
-                      <Divider sx={{ mb: 3 }} />
-                      {passwordError && <Alert severity="error" sx={{ mb: 2 }}>{passwordError}</Alert>}
-                      {passwordSuccess && <Alert severity="success" sx={{ mb: 2 }}>{passwordSuccess}</Alert>}
-                      <Grid container spacing={2} sx={{ maxWidth: 500 }}>
-                        <Grid item xs={12}>
-                          <TextField
-                            fullWidth
-                            label="Current Password"
-                            type={showPass.current ? 'text' : 'password'}
-                            value={passwordData.currentPassword}
-                            onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
-                            InputProps={{
-                              endAdornment: (
-                                <InputAdornment position="end">
-                                  <IconButton onClick={() => toggleShowPass('current')} edge="end">
-                                    {showPass.current ? <VisibilityOff /> : <Visibility />}
-                                  </IconButton>
-                                </InputAdornment>
-                              )
-                            }}
-                          />
-                        </Grid>
-                        <Grid item xs={12}>
-                          <TextField
-                            fullWidth
-                            label="New Password"
-                            type={showPass.new ? 'text' : 'password'}
-                            value={passwordData.newPassword}
-                            onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
-                            InputProps={{
-                              endAdornment: (
-                                <InputAdornment position="end">
-                                  <IconButton onClick={() => toggleShowPass('new')} edge="end">
-                                    {showPass.new ? <VisibilityOff /> : <Visibility />}
-                                  </IconButton>
-                                </InputAdornment>
-                              )
-                            }}
-                            helperText="Minimum 6 characters"
-                          />
-                        </Grid>
-                        <Grid item xs={12}>
-                          <TextField
-                            fullWidth
-                            label="Confirm New Password"
-                            type={showPass.confirm ? 'text' : 'password'}
-                            value={passwordData.confirmPassword}
-                            onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
-                            InputProps={{
-                              endAdornment: (
-                                <InputAdornment position="end">
-                                  <IconButton onClick={() => toggleShowPass('confirm')} edge="end">
-                                    {showPass.confirm ? <VisibilityOff /> : <Visibility />}
-                                  </IconButton>
-                                </InputAdornment>
-                              )
-                            }}
-                            error={!!passwordData.confirmPassword && passwordData.newPassword !== passwordData.confirmPassword}
-                            helperText={passwordData.confirmPassword && passwordData.newPassword !== passwordData.confirmPassword ? 'Passwords do not match' : ''}
-                          />
-                        </Grid>
-                        <Grid item xs={12}>
-                          <Button
-                            variant="contained"
-                            color="primary"
-                            size="large"
-                            onClick={handleChangePassword}
-                            startIcon={<Lock />}
-                            disabled={!passwordData.currentPassword || !passwordData.newPassword || !passwordData.confirmPassword}
-                          >
-                            Update Password
-                          </Button>
-                        </Grid>
-                      </Grid>
-                    </CardContent>
-                  </Card>
-                </Grid>
               </Grid>
             </TabPanel>
           )}

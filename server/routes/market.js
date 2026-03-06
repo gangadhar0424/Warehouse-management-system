@@ -10,7 +10,7 @@ const router = express.Router();
 // Get your free API key at: https://data.gov.in → Login → My Account → API Keys
 // Add to server/.env:  DATAGOV_API_KEY=your_key_here
 const DATAGOV_API_KEY = process.env.DATAGOV_API_KEY || null;
-const DATAGOV_RESOURCE_ID = '9ef84268-d588-465a-a308-a864a43d0070';
+const DATAGOV_RESOURCE_ID = 'current-daily-price-various-commodities-various-markets-mandi';
 const DATAGOV_STATE = process.env.DATAGOV_STATE || 'Telangana'; // change to your state
 
 // Maps data.gov.in commodity names → our grain names

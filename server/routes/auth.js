@@ -357,4 +357,53 @@ router.post('/change-password', auth, [
   }
 });
 
+// @route   GET /api/auth/owner-settings
+// @desc    Get owner Razorpay / payment settings
+// @access  Private (owner only)
+router.get('/owner-settings', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'owner') {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+    const user = await User.findById(req.user.id).select('ownerSettings');
+    const s = user.ownerSettings || {};
+    res.json({
+      razorpayKeyId:      s.razorpayKeyId      || process.env.RAZORPAY_KEY_ID    || '',
+      razorpaySecretSet:  !!(s.razorpaySecret  || process.env.RAZORPAY_KEY_SECRET),
+      transactionFee:     s.transactionFee     ?? 2.5,
+      minPaymentAmount:   s.minPaymentAmount   ?? 1,
+    });
+  } catch (error) {
+    console.error('owner-settings GET error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   PUT /api/auth/owner-settings
+// @desc    Save owner Razorpay / payment settings
+// @access  Private (owner only)
+router.put('/owner-settings', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'owner') {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+    const { razorpayKeyId, razorpaySecret, transactionFee, minPaymentAmount } = req.body;
+    const user = await User.findById(req.user.id);
+    if (!user.ownerSettings) user.ownerSettings = {};
+    if (razorpayKeyId !== undefined)  user.ownerSettings.razorpayKeyId  = razorpayKeyId.trim();
+    // Only overwrite secret if a non-empty value is supplied
+    if (razorpaySecret && razorpaySecret.trim()) {
+      user.ownerSettings.razorpaySecret = razorpaySecret.trim();
+    }
+    if (transactionFee   !== undefined) user.ownerSettings.transactionFee   = Number(transactionFee);
+    if (minPaymentAmount !== undefined) user.ownerSettings.minPaymentAmount = Number(minPaymentAmount);
+    user.markModified('ownerSettings');
+    await user.save();
+    res.json({ message: 'Settings saved successfully' });
+  } catch (error) {
+    console.error('owner-settings PUT error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 module.exports = router;

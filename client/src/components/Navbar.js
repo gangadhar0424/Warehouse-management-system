@@ -138,7 +138,6 @@ const Navbar = () => {
   const menuItems = [
     { text: t('dashboard.ownerDashboard'), icon: <Settings />, path: '/owner-dashboard', roles: ['owner'] },
     { text: t('common.weighbridge'), icon: <Dashboard />, path: '/weigh-bridge', roles: ['owner'] },
-    { text: t('dashboard.vehicles'), icon: <LocalShipping />, path: '/vehicles', roles: ['owner'] },
     { text: 'AI Evaluation', icon: <Assessment />, path: '/evaluation', roles: ['owner'] },
     { text: t('dashboard.customerDashboard'), icon: <AccountCircle />, path: '/customer-dashboard', roles: ['customer'] },
     { text: t('common.profile'), icon: <AccountCircle />, path: '/profile', roles: ['customer'] }

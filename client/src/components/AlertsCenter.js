@@ -237,10 +237,9 @@ const AlertsCenter = () => {
         // Single email
         const recipient = recipients[0];
         const response = await axios.post('/api/email/send', {
-          to: recipient.email,
+          customerEmail: recipient.email,
           subject: emailData.subject,
-          text: emailData.message,
-          html: `<p>${emailData.message.replace(/\n/g, '<br/>')}</p>`
+          body: emailData.message
         }, {
           headers: { 'x-auth-token': token }
         });

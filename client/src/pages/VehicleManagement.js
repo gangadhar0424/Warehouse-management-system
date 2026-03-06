@@ -114,9 +114,12 @@ const VehicleManagement = () => {
 
   const getStatusChip = (status) => {
     const statusConfig = {
-      inside: { color: 'warning', icon: <CallReceived fontSize="small" /> },
-      exited: { color: 'success', icon: <ExitToApp fontSize="small" /> },
-      weighing: { color: 'info', icon: <Scale fontSize="small" /> }
+      inside:   { color: 'warning',  icon: <CallReceived fontSize="small" /> },
+      entered:  { color: 'info',     icon: <CallReceived fontSize="small" /> },
+      loaded:   { color: 'primary',  icon: <Scale fontSize="small" /> },
+      weighed:  { color: 'success',  icon: <Scale fontSize="small" /> },
+      exited:   { color: 'default',  icon: <ExitToApp fontSize="small" /> },
+      weighing: { color: 'info',     icon: <Scale fontSize="small" /> }
     };
     const config = statusConfig[status] || { color: 'default', icon: null };
     return (
@@ -177,7 +180,7 @@ const VehicleManagement = () => {
                   </Box>
                 </TableCell>
                 <TableCell>{vehicle.grainDetails?.actualBags || 0}</TableCell>
-                <TableCell>{vehicle.grainDetails?.totalWeight || 0}</TableCell>
+                <TableCell>{vehicle.weighBridgeData?.netWeight || vehicle.grainDetails?.totalWeight || 0}</TableCell>
                 <TableCell>
                   <Chip label={vehicle.grainDetails?.purpose || 'storage'} size="small" variant="outlined" />
                 </TableCell>

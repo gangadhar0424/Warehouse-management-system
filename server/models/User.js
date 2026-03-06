@@ -64,6 +64,13 @@ const userSchema = new mongoose.Schema({
   resetPasswordToken: String,
   resetPasswordExpires: Date,
   lastLogin: Date,
+  // Owner payment gateway settings
+  ownerSettings: {
+    razorpayKeyId:      { type: String, default: '' },
+    razorpaySecret:     { type: String, default: '' },
+    transactionFee:     { type: Number, default: 2.5 },
+    minPaymentAmount:   { type: Number, default: 1 },
+  },
   // Customer-specific fields for grain storage
   customerGrainDetails: {
     totalBagsStored: { type: Number, default: 0 },

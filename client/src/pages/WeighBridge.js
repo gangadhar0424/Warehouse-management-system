@@ -512,8 +512,8 @@ const WeighBridge = () => {
       const response = await axios.post('/api/payments/create', paymentData);
       const newTxnId = response.data.transaction?._id;
       setLastTransactionId(newTxnId);
-      // Auto-open bill in new tab immediately after payment
-      if (newTxnId) openBill('weighbridge', newTxnId);
+      // Note: cannot auto-open popup here (deep inside async chain = blocked by browser)
+      // User can click "View Bill" in the success alert below.
 
       // Update vehicle payment status
       await axios.put(`/api/vehicles/${registeredVehicle._id}`, {
@@ -523,7 +523,7 @@ const WeighBridge = () => {
         paymentDate: new Date()
       });
 
-      setSuccess(`Payment of ₹${amount} received via ${paymentMethod.toUpperCase()}! Bill opened in a new tab.`);
+      setSuccess(`Payment of ₹${amount} received via ${paymentMethod.toUpperCase()}! Click "View Bill" to open the receipt.`);
       setPaymentDialog(false);
 
       // If this was a weigh-mode payment, now record the weight
@@ -574,18 +574,30 @@ const WeighBridge = () => {
     }
   };
 
-  // Download bill as PDF through the axios proxy (avoids React Router intercept)
-  // Open bill PDF in a new tab — browser PDF viewer handles viewing & downloading
+  // Open bill PDF in a new tab.
+  // window.open MUST be called synchronously before any await so the browser
+  // treats it as a direct user-gesture popup (otherwise it gets blocked).
   const openBill = async (type, transactionId) => {
+    // 1. Open blank tab synchronously — still inside user-gesture call stack
+    const newTab = window.open('about:blank', '_blank');
+    if (!newTab) {
+      setError('Popup blocked. Please allow popups for this site and try again.');
+      return;
+    }
     try {
       const token = localStorage.getItem('token');
       const response = await axios.get(`/api/payments/bill/${type}/${transactionId}`, {
         headers: { Authorization: `Bearer ${token}` },
         responseType: 'blob'
       });
-      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
-      window.open(url, '_blank');
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      // 2. Navigate the already-opened tab to the blob URL
+      newTab.location.href = url;
+      // 3. Revoke blob URL after the tab has had time to load (prevents memory leak / freeze)
+      setTimeout(() => window.URL.revokeObjectURL(url), 10000);
     } catch (err) {
+      newTab.close();
       console.error('Bill open error:', err);
       setError('Failed to open bill. Please try again.');
     }

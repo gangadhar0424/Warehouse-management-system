@@ -182,17 +182,30 @@ const CustomerDashboard = () => {
   };
 
   // Download bill PDF through axios proxy (avoids React Router intercept)
-  // Open receipt PDF in a new tab — browser PDF viewer handles viewing & downloading
+  // Open receipt PDF in a new tab.
+  // window.open MUST be called synchronously before any await so the browser
+  // treats it as a direct user-gesture popup (otherwise it gets blocked).
   const openBill = async (type, transactionId) => {
+    // 1. Open blank tab synchronously — still inside user-gesture call stack
+    const newTab = window.open('about:blank', '_blank');
+    if (!newTab) {
+      setPaymentError('Popup blocked. Please allow popups for this site and try again.');
+      return;
+    }
     try {
       const token = localStorage.getItem('token');
       const response = await axios.get(`/api/payments/bill/${type}/${transactionId}`, {
         headers: { Authorization: `Bearer ${token}` },
         responseType: 'blob'
       });
-      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/pdf' }));
-      window.open(url, '_blank');
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      // 2. Navigate the already-opened tab to the blob URL
+      newTab.location.href = url;
+      // 3. Revoke after the tab has had time to load (prevents memory leak / freeze)
+      setTimeout(() => window.URL.revokeObjectURL(url), 10000);
     } catch (err) {
+      newTab.close();
       console.error('Bill open error:', err);
       setPaymentError('Failed to open receipt. Please try again.');
     }
@@ -251,9 +264,9 @@ const CustomerDashboard = () => {
 
             const newTxnId = recordRes.data.transaction?._id;
             setLastPaymentTxnId(newTxnId);
-            // Auto-open receipt in a new tab immediately after payment
-            if (newTxnId) openBill('storage', newTxnId);
-            setPaymentSuccess(`Payment of Rs. ${paymentForm.amount} received! Receipt opened in a new tab.`);
+            // Note: cannot auto-open popup here (deep inside Razorpay async callback = blocked by browser)
+            // User can click "View Receipt" in the success alert below.
+            setPaymentSuccess(`Payment of Rs. ${paymentForm.amount} received! Click "View Receipt" to open the bill.`);
             setPaymentForm(prev => ({ ...prev, amount: '', description: '' }));
             fetchCustomerData();
           } catch (err) {

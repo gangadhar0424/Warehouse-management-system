@@ -34,32 +34,33 @@ const CHART_GROUPS = [
     label: 'Routing & Accuracy',
     icon: <AccountTree />,
     charts: [
-      { file: 'confusion_matrix.png',    title: 'Intent Routing Confusion Matrix',        desc: 'Which queries were routed to which agent' },
-      { file: 'per_agent_accuracy.png',  title: 'Per-Agent Accuracy',                     desc: 'Routing accuracy, success rate & keyword completeness per agent' },
+      { file: 'confusion_matrix.png',         title: 'Intent Routing Confusion Matrix',         desc: 'Which queries were routed to which agent' },
+      { file: 'classification_metrics.png',   title: 'Routing Classification Metrics',          desc: 'Per-agent Precision, Recall & F1 with TP/FP/FN breakdown' },
+      { file: 'per_agent_accuracy.png',       title: 'Per-Agent Accuracy',                      desc: 'Routing Recall, Success Rate & Response F1 per agent' },
     ]
   },
   {
     label: 'Performance',
     icon: <Speed />,
     charts: [
-      { file: 'response_latency.png',     title: 'Response Latency by Agent',              desc: 'Mean ± std latency (ms) for each specialist' },
-      { file: 'orchestration_overhead.png', title: 'Orchestration Overhead',               desc: 'Extra time added by the Master Agent coordinator' },
+      { file: 'response_latency.png',         title: 'Response Latency by Agent',               desc: 'Mean ± std latency (ms) for each specialist' },
+      { file: 'orchestration_overhead.png',   title: 'Orchestration Overhead',                  desc: 'Extra time added by the Master Agent coordinator' },
     ]
   },
   {
     label: 'Distribution & Profile',
     icon: <BubbleChart />,
     charts: [
-      { file: 'agent_utilization.png',   title: 'Agent Utilization Distribution',          desc: 'How often each agent was selected by Master Agent' },
-      { file: 'success_rate.png',        title: 'Agent Success Rates',                     desc: '% of agent calls that returned valid data' },
-      { file: 'radar_chart.png',         title: 'Multi-Dimensional Performance Profile',   desc: 'Speed, success, keyword completeness, routing accuracy' },
+      { file: 'agent_utilization.png',        title: 'Agent Utilization Distribution',          desc: 'How often each agent was selected by Master Agent' },
+      { file: 'success_rate.png',             title: 'Success Rate · Response Recall · F1',     desc: 'Agent success rate and response-quality F1 scores' },
+      { file: 'radar_chart.png',              title: 'Multi-Dimensional Performance Profile',   desc: 'Speed, success rate, response recall & F1, routing recall' },
     ]
   },
   {
     label: 'Architecture',
     icon: <Psychology />,
     charts: [
-      { file: 'architecture_diagram.png', title: 'Master-Coordinator Architecture',        desc: 'Full flow diagram showing how agents connect and data flows' },
+      { file: 'architecture_diagram.png',     title: 'Master-Coordinator Architecture',         desc: 'Full flow diagram showing how agents connect and data flows' },
     ]
   },
 ];
@@ -228,11 +229,14 @@ export default function EvaluationDashboard() {
   const systemMeanLatency = agentKeys.length
     ? Math.round(agentKeys.reduce((s, a) => s + (agentResults[a].mean_latency_ms || 0), 0) / agentKeys.length)
     : 0;
-  const systemMeanKW = agentKeys.length
-    ? Math.round(agentKeys.reduce((s, a) => s + (agentResults[a].keyword_completeness || 0), 0) / agentKeys.length)
+  const systemMeanRespF1 = agentKeys.length
+    ? (agentKeys.reduce((s, a) => s + (agentResults[a].response_f1 || 0), 0) / agentKeys.length).toFixed(1)
     : 0;
+  const macroF1      = summary?.macro_f1      ?? null;
+  const weightedF1   = summary?.weighted_f1   ?? null;
+  const clfMetrics   = summary?.classification_metrics_per_agent || {};
 
-  // Per-agent routing accuracy from routing_results
+  // Per-agent routing accuracy from routing_results (fallback if clf_metrics absent)
   const perAgentRouting = {};
   agentKeys.forEach(a => {
     const total   = routingResults.filter(r => r.expected === a).length;
@@ -322,8 +326,12 @@ export default function EvaluationDashboard() {
               color="#2196f3" icon={<Speed />} />
           </Grid>
           <Grid item xs={6} sm={3}>
-            <MetricCard label="KW Completeness" value={`${systemMeanKW}%`}
-              color={scoreColor(systemMeanKW)} icon={<Assessment />} />
+            <MetricCard
+              label={macroF1 !== null ? `Macro-F1 (routing)` : 'Avg Response F1'}
+              value={macroF1 !== null ? `${macroF1}%` : `${systemMeanRespF1}%`}
+              color={scoreColor(macroF1 !== null ? macroF1 : systemMeanRespF1)}
+              icon={<Assessment />}
+            />
           </Grid>
         </Grid>
       )}
@@ -342,16 +350,21 @@ export default function EvaluationDashboard() {
                     <TableCell>Agent</TableCell>
                     <TableCell align="center">Success Rate</TableCell>
                     <TableCell align="center">Mean Latency</TableCell>
-                    <TableCell align="center">Std Latency</TableCell>
-                    <TableCell align="center">KW Completeness</TableCell>
-                    <TableCell align="center">Routing Accuracy</TableCell>
+                    <TableCell align="center">Resp Recall</TableCell>
+                    <TableCell align="center">Resp F1</TableCell>
+                    <TableCell align="center">Rout Precision</TableCell>
+                    <TableCell align="center">Rout Recall</TableCell>
+                    <TableCell align="center">Rout F1</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {agentKeys.map(agent => {
-                    const m  = agentResults[agent];
-                    const ra = perAgentRouting[agent] ?? 0;
+                    const m     = agentResults[agent];
                     const color = AGENT_COLORS[agent] || '#999';
+                    const cm    = clfMetrics[agent] || {};
+                    const routP  = cm.precision ?? perAgentRouting[agent] ?? 0;
+                    const routR  = cm.recall    ?? perAgentRouting[agent] ?? 0;
+                    const routF1 = cm.f1        ?? perAgentRouting[agent] ?? 0;
                     return (
                       <TableRow key={agent} hover>
                         <TableCell>
@@ -370,15 +383,24 @@ export default function EvaluationDashboard() {
                           <Typography variant="body2">{Math.round(m.mean_latency_ms)} ms</Typography>
                         </TableCell>
                         <TableCell align="center">
-                          <Typography variant="body2" color="text.secondary">± {Math.round(m.std_latency_ms)} ms</Typography>
+                          <Chip label={`${(m.response_recall ?? 0).toFixed(1)}%`} size="small" variant="outlined"
+                            sx={{ borderColor: scoreColor(m.response_recall ?? 0), color: scoreColor(m.response_recall ?? 0), fontWeight: 600 }} />
                         </TableCell>
                         <TableCell align="center">
-                          <Chip label={`${Math.round(m.keyword_completeness)}%`} size="small" variant="outlined"
-                            sx={{ borderColor: scoreColor(m.keyword_completeness), color: scoreColor(m.keyword_completeness), fontWeight: 600 }} />
+                          <Chip label={`${(m.response_f1 ?? 0).toFixed(1)}%`} size="small" variant="outlined"
+                            sx={{ borderColor: scoreColor(m.response_f1 ?? 0), color: scoreColor(m.response_f1 ?? 0), fontWeight: 600 }} />
                         </TableCell>
                         <TableCell align="center">
-                          <Chip label={`${ra}%`} size="small"
-                            sx={{ bgcolor: scoreColor(ra), color: 'white', fontWeight: 700, fontSize: 12 }} />
+                          <Chip label={`${routP}%`} size="small"
+                            sx={{ bgcolor: scoreColor(routP), color: 'white', fontWeight: 700, fontSize: 12 }} />
+                        </TableCell>
+                        <TableCell align="center">
+                          <Chip label={`${routR}%`} size="small"
+                            sx={{ bgcolor: scoreColor(routR), color: 'white', fontWeight: 700, fontSize: 12 }} />
+                        </TableCell>
+                        <TableCell align="center">
+                          <Chip label={`${routF1}%`} size="small"
+                            sx={{ bgcolor: scoreColor(routF1), color: 'white', fontWeight: 700, fontSize: 12 }} />
                         </TableCell>
                       </TableRow>
                     );
@@ -390,16 +412,22 @@ export default function EvaluationDashboard() {
                     <TableCell align="center">100%</TableCell>
                     <TableCell align="center">{systemMeanLatency} ms</TableCell>
                     <TableCell align="center">—</TableCell>
-                    <TableCell align="center">{systemMeanKW}%</TableCell>
-                    <TableCell align="center">{routingAcc.toFixed(1)}%</TableCell>
+                    <TableCell align="center">{systemMeanRespF1}%</TableCell>
+                    <TableCell align="center">—</TableCell>
+                    <TableCell align="center">—</TableCell>
+                    <TableCell align="center" sx={{ color: macroF1 !== null ? scoreColor(macroF1) : 'inherit' }}>
+                      {macroF1 !== null ? `${macroF1}%` : `${routingAcc.toFixed(1)}%`}
+                    </TableCell>
                   </TableRow>
                 </TableBody>
               </Table>
             </TableContainer>
 
             <Typography variant="caption" color="text.secondary" mt={1} display="block">
-              KW Completeness = % of expected domain keywords found in agent response.
-              Routing Accuracy = % of intent-routing test queries correctly classified by Master Agent.
+              Resp Recall = % expected keywords found in response &nbsp;·&nbsp;
+              Resp F1 = harmonic mean of response precision &amp; recall &nbsp;·&nbsp;
+              Rout F1 = per-agent routing F1 (TP/FP/FN from 48-query classification test)
+              {macroF1 !== null && <> &nbsp;·&nbsp; <b>Macro-F1: {macroF1}%</b>  Weighted-F1: {weightedF1}%</>}
             </Typography>
           </CardContent>
         </Card>

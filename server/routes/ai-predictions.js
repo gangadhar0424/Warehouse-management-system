@@ -50,7 +50,13 @@ const proxyVian8n = async (webhookKey, aiEndpoint, method = 'POST', data = null,
         headers: { 'Content-Type': 'application/json' }
       });
       console.log(`🔄 n8n: ${webhookKey} → OK`);
-      return response.data;
+      // n8n workflows return arrays ([{json:{...}}]) when there's no HTTP Response node.
+      // Unwrap to the actual AI-engine payload so downstream routes get a consistent shape.
+      let result = response.data;
+      if (Array.isArray(result)) {
+        result = result[0]?.json || result[0] || result;
+      }
+      return result;
     } catch (n8nError) {
       console.warn(`⚠️  n8n unavailable for ${webhookKey} (${n8nError.message}), falling back to direct AI`);
     }

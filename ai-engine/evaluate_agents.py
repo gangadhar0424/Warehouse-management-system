@@ -5,17 +5,23 @@ Evaluates all 6 specialist agents + the Master Agent orchestrator:
   Inventory, Market Pricing, Storage Duration, Loan Risk, Anomaly, Email
 
 Metrics produced:
-  1. Intent Routing Accuracy  (confusion matrix)
-  2. Agent Success Rate        (per agent)
-  3. Response Latency          (per agent, mean ± std)
-  4. Agent Utilization         (distribution of master's routing decisions)
-  5. Orchestration Overhead    (master round-trip vs direct call delta)
-  6. Key-Insight Completeness  (response contains expected domain keywords)
+  1. Intent Routing Accuracy   (overall % correct classifications)
+  2. Per-Agent Precision       (TP / (TP+FP) — no false alarms)
+  3. Per-Agent Recall          (TP / (TP+FN) — no missed queries)
+  4. Per-Agent F1 Score        (harmonic mean of Precision & Recall)
+  5. Macro-F1 / Weighted-F1   (system-level aggregated F1)
+  6. Agent Success Rate        (per agent valid-response rate)
+  7. Response Recall           (keyword coverage in agent replies)
+  8. Response F1               (combined keyword precision + recall)
+  9. Response Latency          (per agent, mean ± std)
+  10. Agent Utilization        (distribution of master routing decisions)
+  11. Orchestration Overhead   (master round-trip vs direct call delta)
 
 Output:
   • Console: full metrics table + LaTeX table snippet
   • eval_results/  folder:
       - confusion_matrix.png
+      - classification_metrics.png  (Precision / Recall / F1 per agent)
       - response_latency.png
       - success_rate.png
       - agent_utilization.png
@@ -186,7 +192,14 @@ async def evaluate_routing(master: MasterAgent, n_runs: int = 1):
 async def evaluate_agents_directly(master: MasterAgent, n_runs: int = 3):
     """
     Call each specialist agent directly (bypass routing) and measure
-    success rate, response latency, and keyword completeness.
+    success rate, response latency, and response Precision / Recall / F1
+    (replacing the old keyword-completeness / SW-completeness metric).
+
+    Response Precision = relevant keywords found / all words in response
+                         (how much of the response is on-topic)
+    Response Recall    = relevant keywords found / total expected keywords
+                         (how completely the response covers the domain)
+    Response F1        = harmonic mean of Precision and Recall
     """
     print("\n" + "="*60)
     print("  PHASE 2: Individual Agent Performance")
@@ -204,7 +217,8 @@ async def evaluate_agents_directly(master: MasterAgent, n_runs: int = 3):
 
     agent_results = {}
     for agent_name, payload in agent_payloads.items():
-        latencies, successes, kw_scores = [], [], []
+        latencies, successes = [], []
+        resp_precisions, resp_recalls, resp_f1s = [], [], []
         print(f"\n  Agent: {agent_name.upper()}")
         for run in range(n_runs):
             t0 = time.perf_counter()
@@ -212,29 +226,41 @@ async def evaluate_agents_directly(master: MasterAgent, n_runs: int = 3):
                 result = await master.route(agent_name, payload)
                 latency = (time.perf_counter() - t0) * 1000
                 success = bool(result.get("success", False) or result.get("data") or result.get("reply"))
-                # keyword completeness
+                # ── Response Precision / Recall / F1 ─────────────────────────
                 text = json.dumps(result, default=str).lower()
-                kws = EXPECTED_KEYWORDS.get(agent_name, [])
-                kw_score = sum(1 for k in kws if k in text) / len(kws) if kws else 1.0
+                expected_kws = EXPECTED_KEYWORDS.get(agent_name, [])
+                # tokenise response into simple words (no stopwords needed for this proxy)
+                response_words = set(text.replace(',', ' ').replace('.', ' ').split())
+                found_kws = [k for k in expected_kws if k in text]  # keyword present in text
+                # Precision: of all response tokens, what fraction are expected keywords
+                resp_p = len(found_kws) / len(response_words) if response_words else 0.0
+                # Recall: of all expected keywords, what fraction were found
+                resp_r = len(found_kws) / len(expected_kws) if expected_kws else 1.0
+                resp_f = (2 * resp_p * resp_r / (resp_p + resp_r)) if (resp_p + resp_r) > 0 else 0.0
             except Exception as e:
                 latency = (time.perf_counter() - t0) * 1000
                 success = False
-                kw_score = 0.0
+                resp_p = resp_r = resp_f = 0.0
                 print(f"    Run {run+1}: ERROR — {e}")
 
             latencies.append(latency)
             successes.append(int(success))
-            kw_scores.append(kw_score)
-            print(f"    Run {run+1}: {'✓' if success else '✗'}  {latency:.0f}ms  kw={kw_score:.0%}")
+            resp_precisions.append(resp_p)
+            resp_recalls.append(resp_r)
+            resp_f1s.append(resp_f)
+            print(f"    Run {run+1}: {'✓' if success else '✗'}  {latency:.0f}ms  "
+                  f"P={resp_p:.0%}  R={resp_r:.0%}  F1={resp_f:.0%}")
             await asyncio.sleep(0.5)
 
         agent_results[agent_name] = {
-            "success_rate":       round(np.mean(successes) * 100, 1),
-            "mean_latency_ms":    round(np.mean(latencies), 0),
-            "std_latency_ms":     round(np.std(latencies), 0),
-            "min_latency_ms":     round(np.min(latencies), 0),
-            "max_latency_ms":     round(np.max(latencies), 0),
-            "keyword_completeness": round(np.mean(kw_scores) * 100, 1),
+            "success_rate":      round(np.mean(successes) * 100, 1),
+            "mean_latency_ms":   round(np.mean(latencies), 0),
+            "std_latency_ms":    round(np.std(latencies), 0),
+            "min_latency_ms":    round(np.min(latencies), 0),
+            "max_latency_ms":    round(np.max(latencies), 0),
+            "response_precision": round(np.mean(resp_precisions) * 100, 1),
+            "response_recall":    round(np.mean(resp_recalls) * 100, 1),
+            "response_f1":        round(np.mean(resp_f1s) * 100, 1),
         }
 
     return agent_results
@@ -294,6 +320,67 @@ async def evaluate_orchestration_overhead(master: MasterAgent, n_samples: int = 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Chart generators
 # ─────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Classification metrics helper  (Precision / Recall / F1)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def compute_classification_metrics(routing_results):
+    """
+    Compute per-agent and system-level classification metrics from routing results.
+
+    For each agent A:
+      TP  = queries labelled A that were routed to A
+      FP  = queries NOT labelled A but routed to A  (false alarms)
+      FN  = queries labelled A but routed elsewhere (missed)
+
+      Precision = TP / (TP + FP)   — when master says "A", how often is it right?
+      Recall    = TP / (TP + FN)   — of all true-A queries, how many did master catch?
+      F1        = 2*P*R / (P+R)    — harmonic mean penalising both errors equally
+
+    System metrics:
+      Macro-F1    = unweighted mean of per-agent F1 scores
+      Weighted-F1 = support-weighted mean (same as Macro here since each agent has
+                    equal support = 8 queries, included for completeness)
+    """
+    labels = AGENT_LABELS
+    tp = {a: 0 for a in labels}
+    fp = {a: 0 for a in labels}
+    fn = {a: 0 for a in labels}
+
+    for r in routing_results:
+        exp  = r["expected"]
+        pred = r["predicted"]
+        if pred == exp:
+            if exp in tp:
+                tp[exp] += 1
+        else:
+            if pred in fp:
+                fp[pred] += 1
+            if exp in fn:
+                fn[exp] += 1
+
+    clf_metrics = {}
+    for a in labels:
+        p = tp[a] / (tp[a] + fp[a]) if (tp[a] + fp[a]) > 0 else 0.0
+        r = tp[a] / (tp[a] + fn[a]) if (tp[a] + fn[a]) > 0 else 0.0
+        f = 2 * p * r / (p + r)     if (p + r)         > 0 else 0.0
+        clf_metrics[a] = {
+            "precision": round(p * 100, 1),
+            "recall":    round(r * 100, 1),
+            "f1":        round(f * 100, 1),
+            "tp": tp[a], "fp": fp[a], "fn": fn[a],
+        }
+
+    support     = {a: sum(1 for r in ROUTING_TEST_SET if r[1] == a) for a in labels}
+    total_sup   = sum(support.values()) or 1
+    macro_f1    = round(np.mean([clf_metrics[a]["f1"]  for a in labels]), 1)
+    weighted_f1 = round(sum(clf_metrics[a]["f1"] * support[a] / total_sup for a in labels), 1)
+    macro_p     = round(np.mean([clf_metrics[a]["precision"] for a in labels]), 1)
+    macro_r     = round(np.mean([clf_metrics[a]["recall"]    for a in labels]), 1)
+
+    return clf_metrics, macro_f1, weighted_f1, macro_p, macro_r
+
 
 def plot_confusion_matrix(routing_results):
     """Confusion matrix: predicted vs expected agent for routing."""
@@ -368,31 +455,31 @@ def plot_response_latency(agent_results):
 
 
 def plot_success_rate(agent_results):
-    """Horizontal bar chart: success rate + keyword completeness per agent."""
+    """Horizontal grouped bar chart: Success Rate + Response Recall + Response F1 per agent."""
     agents = list(agent_results.keys())
-    sr     = [agent_results[a]["success_rate"]        for a in agents]
-    kw     = [agent_results[a]["keyword_completeness"] for a in agents]
+    sr     = [agent_results[a]["success_rate"]      for a in agents]
+    rr     = [agent_results[a]["response_recall"]   for a in agents]
+    rf1    = [agent_results[a]["response_f1"]       for a in agents]
     y      = np.arange(len(agents))
-    h      = 0.35
+    h      = 0.24
     colors = [AGENT_COLORS.get(a, "#999") for a in agents]
     labels = [a.replace("_", " ").title() for a in agents]
 
-    fig, ax = plt.subplots(figsize=(9, 5))
-    bars1 = ax.barh(y + h/2, sr, h, label='Success Rate (%)', color=colors, alpha=0.85, edgecolor='black', linewidth=0.5)
-    bars2 = ax.barh(y - h/2, kw, h, label='Keyword Completeness (%)', color=colors, alpha=0.45, edgecolor='black', linewidth=0.5, hatch='//')
+    fig, ax = plt.subplots(figsize=(10, 5))
+    bars1 = ax.barh(y + h,   sr,  h, label='Success Rate (%)',      color=colors, alpha=0.88, edgecolor='black', linewidth=0.5)
+    bars2 = ax.barh(y,       rr,  h, label='Response Recall (%)',   color=colors, alpha=0.60, edgecolor='black', linewidth=0.5, hatch='xx')
+    bars3 = ax.barh(y - h,   rf1, h, label='Response F1 (%)',       color=colors, alpha=0.40, edgecolor='black', linewidth=0.5, hatch='//')
 
-    for bar, val in zip(bars1, sr):
-        ax.text(bar.get_width() + 0.5, bar.get_y() + bar.get_height()/2,
-                f"{val:.0f}%", va='center', fontsize=9, fontweight='bold')
-    for bar, val in zip(bars2, kw):
-        ax.text(bar.get_width() + 0.5, bar.get_y() + bar.get_height()/2,
-                f"{val:.0f}%", va='center', fontsize=9)
+    for bars, vals in [(bars1, sr), (bars2, rr), (bars3, rf1)]:
+        for bar, val in zip(bars, vals):
+            ax.text(bar.get_width() + 0.5, bar.get_y() + bar.get_height()/2,
+                    f"{val:.0f}%", va='center', fontsize=8, fontweight='bold')
 
     ax.set_yticks(y)
     ax.set_yticklabels(labels, fontsize=10)
     ax.set_xlabel("Score (%)", fontsize=11)
-    ax.set_xlim(0, 115)
-    ax.set_title("Agent Success Rate & Response Completeness", fontsize=13, fontweight='bold')
+    ax.set_xlim(0, 120)
+    ax.set_title("Agent Success Rate  |  Response Recall  |  Response F1", fontsize=13, fontweight='bold')
     ax.legend(loc='lower right', fontsize=9)
     ax.xaxis.grid(True, linestyle='--', alpha=0.5)
     ax.set_axisbelow(True)
@@ -473,32 +560,32 @@ def plot_orchestration_overhead(overhead_data):
 
 
 def plot_radar_chart(agent_results, routing_acc):
-    """Radar (spider) chart showing multi-dimensional agent performance."""
+    """Radar (spider) chart — 5 axes: Success Rate, Response Recall, Response F1, Speed, Routing Recall."""
     agents     = [a for a in AGENT_LABELS if a in agent_results]
-    categories = ['Success\nRate', 'Keyword\nCompleteness', 'Speed\nScore', 'Routing\nAccuracy']
+    categories = ['Success\nRate', 'Response\nRecall', 'Response\nF1', 'Speed\nScore', 'Routing\nRecall']
     N          = len(categories)
     angles     = np.linspace(0, 2 * np.pi, N, endpoint=False).tolist()
     angles    += angles[:1]
 
     fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
 
-    # Per-agent routing accuracy
-    per_agent_routing = {}
+    # Per-agent routing Recall  (TP / (TP+FN))
+    per_agent_recall = {}
     for a in agents:
         total   = sum(1 for r in ROUTING_TEST_SET if r[1] == a)
         correct = sum(1 for r in routing_results_global if r["expected"] == a and r["correct"])
-        per_agent_routing[a] = (correct / total * 100) if total > 0 else 0
+        per_agent_recall[a] = (correct / total * 100) if total > 0 else 0
 
     for agent in agents:
         r = agent_results[agent]
-        # Speed score: invert latency (higher is faster/better), normalize to 0-100
         max_lat = max(agent_results[a]["mean_latency_ms"] for a in agents)
         speed   = max(0, 100 * (1 - r["mean_latency_ms"] / max_lat))
         values  = [
             r["success_rate"],
-            r["keyword_completeness"],
+            r["response_recall"],
+            r["response_f1"],
             speed,
-            per_agent_routing.get(agent, 0),
+            per_agent_recall.get(agent, 0),
         ]
         values += values[:1]
         color  = AGENT_COLORS.get(agent, "#999")
@@ -510,7 +597,8 @@ def plot_radar_chart(agent_results, routing_acc):
     ax.set_ylim(0, 100)
     ax.set_yticks([20, 40, 60, 80, 100])
     ax.set_yticklabels(['20', '40', '60', '80', '100'], fontsize=7)
-    ax.set_title("Multi-Agent Performance Profile\n(All evaluation dimensions)", fontsize=12, fontweight='bold', y=1.08)
+    ax.set_title("Multi-Agent Performance Profile\n(Success · Response Recall · F1 · Speed · Routing Recall)",
+                 fontsize=12, fontweight='bold', y=1.08)
     ax.legend(loc='upper right', bbox_to_anchor=(1.35, 1.1), fontsize=9)
     plt.tight_layout()
     out = os.path.join(OUTPUT_DIR, "radar_chart.png")
@@ -521,23 +609,22 @@ def plot_radar_chart(agent_results, routing_acc):
 
 def plot_per_agent_accuracy(routing_results, agent_results):
     """
-    Dedicated per-agent accuracy chart combining:
-      - Routing accuracy  (% of intent queries routed correctly)
-      - Success rate      (% of direct agent calls that returned valid data)
-      - Keyword completeness (% of expected keywords found in response)
+    Per-agent accuracy chart combining:
+      - Routing Recall   (% of an agent's true queries caught by master)
+      - Agent Success Rate
+      - Response F1
     """
     agents = AGENT_LABELS
     n = len(agents)
 
-    # Compute per-agent routing accuracy
-    routing_acc_per = []
+    routing_recall_per = []
     for a in agents:
         total   = sum(1 for r in ROUTING_TEST_SET if r[1] == a)
         correct = sum(1 for r in routing_results if r["expected"] == a and r["correct"])
-        routing_acc_per.append((correct / total * 100) if total > 0 else 0.0)
+        routing_recall_per.append((correct / total * 100) if total > 0 else 0.0)
 
-    success_rates = [agent_results.get(a, {}).get("success_rate", 0) for a in agents]
-    kw_scores     = [agent_results.get(a, {}).get("keyword_completeness", 0) for a in agents]
+    success_rates = [agent_results.get(a, {}).get("success_rate", 0)   for a in agents]
+    resp_f1s      = [agent_results.get(a, {}).get("response_f1",   0)  for a in agents]
 
     x      = np.arange(n)
     width  = 0.26
@@ -549,11 +636,11 @@ def plot_per_agent_accuracy(routing_results, agent_results):
 
     # ── Left: grouped bar chart ──────────────────────────────────────────
     ax = axes[0]
-    b1 = ax.bar(x - width, routing_acc_per, width, label='Routing Accuracy (%)',
+    b1 = ax.bar(x - width, routing_recall_per, width, label='Routing Recall (%)',
                 color=[c + 'cc' for c in colors], edgecolor='black', linewidth=0.6)
-    b2 = ax.bar(x,          success_rates,  width, label='Agent Success Rate (%)',
+    b2 = ax.bar(x,         success_rates,       width, label='Agent Success Rate (%)',
                 color=colors, edgecolor='black', linewidth=0.6)
-    b3 = ax.bar(x + width,  kw_scores,      width, label='Keyword Completeness (%)',
+    b3 = ax.bar(x + width, resp_f1s,            width, label='Response F1 (%)',
                 color=colors, edgecolor='black', linewidth=0.6, alpha=0.55, hatch='//')
 
     for bars in [b1, b2, b3]:
@@ -566,33 +653,31 @@ def plot_per_agent_accuracy(routing_results, agent_results):
     ax.set_xticklabels(labels, fontsize=9)
     ax.set_ylabel("Score (%)", fontsize=11)
     ax.set_ylim(0, 118)
-    ax.set_title("Routing Accuracy vs Success Rate vs Keyword Completeness", fontsize=11, fontweight='bold')
+    ax.set_title("Routing Recall  vs  Success Rate  vs  Response F1", fontsize=11, fontweight='bold')
     ax.legend(fontsize=9)
     ax.yaxis.grid(True, linestyle='--', alpha=0.4)
     ax.set_axisbelow(True)
 
-    # ── Right: combined accuracy score (mean of all 3 metrics) ──────────
+    # ── Right: combined score (mean of all 3) ────────────────────────────
     ax2 = axes[1]
-    combined = [(r + s + k) / 3 for r, s, k in zip(routing_acc_per, success_rates, kw_scores)]
+    combined = [(rr + sr + rf) / 3 for rr, sr, rf in zip(routing_recall_per, success_rates, resp_f1s)]
     bars = ax2.bar(labels, combined, color=colors, edgecolor='black', linewidth=0.7, alpha=0.88)
 
-    for bar, val, agent, ra, sr, kw in zip(bars, combined, agents, routing_acc_per, success_rates, kw_scores):
+    for bar, val, agent, rr, sr, rf in zip(bars, combined, agents, routing_recall_per, success_rates, resp_f1s):
         ax2.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.8,
                  f"{val:.1f}%", ha='center', va='bottom', fontsize=9, fontweight='bold')
-        # mini breakdown inside bar
         mid = bar.get_height() / 2
         ax2.text(bar.get_x() + bar.get_width() / 2, mid,
-                 f"R:{ra:.0f}% S:{sr:.0f}%\nKW:{kw:.0f}%",
+                 f"RR:{rr:.0f}% SR:{sr:.0f}%\nF1:{rf:.0f}%",
                  ha='center', va='center', fontsize=7, color='white', fontweight='bold')
 
-    ax2.set_ylabel("Combined Accuracy Score (%)", fontsize=11)
+    ax2.set_ylabel("Combined Score (%)", fontsize=11)
     ax2.set_ylim(0, 118)
-    ax2.set_title("Combined Accuracy Score per Agent\n(mean of Routing + Success + KW Completeness)",
+    ax2.set_title("Combined Score per Agent\n(mean of Routing Recall + Success + Response F1)",
                   fontsize=11, fontweight='bold')
     ax2.yaxis.grid(True, linestyle='--', alpha=0.4)
     ax2.set_axisbelow(True)
 
-    # Dashed mean line
     mean_combined = np.mean(combined)
     ax2.axhline(mean_combined, color='#333', linestyle='--', linewidth=1.3,
                 label=f'System Mean: {mean_combined:.1f}%')
@@ -600,6 +685,95 @@ def plot_per_agent_accuracy(routing_results, agent_results):
 
     plt.tight_layout()
     out = os.path.join(OUTPUT_DIR, "per_agent_accuracy.png")
+    plt.savefig(out, dpi=180, bbox_inches='tight')
+    plt.close()
+    print(f"  Saved: {out}")
+
+
+def plot_classification_metrics(routing_results):
+    """
+    Dedicated chart showing Precision, Recall, and F1 per agent for routing.
+    Two subplots:
+      Left  — grouped bar: Precision / Recall / F1 per agent
+      Right — horizontal precision-recall bar comparison  (macro averages annotated)
+    """
+    clf_metrics, macro_f1, weighted_f1, macro_p, macro_r = compute_classification_metrics(routing_results)
+
+    agents     = AGENT_LABELS
+    precisions = [clf_metrics[a]["precision"] for a in agents]
+    recalls    = [clf_metrics[a]["recall"]    for a in agents]
+    f1s        = [clf_metrics[a]["f1"]        for a in agents]
+    colors     = [AGENT_COLORS.get(a, "#999") for a in agents]
+    xlabels    = [a.replace("_", "\n").title() for a in agents]
+
+    x     = np.arange(len(agents))
+    width = 0.26
+
+    fig, axes = plt.subplots(1, 2, figsize=(15, 6))
+    fig.suptitle(
+        f"Routing Classification Metrics — Macro-F1: {macro_f1:.1f}%  |  Weighted-F1: {weighted_f1:.1f}%",
+        fontsize=13, fontweight='bold', y=1.02
+    )
+
+    # ── Left: Precision / Recall / F1 grouped bar ────────────────────────
+    ax = axes[0]
+    b1 = ax.bar(x - width, precisions, width, label='Precision (%)',
+                color=colors, edgecolor='black', linewidth=0.6, alpha=0.9)
+    b2 = ax.bar(x,         recalls,   width, label='Recall (%)',
+                color=colors, edgecolor='black', linewidth=0.6, alpha=0.65, hatch='xx')
+    b3 = ax.bar(x + width, f1s,       width, label='F1 Score (%)',
+                color=colors, edgecolor='black', linewidth=0.6, alpha=0.45, hatch='//')
+
+    for bars, vals in [(b1, precisions), (b2, recalls), (b3, f1s)]:
+        for bar, val in zip(bars, vals):
+            ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.8,
+                    f"{val:.0f}%", ha='center', va='bottom', fontsize=7.5, fontweight='bold')
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(xlabels, fontsize=9)
+    ax.set_ylabel("Score (%)", fontsize=11)
+    ax.set_ylim(0, 118)
+    ax.set_title("Per-Agent Routing  Precision / Recall / F1", fontsize=11, fontweight='bold')
+    ax.legend(fontsize=9)
+    ax.yaxis.grid(True, linestyle='--', alpha=0.4)
+    ax.set_axisbelow(True)
+
+    # Macro averages
+    ax.axhline(macro_p,  color='navy',   linestyle=':', linewidth=1.2, label=f'Macro Precision: {macro_p:.1f}%')
+    ax.axhline(macro_r,  color='green',  linestyle=':', linewidth=1.2, label=f'Macro Recall: {macro_r:.1f}%')
+    ax.axhline(macro_f1, color='crimson',linestyle='--',linewidth=1.4, label=f'Macro F1: {macro_f1:.1f}%')
+    ax.legend(fontsize=8, loc='lower right')
+
+    # ── Right: TP / FP / FN stacked info per agent ──────────────────────
+    ax2 = axes[1]
+    tps  = [clf_metrics[a]["tp"] for a in agents]
+    fps  = [clf_metrics[a]["fp"] for a in agents]
+    fns  = [clf_metrics[a]["fn"] for a in agents]
+
+    ax2.bar(xlabels, tps, color=colors, edgecolor='black', linewidth=0.6, alpha=0.88, label='TP (correct)')
+    ax2.bar(xlabels, fps, bottom=tps, color='#ff9800', edgecolor='black', linewidth=0.6, alpha=0.75, label='FP (false alarm)')
+    bottom2 = [t + f for t, f in zip(tps, fps)]
+    ax2.bar(xlabels, fns, bottom=bottom2, color='#f44336', edgecolor='black', linewidth=0.6, alpha=0.75, label='FN (missed)')
+
+    for i, (a, tp_, fp_, fn_, f1_) in enumerate(zip(agents, tps, fps, fns, f1s)):
+        ax2.text(i, tp_ / 2, f"TP={tp_}", ha='center', va='center', fontsize=8, color='white', fontweight='bold')
+        if fp_ > 0:
+            ax2.text(i, tp_ + fp_ / 2, f"FP={fp_}", ha='center', va='center', fontsize=7.5, color='white')
+        if fn_ > 0:
+            ax2.text(i, tp_ + fp_ + fn_ / 2, f"FN={fn_}", ha='center', va='center', fontsize=7.5, color='white')
+        ax2.text(i, tp_ + fp_ + fn_ + 0.15, f"F1={f1_:.0f}%",
+                 ha='center', va='bottom', fontsize=8, fontweight='bold',
+                 color=AGENT_COLORS.get(a, '#333'))
+
+    ax2.set_ylabel("Query Count", fontsize=11)
+    ax2.set_ylim(0, 14)
+    ax2.set_title("TP / FP / FN Breakdown per Agent", fontsize=11, fontweight='bold')
+    ax2.legend(fontsize=9)
+    ax2.yaxis.grid(True, linestyle='--', alpha=0.4)
+    ax2.set_axisbelow(True)
+
+    plt.tight_layout()
+    out = os.path.join(OUTPUT_DIR, "classification_metrics.png")
     plt.savefig(out, dpi=180, bbox_inches='tight')
     plt.close()
     print(f"  Saved: {out}")
@@ -688,7 +862,7 @@ def plot_architecture_diagram(agent_results, routing_acc):
         color  = AGENT_COLORS.get(agent_key, '#999')
         m      = agent_results.get(agent_key, {})
         sr     = m.get('success_rate', 0)
-        kw     = m.get('keyword_completeness', 0)
+        rf1    = m.get('response_f1', 0)
         total  = sum(1 for r in ROUTING_TEST_SET if r[1] == agent_key)
         correct= sum(1 for r in routing_results_global if r['expected'] == agent_key and r['correct'])
         ra     = (correct / total * 100) if total > 0 else 0.0
@@ -696,17 +870,17 @@ def plot_architecture_diagram(agent_results, routing_acc):
         # Agent box
         box(ax, x_pos, y_agent, 2.3, 1.35, label, desc, color=color, fontsize=8.5, subfontsize=7.5)
 
-        # Accuracy badge below
+        # Accuracy badge below — now shows Routing Recall / Success Rate / Response F1
         badge_y = y_agent - 1.1
         badge = FancyBboxPatch((x_pos - 1.1, badge_y - 0.32), 2.2, 0.65,
                                boxstyle='round,pad=0.08', facecolor='white',
                                edgecolor=color, linewidth=1.5, zorder=3)
         ax.add_patch(badge)
         ax.text(x_pos, badge_y + 0.05,
-                f'Route:{ra:.0f}%  SR:{sr:.0f}%  KW:{kw:.0f}%',
+                f'Recall:{ra:.0f}%  SR:{sr:.0f}%  F1:{rf1:.0f}%',
                 ha='center', va='center', fontsize=6.8,
                 color=color, fontweight='bold', zorder=4)
-        ax.text(x_pos, badge_y - 0.18, 'Accuracy', ha='center',
+        ax.text(x_pos, badge_y - 0.18, 'Metrics', ha='center',
                 fontsize=6, color='#888', zorder=4)
 
         # Arrow from intent classifier down to agent
@@ -757,70 +931,100 @@ def plot_architecture_diagram(agent_results, routing_acc):
 #  Metrics table printer
 # ─────────────────────────────────────────────────────────────────────────────
 
-def print_metrics_table(routing_acc, agent_results, overhead_data):
-    divider = "─" * 76
-    print(f"\n{'='*76}")
+def print_metrics_table(routing_acc, agent_results, overhead_data, clf_metrics, macro_f1, weighted_f1):
+    print(f"\n{'='*100}")
     print(f"  WMS MULTI-AGENT EVALUATION RESULTS  —  {datetime.now().strftime('%Y-%m-%d %H:%M')}")
-    print(f"{'='*76}")
+    print(f"{'='*100}")
 
-    print(f"\n{'─'*76}")
-    print(f"  {'METRIC':<40} {'VALUE':>15}")
-    print(f"{'─'*76}")
-    print(f"  {'Master Agent Routing Accuracy':<40} {routing_acc:>14.1f}%")
-    n_correct = sum(1 for r in routing_results_global if r["correct"])
-    print(f"  {'Correct Routings / Total Queries':<40} {n_correct:>10d} / {len(ROUTING_TEST_SET)}")
+    # ── System-level summary ─────────────────────────────────────────────────
+    n_correct      = sum(1 for r in routing_results_global if r["correct"])
     mean_route_lat = np.mean([r["latency_ms"] for r in routing_results_global])
-    print(f"  {'Mean Routing Classification Latency':<40} {mean_route_lat:>12.0f} ms")
+    overall_sr     = np.mean([m["success_rate"]      for m in agent_results.values()])
+    overall_lat    = np.mean([m["mean_latency_ms"]   for m in agent_results.values()])
+    overall_rr     = np.mean([m["response_recall"]   for m in agent_results.values()])
+    overall_rf1    = np.mean([m["response_f1"]       for m in agent_results.values()])
+    overall_p      = np.mean([clf_metrics[a]["precision"] for a in AGENT_LABELS])
+    overall_r      = np.mean([clf_metrics[a]["recall"]    for a in AGENT_LABELS])
 
+    print(f"\n{'─'*80}")
+    print(f"  {'SYSTEM METRIC':<45} {'VALUE':>15}")
+    print(f"{'─'*80}")
+    print(f"  {'Overall Routing Accuracy':<45} {routing_acc:>14.1f}%")
+    print(f"  {'Correct Routings / Total Queries':<45} {n_correct:>12d} / {len(ROUTING_TEST_SET)}")
+    print(f"  {'Macro Precision  (routing)':<45} {overall_p:>14.1f}%")
+    print(f"  {'Macro Recall     (routing)':<45} {overall_r:>14.1f}%")
+    print(f"  {'Macro-F1         (routing)':<45} {macro_f1:>14.1f}%")
+    print(f"  {'Weighted-F1      (routing)':<45} {weighted_f1:>14.1f}%")
+    print(f"  {'Mean Routing Classification Latency':<45} {mean_route_lat:>12.0f} ms")
     if overhead_data:
         oh_pct = np.mean([d["overhead_pct"] for d in overhead_data])
-        print(f"  {'Mean Orchestration Overhead':<40} {oh_pct:>13.1f}%")
+        print(f"  {'Mean Orchestration Overhead':<45} {oh_pct:>13.1f}%")
+    print(f"  {'System Avg Agent Success Rate':<45} {overall_sr:>14.1f}%")
+    print(f"  {'System Avg Response Recall':<45} {overall_rr:>14.1f}%")
+    print(f"  {'System Avg Response F1':<45} {overall_rf1:>14.1f}%")
+    print(f"{'='*80}\n")
 
-    # Per-agent routing accuracy
-    per_agent_routing_acc = {}
-    for a in AGENT_LABELS:
-        total   = sum(1 for r in ROUTING_TEST_SET if r[1] == a)
-        correct = sum(1 for r in routing_results_global if r["expected"] == a and r["correct"])
-        per_agent_routing_acc[a] = (correct / total * 100) if total > 0 else 0.0
-
-    print(f"\n{'─'*90}")
-    print(f"  {'AGENT':<16} {'SUCCESS':>9} {'MEAN LAT':>10} {'STD LAT':>9} {'KW COMPL':>10} {'ROUTING ACC':>13}")
-    print(f"{'─'*90}")
+    # ── Per-agent detailed table ─────────────────────────────────────────────
+    H = 110
+    print(f"{'─'*H}")
+    print(f"  {'AGENT':<14} {'SUCCESS':>8} {'LAT(ms)':>9} {'RESP-P':>8} {'RESP-R':>8} "
+          f"{'RESP-F1':>8} {'ROUT-P':>8} {'ROUT-R':>8} {'ROUT-F1':>9} {'TP':>4} {'FP':>4} {'FN':>4}")
+    print(f"{'─'*H}")
     for agent, m in agent_results.items():
-        ra = per_agent_routing_acc.get(agent, 0.0)
-        print(f"  {agent.replace('_',' ').title():<16} {m['success_rate']:>8.0f}% {m['mean_latency_ms']:>9.0f}ms"
-              f" {m['std_latency_ms']:>8.0f}ms {m['keyword_completeness']:>9.0f}% {ra:>12.1f}%")
+        cm = clf_metrics.get(agent, {"precision": 0, "recall": 0, "f1": 0, "tp": 0, "fp": 0, "fn": 0})
+        print(
+            f"  {agent.replace('_',' ').title():<14}"
+            f" {m['success_rate']:>7.0f}%"
+            f" {m['mean_latency_ms']:>8.0f}"
+            f" {m['response_precision']:>7.1f}%"
+            f" {m['response_recall']:>7.1f}%"
+            f" {m['response_f1']:>7.1f}%"
+            f" {cm['precision']:>7.1f}%"
+            f" {cm['recall']:>7.1f}%"
+            f" {cm['f1']:>8.1f}%"
+            f" {cm['tp']:>4d}"
+            f" {cm['fp']:>4d}"
+            f" {cm['fn']:>4d}"
+        )
+    print(f"{'─'*H}")
+    print(
+        f"  {'SYSTEM AVG':<14}"
+        f" {overall_sr:>7.0f}%"
+        f" {overall_lat:>8.0f}"
+        f" {np.mean([m['response_precision'] for m in agent_results.values()]):>7.1f}%"
+        f" {overall_rr:>7.1f}%"
+        f" {overall_rf1:>7.1f}%"
+        f" {overall_p:>7.1f}%"
+        f" {overall_r:>7.1f}%"
+        f" {macro_f1:>8.1f}%"
+    )
+    print(f"{'='*H}\n")
 
-    overall_sr  = np.mean([m["success_rate"] for m in agent_results.values()])
-    overall_lat = np.mean([m["mean_latency_ms"] for m in agent_results.values()])
-    overall_kw  = np.mean([m["keyword_completeness"] for m in agent_results.values()])
-    print(f"{'─'*90}")
-    print(f"  {'SYSTEM AVERAGE':<16} {overall_sr:>8.0f}% {overall_lat:>9.0f}ms {'':>9} {overall_kw:>9.0f}% {routing_acc:>12.1f}%")
-    print(f"{'='*90}\n")
-
-    # LaTeX snippet
+    # ── LaTeX table ──────────────────────────────────────────────────────────
     print("  ── LaTeX Table (paste into your paper) ──────────────────────────────")
     print(r"  \begin{table}[h]")
     print(r"  \centering")
-    print(r"  \caption{WMS Multi-Agent System --- Evaluation Results}")
+    print(r"  \caption{WMS Multi-Agent System --- Classification \& Response Metrics}")
     print(r"  \label{tab:agent_eval}")
-    print(r"  \begin{tabular}{lrrrr}")
+    print(r"  \begin{tabular}{lrrrrrrr}")
     print(r"  \hline")
-    print(r"  \textbf{Agent} & \textbf{Success (\%)} & \textbf{Latency (ms)} & \textbf{KW Completeness (\%)} & \textbf{Routing Accuracy (\%)} \\")
+    print(r"  \textbf{Agent} & \textbf{Succ (\%)} & \textbf{Lat (ms)} "
+          r"& \textbf{Resp-R (\%)} & \textbf{Resp-F1 (\%)} "
+          r"& \textbf{Rout-P (\%)} & \textbf{Rout-R (\%)} & \textbf{Rout-F1 (\%)} \\")
     print(r"  \hline")
-    per_agent_ra = {}
-    for a in AGENT_LABELS:
-        total   = sum(1 for r in ROUTING_TEST_SET if r[1] == a)
-        correct = sum(1 for r in routing_results_global if r["expected"] == a and r["correct"])
-        per_agent_ra[a] = (correct / total * 100) if total > 0 else 0.0
     for agent, m in agent_results.items():
+        cm   = clf_metrics.get(agent, {"precision": 0, "recall": 0, "f1": 0})
         name = agent.replace("_", " ").title()
-        ra   = per_agent_ra.get(agent, routing_acc)
-        print(f"  {name} & {m['success_rate']:.0f} & {m['mean_latency_ms']:.0f} "
-              f"& {m['keyword_completeness']:.0f} & {ra:.1f} \\\\")
+        print(f"  {name} & {m['success_rate']:.0f} & {m['mean_latency_ms']:.0f}"
+              f" & {m['response_recall']:.0f} & {m['response_f1']:.0f}"
+              f" & {cm['precision']:.0f} & {cm['recall']:.0f} & {cm['f1']:.0f} \\\\")
     print(r"  \hline")
-    print(f"  \\textbf{{System Average}} & {overall_sr:.0f} & {overall_lat:.0f} & {overall_kw:.0f} & {routing_acc:.1f} \\\\")
-    print(r"  \multicolumn{5}{l}{\small Note: Routing Accuracy = per-agent correct routings / 8 test queries $\times$ 100} \\")
+    print(f"  \\textbf{{System Avg}} & {overall_sr:.0f} & {overall_lat:.0f}"
+          f" & {overall_rr:.0f} & {overall_rf1:.0f}"
+          f" & {overall_p:.0f} & {overall_r:.0f} & {macro_f1:.0f} \\\\")
+    print(r"  \hline")
+    print(f"  \\multicolumn{{8}}{{l}}{{\\small Macro-F1 (routing): {macro_f1:.1f}\\%"
+          f"  |  Weighted-F1: {weighted_f1:.1f}\\%}} \\\\")
     print(r"  \hline")
     print(r"  \end{tabular}")
     print(r"  \end{table}")
@@ -869,11 +1073,15 @@ async def main():
         with open(p2_cache, "w") as f:
             json.dump(agent_results, f, indent=2)
 
+    # ── Compute classification metrics (Precision / Recall / F1) ─────────
+    clf_metrics, macro_f1, weighted_f1, macro_p, macro_r = compute_classification_metrics(routing_results)
+
     # ── Generate Phase 1+2 charts immediately ────────────────────────────
     print("\n" + "="*60)
     print("  Generating Phase 1+2 charts...")
     print("="*60)
     plot_confusion_matrix(routing_results)
+    plot_classification_metrics(routing_results)   # NEW: Precision / Recall / F1 per agent
     plot_response_latency(agent_results)
     plot_success_rate(agent_results)
     plot_agent_utilization(routing_results)
@@ -894,15 +1102,20 @@ async def main():
     plot_orchestration_overhead(overhead_data)
 
     # ── Print metrics table ───────────────────────────────────────────────
-    print_metrics_table(routing_acc, agent_results, overhead_data)
+    print_metrics_table(routing_acc, agent_results, overhead_data, clf_metrics, macro_f1, weighted_f1)
 
     # ── Save full JSON summary ─────────────────────────────────────────────
     summary = {
-        "timestamp":        datetime.now().isoformat(),
-        "routing_accuracy": round(routing_acc, 2),
-        "routing_results":  routing_results,
-        "agent_results":    agent_results,
-        "overhead_data":    overhead_data,
+        "timestamp":         datetime.now().isoformat(),
+        "routing_accuracy":  round(routing_acc, 2),
+        "macro_f1":          macro_f1,
+        "weighted_f1":       weighted_f1,
+        "macro_precision":   macro_p,
+        "macro_recall":      macro_r,
+        "classification_metrics_per_agent": clf_metrics,
+        "routing_results":   routing_results,
+        "agent_results":     agent_results,
+        "overhead_data":     overhead_data,
     }
     json_path = os.path.join(OUTPUT_DIR, "eval_summary.json")
     with open(json_path, "w") as f:
@@ -911,10 +1124,11 @@ async def main():
 
     print("\n" + "="*60)
     print(f"  DONE. All outputs in: {OUTPUT_DIR}")
-    print("  Files: confusion_matrix.png  response_latency.png  success_rate.png")
-    print("         agent_utilization.png  orchestration_overhead.png  radar_chart.png")
-    print("         per_agent_accuracy.png  architecture_diagram.png")
-    print("         eval_summary.json")
+    print("  Files: confusion_matrix.png  classification_metrics.png")
+    print("         response_latency.png  success_rate.png")
+    print("         agent_utilization.png  orchestration_overhead.png")
+    print("         radar_chart.png  per_agent_accuracy.png")
+    print("         architecture_diagram.png  eval_summary.json")
     print("="*60 + "\n")
 
 

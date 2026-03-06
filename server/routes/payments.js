@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const { PDFDocument, StandardFonts, rgb, degrees } = require('pdf-lib');
 const Transaction = require('../models/Transaction');
 const Vehicle = require('../models/Vehicle');
+const User = require('../models/User');
 const WarehouseLayout = require('../models/WarehouseLayout');
 const DynamicWarehouseLayout = require('../models/DynamicWarehouseLayout');
 const QRCode = require('qrcode');
@@ -12,13 +13,40 @@ const auth = require('../middleware/auth');
 const { authorize } = require('../middleware/auth');
 const emailService = require('../utils/emailService');
 
-// Initialize Razorpay only if credentials are provided
-let razorpay = null;
+// Static fallback Razorpay instance (used if owner has no DB-stored keys)
+let _staticRazorpay = null;
 if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
-  razorpay = new Razorpay({
+  _staticRazorpay = new Razorpay({
     key_id: process.env.RAZORPAY_KEY_ID,
     key_secret: process.env.RAZORPAY_KEY_SECRET,
   });
+}
+
+/**
+ * Returns { instance, keyId, keySecret } using the owner's DB-stored
+ * Razorpay credentials, falling back to process.env values.
+ */
+async function getOwnerRazorpay() {
+  try {
+    const owner = await User.findOne({ role: 'owner' }).select('ownerSettings').lean();
+    const keyId  = owner?.ownerSettings?.razorpayKeyId  || process.env.RAZORPAY_KEY_ID;
+    const secret = owner?.ownerSettings?.razorpaySecret || process.env.RAZORPAY_KEY_SECRET;
+    if (!keyId || !secret) return { instance: null, keyId: null, keySecret: null };
+    return {
+      instance: new Razorpay({ key_id: keyId, key_secret: secret }),
+      keyId,
+      keySecret: secret,
+    };
+  } catch {
+    // DB lookup failed — use env vars
+    if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET)
+      return { instance: null, keyId: null, keySecret: null };
+    return {
+      instance: _staticRazorpay,
+      keyId:    process.env.RAZORPAY_KEY_ID,
+      keySecret: process.env.RAZORPAY_KEY_SECRET,
+    };
+  }
 }
 
 const router = express.Router();
@@ -71,18 +99,19 @@ router.post('/create-order', auth, [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    // Check if Razorpay is configured
-    if (!razorpay) {
+    // Load owner's Razorpay credentials (DB first, .env fallback)
+    const { instance: rpay, keyId: rpayKeyId } = await getOwnerRazorpay();
+    if (!rpay) {
       return res.status(503).json({ 
         success: false,
-        message: 'Payment gateway not configured. Please configure Razorpay credentials in environment variables.' 
+        message: 'Payment gateway not configured. Please add Razorpay credentials in Settings > Payment Gateway.' 
       });
     }
 
     const { amount, currency = 'INR', type, vehicle, storageAllocation, description } = req.body;
 
     // Create Razorpay order
-    const order = await razorpay.orders.create({
+    const order = await rpay.orders.create({
       amount: Math.round(amount * 100), // Amount in paise
       currency: currency,
       receipt: `receipt_${Date.now()}`,
@@ -100,7 +129,7 @@ router.post('/create-order', auth, [
       orderId: order.id,
       amount: order.amount,
       currency: order.currency,
-      keyId: process.env.RAZORPAY_KEY_ID
+      keyId: rpayKeyId
     });
 
   } catch (error) {
@@ -546,10 +575,11 @@ router.post('/verify-payment', auth, [
 
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
 
-    // Verify payment signature
+    // Verify payment signature using owner's stored secret (or env fallback)
+    const { keySecret: rzpSecret } = await getOwnerRazorpay();
     const sign = razorpay_order_id + "|" + razorpay_payment_id;
     const expectedSign = crypto
-      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+      .createHmac("sha256", rzpSecret || process.env.RAZORPAY_KEY_SECRET || '')
       .update(sign.toString())
       .digest("hex");
 

@@ -10,7 +10,7 @@ from datetime import datetime
 
 # ─── data.gov.in Agmarknet config ─────────────────────────────────────────────
 DATAGOV_API_KEY   = os.getenv("DATAGOV_API_KEY", "")
-DATAGOV_RESOURCE  = "9ef84268-d588-465a-a308-a864a43d0070"
+DATAGOV_RESOURCE  = "current-daily-price-various-commodities-various-markets-mandi"
 DATAGOV_STATE     = os.getenv("DATAGOV_STATE", "Telangana")
 
 # Maps Agmarknet commodity names → our normalized grain names

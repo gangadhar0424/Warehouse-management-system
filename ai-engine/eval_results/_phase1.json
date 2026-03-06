@@ -5,336 +5,336 @@
       "expected": "inventory",
       "predicted": "inventory",
       "correct": true,
-      "latency_ms": 1686.3
+      "latency_ms": 1215.3
     },
     {
       "query": "What is the total stock quantity available right now?",
       "expected": "inventory",
       "predicted": "inventory",
       "correct": true,
-      "latency_ms": 1220.8
+      "latency_ms": 949.4
     },
     {
       "query": "Show me the current inventory levels for all grain types.",
       "expected": "inventory",
       "predicted": "inventory",
       "correct": true,
-      "latency_ms": 1078.3
+      "latency_ms": 1886.1
     },
     {
       "query": "Which grain has the highest quantity in storage?",
       "expected": "inventory",
       "predicted": "inventory",
       "correct": true,
-      "latency_ms": 1216.7
+      "latency_ms": 1520.3
     },
     {
       "query": "Is there a shortage of wheat in the warehouse?",
       "expected": "inventory",
       "predicted": "inventory",
       "correct": true,
-      "latency_ms": 852.7
+      "latency_ms": 1265.2
     },
     {
       "query": "What is the warehouse occupancy percentage today?",
       "expected": "inventory",
       "predicted": "inventory",
       "correct": true,
-      "latency_ms": 999.2
+      "latency_ms": 1006.8
     },
     {
       "query": "Give me a complete inventory breakdown by commodity.",
       "expected": "inventory",
       "predicted": "inventory",
       "correct": true,
-      "latency_ms": 856.3
+      "latency_ms": 1140.4
     },
     {
       "query": "How much maize stock do we currently hold?",
       "expected": "inventory",
       "predicted": "inventory",
       "correct": true,
-      "latency_ms": 860.5
+      "latency_ms": 1369.7
     },
     {
       "query": "What is the current market price of wheat?",
       "expected": "pricing",
       "predicted": "pricing",
       "correct": true,
-      "latency_ms": 1202.4
+      "latency_ms": 1145.0
     },
     {
       "query": "Predict rice prices for the next 3 months.",
       "expected": "pricing",
       "predicted": "pricing",
       "correct": true,
-      "latency_ms": 1197.4
+      "latency_ms": 1899.3
     },
     {
       "query": "Should I sell my grain now or wait for better prices?",
       "expected": "pricing",
       "predicted": "pricing",
       "correct": true,
-      "latency_ms": 882.4
+      "latency_ms": 1592.6
     },
     {
       "query": "What is the price trend for soybean this season?",
       "expected": "pricing",
       "predicted": "pricing",
       "correct": true,
-      "latency_ms": 987.7
+      "latency_ms": 921.3
     },
     {
       "query": "Give me market price forecast for all grains.",
       "expected": "pricing",
       "predicted": "pricing",
       "correct": true,
-      "latency_ms": 2817.8
+      "latency_ms": 933.6
     },
     {
       "query": "Are grain prices expected to rise or fall next quarter?",
       "expected": "pricing",
       "predicted": "pricing",
       "correct": true,
-      "latency_ms": 1316.4
+      "latency_ms": 912.5
     },
     {
       "query": "What is the best time to sell maize based on market analysis?",
       "expected": "pricing",
       "predicted": "pricing",
       "correct": true,
-      "latency_ms": 1673.8
+      "latency_ms": 1170.8
     },
     {
       "query": "Compare current prices with historical averages.",
       "expected": "pricing",
       "predicted": "pricing",
       "correct": true,
-      "latency_ms": 980.3
+      "latency_ms": 1141.0
     },
     {
       "query": "How long has the grain been stored in the warehouse?",
       "expected": "duration",
       "predicted": "duration",
       "correct": true,
-      "latency_ms": 859.7
+      "latency_ms": 1372.9
     },
     {
       "query": "Which customers have grain stored for more than 6 months?",
       "expected": "duration",
       "predicted": "duration",
       "correct": true,
-      "latency_ms": 859.7
+      "latency_ms": 1161.3
     },
     {
       "query": "What is the average storage duration for rice?",
       "expected": "duration",
       "predicted": "duration",
       "correct": true,
-      "latency_ms": 993.7
+      "latency_ms": 1686.3
     },
     {
       "query": "Predict the optimal storage duration to maximise profit.",
       "expected": "duration",
       "predicted": "duration",
       "correct": true,
-      "latency_ms": 976.1
+      "latency_ms": 925.9
     },
     {
       "query": "Which lots are approaching their maximum safe storage period?",
       "expected": "duration",
       "predicted": "duration",
       "correct": true,
-      "latency_ms": 866.2
+      "latency_ms": 1344.9
     },
     {
       "query": "Estimate the storage charges for the current inventory.",
       "expected": "duration",
       "predicted": "duration",
       "correct": true,
-      "latency_ms": 1197.8
+      "latency_ms": 1584.3
     },
     {
       "query": "How many days has customer John's wheat been in storage?",
       "expected": "duration",
       "predicted": "duration",
       "correct": true,
-      "latency_ms": 1091.3
+      "latency_ms": 1253.3
     },
     {
       "query": "What is the storage duration distribution across all lots?",
       "expected": "duration",
       "predicted": "duration",
       "correct": true,
-      "latency_ms": 854.0
+      "latency_ms": 1141.5
     },
     {
       "query": "What is the loan default risk for my current portfolio?",
       "expected": "loan_risk",
       "predicted": "loan_risk",
       "correct": true,
-      "latency_ms": 878.7
+      "latency_ms": 1357.7
     },
     {
       "query": "Which customers are at high risk of loan default?",
       "expected": "loan_risk",
       "predicted": "loan_risk",
       "correct": true,
-      "latency_ms": 1443.9
+      "latency_ms": 1248.9
     },
     {
       "query": "Assess the credit risk for a new loan application.",
       "expected": "loan_risk",
       "predicted": "loan_risk",
       "correct": true,
-      "latency_ms": 998.1
+      "latency_ms": 1371.8
     },
     {
       "query": "What percentage of outstanding loans are high risk?",
       "expected": "loan_risk",
       "predicted": "loan_risk",
       "correct": true,
-      "latency_ms": 1168.2
+      "latency_ms": 1269.1
     },
     {
       "query": "Give me a loan risk portfolio summary.",
       "expected": "loan_risk",
       "predicted": "loan_risk",
       "correct": true,
-      "latency_ms": 1074.5
+      "latency_ms": 1042.2
     },
     {
       "query": "Which loans should I flag for immediate review?",
       "expected": "loan_risk",
       "predicted": "loan_risk",
       "correct": true,
-      "latency_ms": 1067.3
+      "latency_ms": 1023.2
     },
     {
       "query": "What is the total exposure on risky loans?",
       "expected": "loan_risk",
       "predicted": "loan_risk",
       "correct": true,
-      "latency_ms": 1194.1
+      "latency_ms": 1047.3
     },
     {
       "query": "Recommend loan limits based on grain collateral value.",
       "expected": "loan_risk",
       "predicted": "loan_risk",
       "correct": true,
-      "latency_ms": 1799.9
+      "latency_ms": 1456.0
     },
     {
       "query": "Are there any suspicious transactions in the weighbridge data?",
       "expected": "anomaly",
       "predicted": "anomaly",
       "correct": true,
-      "latency_ms": 1817.2
+      "latency_ms": 1598.6
     },
     {
       "query": "Detect any fraud or anomalies in recent operations.",
       "expected": "anomaly",
       "predicted": "anomaly",
       "correct": true,
-      "latency_ms": 1682.5
+      "latency_ms": 1985.0
     },
     {
       "query": "Flag transactions that look unusual or out of pattern.",
       "expected": "anomaly",
       "predicted": "anomaly",
       "correct": true,
-      "latency_ms": 2271.1
+      "latency_ms": 1521.2
     },
     {
       "query": "Have there been any weight discrepancies in the last week?",
       "expected": "anomaly",
       "predicted": "inventory",
       "correct": false,
-      "latency_ms": 1585.3
+      "latency_ms": 1839.2
     },
     {
       "query": "Check for irregularities in vehicle weighing records.",
       "expected": "anomaly",
       "predicted": "anomaly",
       "correct": true,
-      "latency_ms": 1681.5
+      "latency_ms": 1801.5
     },
     {
       "query": "Are there any outliers in the payment data?",
       "expected": "anomaly",
       "predicted": "anomaly",
       "correct": true,
-      "latency_ms": 1892.7
+      "latency_ms": 1598.6
     },
     {
       "query": "Identify abnormal patterns in grain movements.",
       "expected": "anomaly",
       "predicted": "anomaly",
       "correct": true,
-      "latency_ms": 1479.2
+      "latency_ms": 924.3
     },
     {
       "query": "Has there been any data tampering or unusual activity?",
       "expected": "anomaly",
       "predicted": "anomaly",
       "correct": true,
-      "latency_ms": 1432.4
+      "latency_ms": 1440.7
     },
     {
       "query": "Send a loan reminder email to overdue customers.",
       "expected": "email",
       "predicted": "email",
       "correct": true,
-      "latency_ms": 1093.8
+      "latency_ms": 974.7
     },
     {
       "query": "Draft a payment alert for customers with pending dues.",
       "expected": "email",
       "predicted": "email",
       "correct": true,
-      "latency_ms": 976.4
+      "latency_ms": 1173.9
     },
     {
       "query": "Write a storage expiry notice for grain stored over 6 months.",
       "expected": "email",
       "predicted": "email",
       "correct": true,
-      "latency_ms": 873.8
+      "latency_ms": 989.9
     },
     {
       "query": "Generate a bulk outreach email for all active customers.",
       "expected": "email",
       "predicted": "email",
       "correct": true,
-      "latency_ms": 1077.8
+      "latency_ms": 1427.7
     },
     {
       "query": "Email a loan approval notification to the customer.",
       "expected": "email",
       "predicted": "email",
       "correct": true,
-      "latency_ms": 1813.4
+      "latency_ms": 1086.3
     },
     {
       "query": "Compose a professional email reminding customers about repayment.",
       "expected": "email",
       "predicted": "email",
       "correct": true,
-      "latency_ms": 884.1
+      "latency_ms": 1223.2
     },
     {
       "query": "Send a warehouse storage charge invoice via email.",
       "expected": "email",
       "predicted": "email",
       "correct": true,
-      "latency_ms": 1085.6
+      "latency_ms": 838.1
     },
     {
       "query": "Notify customers whose grain is approaching the storage deadline.",
       "expected": "email",
       "predicted": "email",
       "correct": true,
-      "latency_ms": 874.3
+      "latency_ms": 1021.3
     }
   ],
   "routing_acc": 97.91666666666666
