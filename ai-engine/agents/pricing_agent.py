@@ -59,8 +59,24 @@ class PricingAgent(BaseAgent):
         """Predict future grain prices."""
         grain_type = data.get('grainType', 'all')
         horizon = data.get('horizon', '3months')
-        
-        current_prices = await DBConnector.get_market_prices()
+        market_state = data.get('marketState')
+
+        # Always prefer live context (from n8n) or fresh Agmarknet data.
+        # Fallback chain: n8n liveContext -> Agmarknet -> cached DB prices.
+        live_context = data.get('liveContext')
+        if isinstance(live_context, dict) and live_context:
+            current_prices = live_context
+            await DBConnector.save_market_prices(current_prices)
+            price_source = 'n8n_live_context'
+        else:
+            try:
+                current_prices = await self._fetch_market_data(market_state)
+                await DBConnector.save_market_prices(current_prices)
+                price_source = 'agmarknet_live'
+            except Exception:
+                current_prices = await DBConnector.get_market_prices()
+                price_source = 'cached'
+
         transactions = await DBConnector.get_transactions(limit=100)
         
         # Calculate volume trends
@@ -75,6 +91,7 @@ class PricingAgent(BaseAgent):
         prompt = f"""Predict grain market prices for Indian agricultural commodities:
 
 Current Prices: {json.dumps(current_prices, default=str)}
+Price Source: {price_source}
 Grain: {grain_type}
 Prediction Horizon: {horizon}
 Warehouse Volume Trends: {json.dumps(grain_volumes, default=str)}
@@ -141,7 +158,7 @@ Respond in JSON: {{
                 message="Using cached prices"
             )
     
-    async def _fetch_market_data(self):
+    async def _fetch_market_data(self, market_state=None):
         """Fetch live mandi prices from data.gov.in Agmarknet API.
         Falls back to AI-generated estimates if API key is not configured."""
 
@@ -150,11 +167,12 @@ Respond in JSON: {{
             return await self._fetch_ai_estimated_prices()
 
         url = f"https://api.data.gov.in/resource/{DATAGOV_RESOURCE}"
+        state = (market_state or DATAGOV_STATE or '').strip() or DATAGOV_STATE
         params = {
             "api-key": DATAGOV_API_KEY,
             "format":  "json",
             "limit":   500,
-            "filters[State]": DATAGOV_STATE,
+            "filters[State]": state,
         }
 
         async with httpx.AsyncClient(timeout=15) as client:
@@ -163,6 +181,13 @@ Respond in JSON: {{
             data = resp.json()
 
         records = data.get("records", [])
+        # Retry without state filter if exact state yields no rows
+        if not records:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(url, params={"api-key": DATAGOV_API_KEY, "format": "json", "limit": 500})
+                resp.raise_for_status()
+                data = resp.json()
+                records = data.get("records", [])
         if not records:
             raise ValueError("Agmarknet API returned no records")
 
@@ -197,7 +222,7 @@ Respond in JSON: {{
                 "max_price": round(max(a["maxs"])),
                 "trend":     "stable",
                 "source":    "agmarknet",
-                "state":     DATAGOV_STATE,
+                "state":     state,
                 "markets":   list(set(a["markets"]))[:5],
                 "market_count": a["count"],
                 "date":      datetime.now().strftime("%Y-%m-%d"),

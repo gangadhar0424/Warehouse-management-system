@@ -88,6 +88,11 @@ const dynamicWarehouseLayoutSchema = new mongoose.Schema({
     trim: true
   },
   description: String,
+  location: {
+    type: String,
+    trim: true,
+    default: 'Telangana'
+  },
   configuration: {
     numberOfBuildings: {
       type: Number,

@@ -82,12 +82,22 @@ class LoanRiskRequest(BaseModel):
     grainType: Optional[str] = None
     grainQuantity: Optional[float] = None
 
+class RiskAssessmentRequest(BaseModel):
+    action: str = "portfolio"
+    customerId: Optional[str] = None
+    loanAmount: Optional[float] = None
+    grainType: Optional[str] = None
+    grainQuantity: Optional[float] = None
+    entityType: Optional[str] = None
+    entityId: Optional[str] = None
+
 class MarketRequest(BaseModel):
     action: str = "predict"
     grainType: Optional[str] = "all"
     horizon: Optional[str] = "3months"
     quantity: Optional[float] = None
     storedSince: Optional[str] = None
+    marketState: Optional[str] = None
 
 class PredictDurationRequest(BaseModel):
     grain_type: str = "rice"
@@ -220,6 +230,33 @@ async def loan_risk_assess(request: LoanRiskRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/risk-assessment")
+async def risk_assessment(request: RiskAssessmentRequest):
+    """Portfolio-level risk snapshot used by backend fallback when n8n is slow/unavailable."""
+    try:
+        loan_risk = await master.route('loan_risk', {
+            'action': 'assess',
+            'customerId': request.customerId,
+            'loanAmount': request.loanAmount,
+            'grainType': request.grainType,
+            'grainQuantity': request.grainQuantity
+        })
+        anomaly = await master.route('anomaly', {
+            'action': 'detect',
+            'entityType': request.entityType,
+            'entityId': request.entityId
+        })
+        return {
+            'success': True,
+            'agent': 'risk_assessment',
+            'data': {
+                'loan_risk': loan_risk,
+                'anomaly': anomaly
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/market/predict")
 async def market_predict(request: MarketRequest):
     try:
@@ -228,7 +265,8 @@ async def market_predict(request: MarketRequest):
             'grainType': request.grainType,
             'horizon': request.horizon,
             'quantity': request.quantity,
-            'storedSince': request.storedSince
+            'storedSince': request.storedSince,
+            'marketState': request.marketState
         })
         return result
     except Exception as e:

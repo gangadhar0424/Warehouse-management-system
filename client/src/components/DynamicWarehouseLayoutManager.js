@@ -32,6 +32,7 @@ import {
   Download,
   Visibility,
   Delete,
+  Edit,
   GridOn
 } from '@mui/icons-material';
 import axios from 'axios';
@@ -40,12 +41,36 @@ import { useTranslation } from '../i18n/LanguageContext';
 
 const DynamicWarehouseLayoutManager = () => {
   const { t } = useTranslation();
+  const grainTypeOptions = [
+    'Rice',
+    'Wheat',
+    'Maize',
+    'Barley',
+    'Millet',
+    'Sorghum',
+    'Paddy',
+    'Soybean',
+    'Groundnut',
+    'Tur Dal',
+    'Chana'
+  ];
+  const indianStateOptions = [
+    'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
+    'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka',
+    'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya',
+    'Mizoram', 'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim',
+    'Tamil Nadu', 'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand',
+    'West Bengal', 'Andaman and Nicobar Islands', 'Chandigarh',
+    'Dadra and Nagar Haveli and Daman and Diu', 'Delhi', 'Jammu and Kashmir',
+    'Ladakh', 'Lakshadweep', 'Puducherry'
+  ];
   const [layouts, setLayouts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [allocateDialogOpen, setAllocateDialogOpen] = useState(false);
   const [slotDetailsDialogOpen, setSlotDetailsDialogOpen] = useState(false);
@@ -62,6 +87,12 @@ const DynamicWarehouseLayoutManager = () => {
   });
   
   const [customers, setCustomers] = useState([]);
+  const [editForm, setEditForm] = useState({
+    id: '',
+    name: '',
+    description: '',
+    location: ''
+  });
   
   const [activeStep, setActiveStep] = useState(0);
   const steps = ['Basic Info', 'Configuration', 'Preview & Create'];
@@ -69,6 +100,7 @@ const DynamicWarehouseLayoutManager = () => {
   const [formData, setFormData] = useState({
     name: '',
     description: '',
+    location: '',
     configuration: {
       numberOfBuildings: 2,
       blocksPerBuilding: 2,
@@ -206,10 +238,53 @@ const DynamicWarehouseLayoutManager = () => {
     }
   };
 
+  const handleOpenEditLayout = (layout) => {
+    setEditForm({
+      id: layout._id,
+      name: layout.name || '',
+      description: layout.description || '',
+      location: layout.location || ''
+    });
+    setEditDialogOpen(true);
+  };
+
+  const handleUpdateLayout = async () => {
+    try {
+      if (!editForm.name.trim()) {
+        setError('Warehouse name is required');
+        return;
+      }
+      if (!editForm.location.trim()) {
+        setError('Warehouse location is required');
+        return;
+      }
+
+      setLoading(true);
+      const token = localStorage.getItem('token');
+      await axios.put(`/api/dynamic-warehouse/layout/${editForm.id}`,
+        {
+          name: editForm.name,
+          description: editForm.description,
+          location: editForm.location,
+        },
+        { headers: { 'x-auth-token': token } }
+      );
+
+      setSuccess('Warehouse details updated successfully!');
+      setEditDialogOpen(false);
+      fetchLayouts();
+    } catch (error) {
+      setError(error.response?.data?.message || 'Failed to update warehouse details');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const resetForm = () => {
     setFormData({
       name: '',
       description: '',
+      location: '',
       configuration: {
         numberOfBuildings: 2,
         blocksPerBuilding: 4,
@@ -229,6 +304,10 @@ const DynamicWarehouseLayoutManager = () => {
     if (activeStep === 0) {
       if (!formData.name.trim()) {
         setError('Warehouse name is required');
+        return;
+      }
+      if (!formData.location.trim()) {
+        setError('Warehouse location is required');
         return;
       }
     }
@@ -361,6 +440,21 @@ const DynamicWarehouseLayoutManager = () => {
               margin="normal"
               required
             />
+            <FormControl fullWidth margin="normal" required>
+              <InputLabel>Warehouse Location (State)</InputLabel>
+              <Select
+                value={formData.location}
+                label="Warehouse Location (State)"
+                onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+              >
+                <MenuItem value="">
+                  <em>-- Select state/UT --</em>
+                </MenuItem>
+                {indianStateOptions.map((state) => (
+                  <MenuItem key={state} value={state}>{state}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
             <TextField
               fullWidth
               label={t('common.description')}
@@ -553,6 +647,9 @@ const DynamicWarehouseLayoutManager = () => {
                 <Typography variant="body2" color="text.secondary" paragraph>
                   {formData.description || 'No description provided'}
                 </Typography>
+                <Typography variant="body2" color="text.secondary" paragraph>
+                  <strong>Location:</strong> {formData.location}
+                </Typography>
                 
                 <Divider sx={{ my: 2 }} />
                 
@@ -716,6 +813,9 @@ const DynamicWarehouseLayoutManager = () => {
                     <Typography variant="body2" color="text.secondary" paragraph>
                       {layout.description || t('common.noDescription')}
                     </Typography>
+                    <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
+                      Location: {layout.location || 'Not set'}
+                    </Typography>
 
                     <Divider sx={{ my: 2 }} />
 
@@ -767,6 +867,15 @@ const DynamicWarehouseLayoutManager = () => {
                           onClick={() => handleViewLayout(layout._id)}
                         >
                           <Visibility />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Edit warehouse details">
+                        <IconButton
+                          size="small"
+                          color="warning"
+                          onClick={() => handleOpenEditLayout(layout)}
+                        >
+                          <Edit />
                         </IconButton>
                       </Tooltip>
                       <Tooltip title={t('warehouse.downloadJSON')}>
@@ -842,6 +951,56 @@ const DynamicWarehouseLayoutManager = () => {
             disabled={loading}
           >
             {activeStep === steps.length - 1 ? 'Create Layout' : 'Next'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Edit Layout Dialog */}
+      <Dialog
+        open={editDialogOpen}
+        onClose={() => setEditDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Edit Warehouse Details</DialogTitle>
+        <DialogContent>
+          <TextField
+            fullWidth
+            label="Warehouse Name"
+            value={editForm.name}
+            onChange={(e) => setEditForm(prev => ({ ...prev, name: e.target.value }))}
+            margin="normal"
+            required
+          />
+          <FormControl fullWidth margin="normal" required>
+            <InputLabel>Warehouse Location (State)</InputLabel>
+            <Select
+              value={editForm.location}
+              label="Warehouse Location (State)"
+              onChange={(e) => setEditForm(prev => ({ ...prev, location: e.target.value }))}
+            >
+              <MenuItem value="">
+                <em>-- Select state/UT --</em>
+              </MenuItem>
+              {indianStateOptions.map((state) => (
+                <MenuItem key={state} value={state}>{state}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <TextField
+            fullWidth
+            label="Description"
+            value={editForm.description}
+            onChange={(e) => setEditForm(prev => ({ ...prev, description: e.target.value }))}
+            margin="normal"
+            multiline
+            rows={3}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditDialogOpen(false)}>Cancel</Button>
+          <Button variant="contained" onClick={handleUpdateLayout} disabled={loading}>
+            Save Changes
           </Button>
         </DialogActions>
       </Dialog>
@@ -1230,7 +1389,20 @@ const DynamicWarehouseLayoutManager = () => {
             label="Number of Bags *"
             type="number"
             value={allocationForm.bags}
-            onChange={(e) => setAllocationForm({ ...allocationForm, bags: e.target.value })}
+            onChange={(e) => {
+              const bags = e.target.value;
+              const bagsNum = parseInt(bags, 10);
+              const autoWeightQuintals = Number.isFinite(bagsNum) && bagsNum > 0
+                ? (bagsNum * 50) / 100
+                : '';
+
+              setAllocationForm({
+                ...allocationForm,
+                bags,
+                // 1 bag = 50 kg = 0.5 quintal
+                weight: autoWeightQuintals === '' ? '' : autoWeightQuintals.toString()
+              });
+            }}
             sx={{ mt: 2 }}
             inputProps={{ 
               min: 1, 
@@ -1239,24 +1411,32 @@ const DynamicWarehouseLayoutManager = () => {
             helperText={`Maximum: ${selectedSlot ? (selectedSlot.capacity || 2000) - (selectedSlot.filledBags || 0) : 2000} bags available`}
           />
 
-          <TextField
-            fullWidth
-            label="Grain Type"
-            value={allocationForm.grainType}
-            onChange={(e) => setAllocationForm({ ...allocationForm, grainType: e.target.value })}
-            sx={{ mt: 2 }}
-            placeholder="e.g., Wheat, Rice, Corn"
-          />
+          <FormControl fullWidth sx={{ mt: 2 }}>
+            <InputLabel>Grain Type</InputLabel>
+            <Select
+              value={allocationForm.grainType}
+              label="Grain Type"
+              onChange={(e) => setAllocationForm({ ...allocationForm, grainType: e.target.value })}
+            >
+              <MenuItem value="">
+                <em>-- Select grain type --</em>
+              </MenuItem>
+              {grainTypeOptions.map((grain) => (
+                <MenuItem key={grain} value={grain}>
+                  {grain}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
 
           <TextField
             fullWidth
             label="Weight (quintals)"
             type="number"
             value={allocationForm.weight}
-            onChange={(e) => setAllocationForm({ ...allocationForm, weight: e.target.value })}
             sx={{ mt: 2 }}
-            inputProps={{ min: 0, step: 0.01 }}
-            helperText="Optional: Total weight in quintals (1 quintal = 100 kg)"
+            inputProps={{ min: 0, step: 0.01, readOnly: true }}
+            helperText="Auto-calculated: 1 bag = 50 kg = 0.5 quintal"
           />
 
           <TextField

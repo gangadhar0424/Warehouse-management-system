@@ -1003,121 +1003,104 @@ router.get('/bill/weighbridge/:transactionId', auth, async (req, res) => {
     const inTime    = vehicle.entryTime ? new Date(vehicle.entryTime) : new Date(txn.createdAt);
     const outTime   = new Date(paidAt);
 
-    // ── Build PDF (A5 landscape = 594 × 420) ──────────────────────────────────
+    // Theme A: Industrial weighbridge receipt
     const pdfDoc = await PDFDocument.create();
     const page   = pdfDoc.addPage([594, 420]);
-    const W = 594; const H = 420;
+    const W = 594;
+    const H = 420;
     const font  = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const bold  = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-    // Background
-    page.drawRectangle({ x:0, y:0, width:W, height:H, color: rgb(1,1,1) });
+    const cBg = rgb(0.06, 0.08, 0.12);
+    const cPanel = rgb(0.1, 0.13, 0.19);
+    const cPanel2 = rgb(0.13, 0.17, 0.24);
+    const cAccent = rgb(0.98, 0.43, 0.13);
+    const cText = rgb(0.92, 0.94, 0.98);
+    const cMute = rgb(0.66, 0.72, 0.82);
 
-    // Red border
-    for (let i = 0; i < 3; i++) {
-      page.drawRectangle({ x:i*2, y:i*2, width:W-i*4, height:H-i*4,
-        borderColor: rgb(0.8,0,0), borderWidth: 1, color: rgb(1,1,1) });
-    }
-
-    // ── Header block ──────────────────────────────────────────────────────────
-    let y = H - 30;
-    // Warehouse name as main header
-    const wNameWidth = warehouseName.length * 8.5;
-    page.drawText(warehouseName, { x: W/2 - wNameWidth/2, y, size: 18, font: bold, color: rgb(0.8,0,0) });
-    y -= 16;
-    page.drawText('WEIGH BRIDGE', { x: W/2 - 45, y, size: 11, font: bold, color: rgb(0.8,0,0) });
-    y -= 14;
-    // Address from owner profile
-    const addrWidth = warehouseAddr.length * 5.2;
-    page.drawText(warehouseAddr, { x: Math.max(W/2 - addrWidth/2, 10), y, size: 9, font, color: rgb(0.2,0.2,0.5) });
-    y -= 12;
-    page.drawText('50 TONNE COMPUTERISED AVERY ELECTRONIC WEIGH BRIDGE', { x: W/2 - 160, y, size: 8, font, color: rgb(0.2,0.2,0.5) });
-    y -= 12;
-    page.drawText(`CELL : ${ownerPhone}`, { x: W/2 - ownerPhone.length*3.5 - 18, y, size: 8, font, color: rgb(0.4,0.4,0.4) });
-    y -= 8;
-    page.drawLine({ start: {x:10, y}, end: {x:W-10, y}, thickness:1, color: rgb(0.8,0,0) });
-
-    // Receipt prefix  
-    const receiptNum = txn.invoiceNumber || txn.transactionId || txn._id.toString().slice(-8).toUpperCase();
-    page.drawText(`Receipt No: ${receiptNum}`, { x: 14, y: y-14, size: 8, font: bold });
-    page.drawText(`24 HOURS SERVICE`, { x: W-105, y: y-14, size: 9, font: bold, color: rgb(1,1,1) });
-    page.drawRectangle({ x: W-110, y: y-20, width:100, height:16, color: rgb(0.8,0,0) });
-    page.drawText(`24 HOURS SERVICE`, { x: W-105, y: y-14, size: 9, font: bold, color: rgb(1,1,1) });
-    y -= 28;
-
-    // ── Row 1: IN DATE / IN TIME / OUT DATE / OUT TIME ─────────────────────── 
-    const cols = [14, 155, 295, 440];
     const fmtDate = (d) => new Date(d).toLocaleDateString('en-IN');
-    const fmtTime = (d) => new Date(d).toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit'});
+    const fmtTime = (d) => new Date(d).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+    const trimText = (txt, max = 50) => {
+      const value = String(txt || '');
+      return value.length > max ? `${value.slice(0, max - 1)}...` : value;
+    };
 
-    const row1Labels = ['IN DATE :', 'IN TIME :', 'OUT DATE :', 'OUT TIME :'];
-    const row1Values = [fmtDate(inTime), fmtTime(inTime), fmtDate(outTime), fmtTime(outTime)];
-    row1Labels.forEach((lbl,i) => {
-      page.drawText(lbl,         { x: cols[i],     y, size: 8, font: bold });
-      page.drawText(row1Values[i],{ x: cols[i]+52, y, size: 8, font });
-    });
-    y -= 14;
-
-    // ── Row 2: VEHICLE REG. NO. / CARD NO. ────────────────────────────────────
-    page.drawText('VEHICLE REG. NO. :', { x:14, y, size:8, font: bold });
-    page.drawText(vehicle.vehicleNumber || 'N/A', { x:100, y, size:9, font: bold, color: rgb(0.1,0.1,0.7) });
-    page.drawText('CARD NO. :', { x:350, y, size:8, font: bold });
-    page.drawText(receiptNum, { x:410, y, size:8, font });
-    y -= 14;
-
-    // ── Weight table ──────────────────────────────────────────────────────────
-    page.drawLine({ start:{x:10,y:y+10}, end:{x:W-10,y:y+10}, thickness:0.5, color: rgb(0.6,0.6,0.6) });
+    const receiptNum = txn.invoiceNumber || txn.transactionId || txn._id.toString().slice(-8).toUpperCase();
     const gross = vehicle.weighBridgeData?.grossWeight || 0;
-    const tare  = vehicle.weighBridgeData?.tareWeight  || 0;
-    const net   = vehicle.weighBridgeData?.netWeight   || (gross - tare);
+    const tare = vehicle.weighBridgeData?.tareWeight || 0;
+    const net = vehicle.weighBridgeData?.netWeight || (gross - tare);
 
-    page.drawText('WEIGHT', { x:14, y, size:8, font: bold });
-    page.drawText('GROSS', { x:80,  y, size:8, font: bold });
-    page.drawText(`${gross.toFixed(2)}`, { x:120, y, size:9, font });
-    page.drawText('KGS.', { x:185, y, size:8, font: bold });
-    page.drawText('TARE',  { x:230, y, size:8, font: bold });
-    page.drawText(`${tare.toFixed(2)}`, { x:270, y, size:9, font });
-    page.drawText('KGS.', { x:335, y, size:8, font: bold });
-    page.drawText('NET',   { x:380, y, size:8, font: bold });
-    page.drawText(`${net.toFixed(2)}`, { x:415, y, size:9, font });
-    page.drawText('KGS.', { x:480, y, size:8, font: bold });
-    y -= 14;
+    page.drawRectangle({ x: 0, y: 0, width: W, height: H, color: cBg });
+    page.drawRectangle({ x: 8, y: 8, width: W - 16, height: H - 16, borderColor: cAccent, borderWidth: 1.6, color: cBg });
 
-    // ── Weight in words ───────────────────────────────────────────────────────
-    page.drawText('WEIGHT IN WORDS', { x:14, y, size:8, font: bold });
-    page.drawText('GROSS', { x:110, y, size:8, font: bold });
-    page.drawText(numToWords(gross) + ' Kilograms', { x:150, y, size:8, font });
-    y -= 11;
-    page.drawText('', { x:14, y, size:8, font: bold });
-    page.drawText('TARE',  { x:110, y, size:8, font: bold });
-    page.drawText(numToWords(tare) + ' Kilograms', { x:150, y, size:8, font });
-    y -= 11;
-    page.drawText('', { x:14, y, size:8, font: bold });
-    page.drawText('NET',   { x:110, y, size:8, font: bold });
-    page.drawText(numToWords(net) + ' Kilograms', { x:150, y, size:8, font });
-    y -= 16;
+    // Header bar
+    page.drawRectangle({ x: 18, y: H - 86, width: W - 36, height: 58, color: cPanel2 });
+    page.drawRectangle({ x: 18, y: H - 92, width: W - 36, height: 4, color: cAccent });
+    page.drawText(trimText(warehouseName, 44), { x: 28, y: H - 58, size: 19, font: bold, color: cText });
+    page.drawText('WEIGHBRIDGE TRANSACTION RECEIPT', { x: 30, y: H - 76, size: 9, font: bold, color: cMute });
+    page.drawText(trimText(warehouseAddr, 70), { x: 330, y: H - 62, size: 8, font, color: cMute });
+    page.drawText(`HELPDESK: ${ownerPhone}`, { x: 330, y: H - 76, size: 8, font, color: cText });
 
-    page.drawLine({ start:{x:10,y:y+4}, end:{x:W-10,y:y+4}, thickness:0.5, color: rgb(0.6,0.6,0.6) });
+    // Receipt / service badges
+    page.drawRectangle({ x: W - 176, y: H - 122, width: 158, height: 24, color: cAccent });
+    page.drawText(`RECEIPT ${receiptNum}`, { x: W - 169, y: H - 113, size: 9, font: bold, color: rgb(1, 1, 1) });
+    page.drawRectangle({ x: W - 176, y: H - 152, width: 158, height: 22, color: cPanel2, borderColor: cAccent, borderWidth: 0.8 });
+    page.drawText('24x7 SERVICE WINDOW', { x: W - 163, y: H - 143, size: 8, font: bold, color: cText });
 
-    // ── Payment row ───────────────────────────────────────────────────────────
-    page.drawText('RECEIVED WITH THANKS Rs.', { x:14, y, size:8, font: bold });
-    page.drawText(`${amount}`, { x:175, y, size:11, font: bold, color: rgb(0.1,0.4,0.1) });
-    page.drawText(`(Payment via ${method})`, { x:250, y, size:8, font, color: rgb(0.3,0.3,0.3) });
-    y -= 11;
-    page.drawText('IN WORDS RUPEES', { x:14, y, size:8, font: bold });
-    page.drawText(numToWords(amount) + ' Only', { x:110, y, size:8, font });
-    y -= 20;
+    // Left information panel
+    page.drawRectangle({ x: 18, y: 214, width: 365, height: 138, color: cPanel, borderColor: rgb(0.18, 0.22, 0.29), borderWidth: 0.8 });
+    const infoRows = [
+      ['Vehicle No', vehicle.vehicleNumber || 'N/A'],
+      ['In Date', fmtDate(inTime)],
+      ['In Time', fmtTime(inTime)],
+      ['Out Date', fmtDate(outTime)],
+      ['Out Time', fmtTime(outTime)],
+      ['Payment Mode', method],
+    ];
+    let rowY = 332;
+    infoRows.forEach(([label, value], i) => {
+      const zebra = i % 2 === 0;
+      page.drawRectangle({ x: 24, y: rowY - 14, width: 353, height: 20, color: zebra ? cPanel2 : cPanel });
+      page.drawText(`${label}`, { x: 30, y: rowY - 7, size: 8, font: bold, color: cMute });
+      page.drawText(trimText(value, 36), { x: 150, y: rowY - 7, size: 9, font, color: cText });
+      rowY -= 22;
+    });
 
-    // ── Signature row ─────────────────────────────────────────────────────────
-    page.drawLine({ start:{x:14,   y:y+14}, end:{x:180,  y:y+14}, thickness:0.5, color: rgb(0.5,0.5,0.5) });
-    page.drawLine({ start:{x:W-180,y:y+14}, end:{x:W-14, y:y+14}, thickness:0.5, color: rgb(0.5,0.5,0.5) });
-    page.drawText("Party's Signature",   { x:14,   y, size:7, font, color: rgb(0.4,0.4,0.4) });
-    page.drawText("Operator's Signature",{ x:W-115, y, size:7, font, color: rgb(0.4,0.4,0.4) });
+    // Weight metric cards
+    const cardY = 161;
+    const cardW = 176;
+    const gap = 12;
+    const metricCards = [
+      ['GROSS', gross],
+      ['TARE', tare],
+      ['NET', net],
+    ];
+    metricCards.forEach(([label, value], idx) => {
+      const x = 18 + idx * (cardW + gap);
+      page.drawRectangle({ x, y: cardY, width: cardW, height: 68, color: cPanel2, borderColor: cAccent, borderWidth: 0.8 });
+      page.drawText(label, { x: x + 10, y: cardY + 48, size: 10, font: bold, color: cMute });
+      page.drawText(`${Number(value).toFixed(2)} KG`, { x: x + 10, y: cardY + 23, size: 16, font: bold, color: cText });
+      page.drawLine({ start: { x: x + 10, y: cardY + 18 }, end: { x: x + cardW - 10, y: cardY + 18 }, thickness: 0.6, color: rgb(0.25, 0.31, 0.4) });
+      page.drawText(`${numToWords(value)} kilograms`, { x: x + 10, y: cardY + 7, size: 7, font, color: cMute });
+    });
 
-    // ── Footer note ───────────────────────────────────────────────────────────
-    y -= 16;
-    page.drawText('Our responsibility ceases once the vehicle leaves the platform.', {
-      x: W/2 - 130, y, size: 7, font, color: rgb(0.5,0.3,0.3)
+    // Amount strip
+    page.drawRectangle({ x: 18, y: 112, width: W - 36, height: 36, color: cAccent });
+    page.drawText('AMOUNT RECEIVED', { x: 28, y: 126, size: 10, font: bold, color: rgb(1, 1, 1) });
+    page.drawText(rupee(amount), { x: W - 180, y: 123, size: 16, font: bold, color: rgb(1, 1, 1) });
+    page.drawText(`IN WORDS: ${numToWords(amount)} only`, { x: 28, y: 100, size: 8, font, color: cMute });
+
+    // Footer and signatures
+    page.drawLine({ start: { x: 24, y: 70 }, end: { x: 200, y: 70 }, thickness: 0.7, color: rgb(0.32, 0.37, 0.47) });
+    page.drawLine({ start: { x: W - 200, y: 70 }, end: { x: W - 24, y: 70 }, thickness: 0.7, color: rgb(0.32, 0.37, 0.47) });
+    page.drawText("Customer Signature", { x: 24, y: 58, size: 8, font, color: cMute });
+    page.drawText("Operator Signature", { x: W - 119, y: 58, size: 8, font, color: cMute });
+    page.drawText('System generated weighbridge bill. Responsibility ceases after vehicle exit.', {
+      x: 18,
+      y: 34,
+      size: 7.2,
+      font,
+      color: cMute
     });
 
     const pdfBytes = await pdfDoc.save();
@@ -1175,86 +1158,88 @@ router.get('/bill/storage/:transactionId', auth, async (req, res) => {
     };
     const txnTypeLabel = typeLabels[txn.type] || txn.type || 'Payment';
 
-    // ── Build PDF (A5 portrait = 420 × 594) ───────────────────────────────────
+    // Theme B: Finance receipt for rent/loan payments
     const pdfDoc = await PDFDocument.create();
     const page   = pdfDoc.addPage([420, 594]);
-    const W = 420; const H = 594;
+    const W = 420;
+    const H = 594;
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-    // Background
-    page.drawRectangle({ x:0, y:0, width:W, height:H, color: rgb(0.98,0.98,1) });
-    page.drawRectangle({ x:4, y:4, width:W-8, height:H-8, borderColor: rgb(0.1,0.2,0.6), borderWidth:2, color: rgb(1,1,1) });
-    
-    // Navy header band
-    page.drawRectangle({ x:4, y:H-70, width:W-8, height:66, color: rgb(0.05,0.15,0.45) });
+    const cBg = rgb(0.98, 0.99, 0.98);
+    const cEmerald = rgb(0.0, 0.46, 0.34);
+    const cDeep = rgb(0.08, 0.22, 0.36);
+    const cLine = rgb(0.84, 0.89, 0.86);
+    const cInk = rgb(0.15, 0.2, 0.18);
 
-    let y = H - 30;
-    page.drawText(warehouseName.toUpperCase(), { x:20, y, size:16, font: bold, color: rgb(1,1,1) });
-    y -= 16;
-    page.drawText(warehouseAddr, { x:20, y, size:9, font, color: rgb(0.8,0.85,1) });
-    y -= 12;
-    page.drawText(`Ph: ${ownerPhone}`, { x:20, y, size:8, font, color: rgb(0.8,0.85,1) });
-
-    // Receipt type label (light badge top-right)
-    page.drawRectangle({ x: W-125, y: H-60, width:116, height:22, color: rgb(1,0.85,0.1) });
-    page.drawText(`PAYMENT RECEIPT`, { x: W-118, y: H-52, size: 9, font: bold, color: rgb(0.1,0.1,0.1) });
-
-    y = H - 90;
-    page.drawText('PAYMENT RECEIPT', { x: W/2 - 55, y, size:16, font: bold, color: rgb(0.1,0.2,0.5) });
-    y -= 20;
-
-    // Divider
-    page.drawLine({ start:{x:12,y}, end:{x:W-12,y}, thickness:1, color: rgb(0.1,0.2,0.5) });
-    y -= 18;
-
-    // Info rows
-    const drawRow = (labelTxt, valueTxt, yl, highlight=false) => {
-      page.drawRectangle({ x:12, y:yl-4, width:W-24, height:18,
-        color: highlight ? rgb(0.93,0.96,1) : rgb(1,1,1) });
-      page.drawText(labelTxt, { x:18, y:yl, size:9, font: bold, color: rgb(0.3,0.3,0.3) });
-      page.drawText(valueTxt, { x:W/2, y:yl, size:9, font, color: rgb(0.1,0.1,0.1) });
+    const trimText = (txt, max = 46) => {
+      const value = String(txt || '');
+      return value.length > max ? `${value.slice(0, max - 1)}...` : value;
     };
 
-    drawRow('Receipt No. :',            receiptNum,                             y, true);  y -= 20;
-    drawRow('Date & Time :',             new Date(paidAt).toLocaleString('en-IN'), y, false); y -= 20;
-    drawRow('Customer Name :',           custName,                               y, true);  y -= 20;
-    drawRow('Contact :',                 custPhone,                              y, false); y -= 20;
-    drawRow('Payment For :',             txnTypeLabel,                           y, true);  y -= 20;
-    drawRow('Payment Method :',          method,                                 y, false); y -= 20;
+    page.drawRectangle({ x: 0, y: 0, width: W, height: H, color: cBg });
+    page.drawRectangle({ x: 10, y: 10, width: W - 20, height: H - 20, color: rgb(1, 1, 1), borderColor: cLine, borderWidth: 1.1 });
+
+    // Header stack
+    page.drawRectangle({ x: 10, y: H - 98, width: W - 20, height: 44, color: cDeep });
+    page.drawRectangle({ x: 10, y: H - 54, width: W - 20, height: 34, color: cEmerald });
+    page.drawText(trimText(warehouseName.toUpperCase(), 34), { x: 20, y: H - 80, size: 15, font: bold, color: rgb(1, 1, 1) });
+    page.drawText(trimText(warehouseAddr, 52), { x: 20, y: H - 94, size: 8, font, color: rgb(0.86, 0.93, 1) });
+    page.drawText(`Contact: ${ownerPhone}`, { x: 20, y: H - 46, size: 9, font, color: rgb(0.9, 1, 0.97) });
+
+    page.drawRectangle({ x: W - 132, y: H - 49, width: 112, height: 24, color: rgb(1, 1, 1), borderColor: rgb(1, 1, 1), borderWidth: 0.8 });
+    page.drawText('PAYMENT RECEIPT', { x: W - 123, y: H - 40, size: 8.5, font: bold, color: cEmerald });
+
+    let y = H - 120;
+    page.drawText('Receipt Summary', { x: 20, y, size: 12, font: bold, color: cDeep });
+    y -= 14;
+    page.drawLine({ start: { x: 20, y }, end: { x: W - 20, y }, thickness: 1, color: cLine });
+    y -= 16;
+
+    const drawRow = (labelTxt, valueTxt, highlight = false) => {
+      page.drawRectangle({ x: 20, y: y - 7, width: W - 40, height: 20, color: highlight ? rgb(0.96, 0.99, 0.97) : rgb(1, 1, 1) });
+      page.drawText(labelTxt, { x: 26, y, size: 8.5, font: bold, color: rgb(0.42, 0.48, 0.46) });
+      page.drawText(trimText(valueTxt, 43), { x: 158, y, size: 9, font, color: cInk });
+      y -= 22;
+    };
+
+    drawRow('Receipt Number', receiptNum, true);
+    drawRow('Date & Time', new Date(paidAt).toLocaleString('en-IN'));
+    drawRow('Customer Name', custName, true);
+    drawRow('Customer Contact', custPhone);
+    drawRow('Payment For', txnTypeLabel, true);
+    drawRow('Payment Method', method);
 
     if (txn.storageAllocation) {
       const alloc = txn.storageAllocation;
-      drawRow('Storage Box :', alloc.boxNumber || alloc._id?.toString().slice(-6) || 'N/A', y, true);
-      y -= 20;
-      drawRow('Grain Type :', alloc.grainType || 'N/A', y, false);
-      y -= 20;
+      drawRow('Storage Ref', alloc.boxNumber || alloc._id?.toString().slice(-6) || 'N/A', true);
+      drawRow('Grain Type', alloc.grainType || 'N/A');
     }
 
     if (txn.description) {
-      drawRow('Description :', txn.description.substring(0,45), y, true);
-      y -= 20;
+      drawRow('Description', txn.description, true);
     }
 
-    y -= 10;
-    page.drawLine({ start:{x:12,y}, end:{x:W-12,y}, thickness:1, color: rgb(0.1,0.2,0.5) });
-    y -= 20;
+    y -= 4;
+    page.drawRectangle({ x: 20, y: y - 48, width: W - 40, height: 56, color: cDeep });
+    page.drawText('Total Paid', { x: 30, y: y - 8, size: 10, font: bold, color: rgb(0.75, 0.88, 0.98) });
+    page.drawText(rupee(amount), { x: 30, y: y - 30, size: 22, font: bold, color: rgb(1, 1, 1) });
+    y -= 70;
 
-    // Amount box
-    page.drawRectangle({ x:20, y:y-30, width:W-40, height:44, color: rgb(0.05,0.15,0.45) });
-    page.drawText('AMOUNT PAID', { x:35, y:y+4, size:10, font: bold, color: rgb(0.8,0.85,1) });
-    page.drawText(`Rs. ${Number(amount).toLocaleString('en-IN')}`, { x:W/2-10, y:y-16, size:18, font: bold, color: rgb(1,0.85,0.1) });
-    y -= 50;
+    page.drawRectangle({ x: 20, y: y - 26, width: W - 40, height: 28, color: rgb(0.93, 0.98, 0.96), borderColor: cLine, borderWidth: 0.6 });
+    page.drawText(`In words: ${numToWords(amount)} rupees only`, { x: 26, y: y - 15, size: 8.3, font, color: rgb(0.3, 0.4, 0.36) });
+    y -= 40;
 
-    page.drawText(`In Words: ${numToWords(amount)} Rupees Only`, { x:20, y, size:8, font, color: rgb(0.4,0.4,0.4) });
-    y -= 30;
-
-    // Thank you
-    page.drawLine({ start:{x:12,y:y+10}, end:{x:W-12,y:y+10}, thickness:0.5, color: rgb(0.7,0.7,0.7) });
-    page.drawText('Thank you for your payment!', { x: W/2 - 60, y, size:10, font: bold, color: rgb(0.1,0.4,0.1) });
+    page.drawLine({ start: { x: 20, y }, end: { x: W - 20, y }, thickness: 0.7, color: cLine });
     y -= 16;
-    page.drawText('This is a computer-generated receipt. No signature required.', {
-      x:20, y, size:7, font, color: rgb(0.5,0.5,0.5)
+    page.drawText('Thank you for your payment.', { x: 20, y, size: 10, font: bold, color: cEmerald });
+    y -= 12;
+    page.drawText('Computer generated receipt. Valid for both customer and owner records.', {
+      x: 20,
+      y,
+      size: 7.5,
+      font,
+      color: rgb(0.47, 0.53, 0.5)
     });
 
     const pdfBytes = await pdfDoc.save();

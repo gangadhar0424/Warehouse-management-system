@@ -1,6 +1,8 @@
 const express = require('express');
 const axios = require('axios');
 const auth = require('../middleware/auth');
+const DynamicWarehouseLayout = require('../models/DynamicWarehouseLayout');
+const StorageAllocation = require('../models/StorageAllocation');
 
 const router = express.Router();
 
@@ -33,14 +35,29 @@ const FALLBACK_PRICES = {
   'Barley':  2200, 'Sorghum': 2000, 'Millet': 1900
 };
 
-let marketPricesCache = {};   // { GrainName: { price, change, trend, market, source, lastUpdated } }
-let previousPricesCache = {}; // { GrainName: previousModalPrice }
-let lastFetchTime = null;
-let dataSource = 'simulated'; // 'agmarknet' | 'simulated'
+const stateCaches = new Map(); // state -> { marketPrices, previousPrices, lastFetchTime, dataSource }
 const REFRESH_INTERVAL = 30 * 60 * 1000; // 30 minutes (API data changes once/day)
 
+const normalizeState = (state) => {
+  const s = (state || '').trim();
+  return s || DATAGOV_STATE;
+};
+
+const getOrCreateStateCache = (state) => {
+  const normalized = normalizeState(state);
+  if (!stateCaches.has(normalized)) {
+    stateCaches.set(normalized, {
+      marketPrices: {},
+      previousPrices: {},
+      lastFetchTime: null,
+      dataSource: 'simulated'
+    });
+  }
+  return stateCaches.get(normalized);
+};
+
 // ─── Fetch real prices from data.gov.in Agmarknet ────────────────────────────
-const fetchAgmarknetPrices = async () => {
+const fetchAgmarknetPrices = async (stateName, cache) => {
   if (!DATAGOV_API_KEY) {
     throw new Error('DATAGOV_API_KEY not set in .env');
   }
@@ -51,12 +68,29 @@ const fetchAgmarknetPrices = async () => {
       'api-key': DATAGOV_API_KEY,
       format:    'json',
       limit:     200,
-      'filters[State]': DATAGOV_STATE,
+      'filters[State]': stateName,
     },
     timeout: 10000,
   });
 
-  const records = response.data?.records || [];
+  let records = response.data?.records || [];
+  let usedStateFilter = true;
+
+  // If exact state filter returns no data, retry without state filter.
+  // This prevents hard fallback to simulated when location/state text is not an exact Agmarknet match.
+  if (!records.length) {
+    const fallbackResponse = await axios.get(url, {
+      params: {
+        'api-key': DATAGOV_API_KEY,
+        format: 'json',
+        limit: 500,
+      },
+      timeout: 10000,
+    });
+    records = fallbackResponse.data?.records || [];
+    usedStateFilter = false;
+  }
+
   if (!records.length) throw new Error('No records returned from Agmarknet API');
 
   // Aggregate: for each grain, collect modal prices from all markets, take average
@@ -84,8 +118,8 @@ const fetchAgmarknetPrices = async () => {
     const accum = priceAccum[grain];
 
     // Save previous price before updating
-    const prevPrice = marketPricesCache[grain]?.price || FALLBACK_PRICES[grain];
-    previousPricesCache[grain] = prevPrice;
+    const prevPrice = cache.marketPrices[grain]?.price || FALLBACK_PRICES[grain];
+    cache.previousPrices[grain] = prevPrice;
 
     if (accum && accum.count > 0) {
       const avgPrice = Math.round(accum.total / accum.count);
@@ -94,14 +128,16 @@ const fetchAgmarknetPrices = async () => {
         price:       avgPrice,
         change:      change,
         trend:       change > 5 ? 'up' : change < -5 ? 'down' : 'stable',
-        market:      `${DATAGOV_STATE} Mandis (${accum.count} markets)`,
+        market:      usedStateFilter
+          ? `${stateName} Mandis (${accum.count} markets)`
+          : `India Mandis (${accum.count} markets, state fallback)`,
         source:      'agmarknet',
         lastUpdated: new Date(),
       };
     } else {
       // Grain not found in today's Agmarknet data — keep last known or fallback
-      newPrices[grain] = marketPricesCache[grain]
-        ? { ...marketPricesCache[grain], source: 'cached' }
+      newPrices[grain] = cache.marketPrices[grain]
+        ? { ...cache.marketPrices[grain], source: 'cached' }
         : { price: FALLBACK_PRICES[grain], change: 0, trend: 'stable',
             market: 'Fallback', source: 'fallback', lastUpdated: new Date() };
     }
@@ -111,22 +147,22 @@ const fetchAgmarknetPrices = async () => {
 };
 
 // ─── Simulate fluctuation (fallback when no API key) ─────────────────────────
-const simulatePriceUpdate = () => {
-  const base = Object.keys(marketPricesCache).length
+const simulatePriceUpdate = (stateName, cache) => {
+  const base = Object.keys(cache.marketPrices).length
     ? null  // already have prices, fluctuate from them
     : FALLBACK_PRICES;
 
   Object.keys(FALLBACK_PRICES).forEach(grain => {
-    const currentPrice = marketPricesCache[grain]?.price || FALLBACK_PRICES[grain];
-    previousPricesCache[grain] = currentPrice;
+    const currentPrice = cache.marketPrices[grain]?.price || FALLBACK_PRICES[grain];
+    cache.previousPrices[grain] = currentPrice;
     const fluctuation = currentPrice * (Math.random() * 0.04 - 0.02);
     const newPrice = Math.round(currentPrice + fluctuation);
     const change   = newPrice - currentPrice;
-    marketPricesCache[grain] = {
+    cache.marketPrices[grain] = {
       price:       newPrice,
       change:      change,
       trend:       change > 0 ? 'up' : change < 0 ? 'down' : 'stable',
-      market:      'Simulated (set DATAGOV_API_KEY for real prices)',
+      market:      `Simulated (${stateName})`,
       source:      'simulated',
       lastUpdated: new Date(),
     };
@@ -134,43 +170,87 @@ const simulatePriceUpdate = () => {
 };
 
 // ─── Master refresh function ─────────────────────────────────────────────────
-const refreshPrices = async () => {
+const refreshPrices = async (stateName) => {
+  const state = normalizeState(stateName);
+  const cache = getOrCreateStateCache(state);
   try {
     if (DATAGOV_API_KEY) {
-      const realPrices = await fetchAgmarknetPrices();
-      marketPricesCache = realPrices;
-      dataSource = 'agmarknet';
-      lastFetchTime = new Date();
-      console.log(`[Market] Prices updated from Agmarknet (${DATAGOV_STATE}) — ${Object.keys(realPrices).length} grains`);
+      const realPrices = await fetchAgmarknetPrices(state, cache);
+      cache.marketPrices = realPrices;
+      cache.dataSource = 'agmarknet';
+      cache.lastFetchTime = new Date();
+      console.log(`[Market] Prices updated from Agmarknet (${state}) — ${Object.keys(realPrices).length} grains`);
     } else {
-      simulatePriceUpdate();
-      dataSource = 'simulated';
-      lastFetchTime = new Date();
+      simulatePriceUpdate(state, cache);
+      cache.dataSource = 'simulated';
+      cache.lastFetchTime = new Date();
       console.log('[Market] Prices updated (simulated) — set DATAGOV_API_KEY in .env for real prices');
     }
   } catch (err) {
     console.error('[Market] Failed to fetch real prices, falling back to simulated:', err.message);
-    simulatePriceUpdate();
-    dataSource = 'simulated_fallback';
-    lastFetchTime = new Date();
+    simulatePriceUpdate(state, cache);
+    cache.dataSource = 'simulated_fallback';
+    cache.lastFetchTime = new Date();
   }
 };
 
 // Initial fetch + scheduled refresh
-refreshPrices();
-setInterval(refreshPrices, REFRESH_INTERVAL);
+refreshPrices(DATAGOV_STATE);
+setInterval(() => refreshPrices(DATAGOV_STATE), REFRESH_INTERVAL);
 
-// Helper to get current market prices
-const getMarketPrices = () => marketPricesCache;
-const getPreviousPrices = () => previousPricesCache;
+const ensureFreshStatePrices = async (state) => {
+  const cache = getOrCreateStateCache(state);
+  const stale = !cache.lastFetchTime || (Date.now() - new Date(cache.lastFetchTime).getTime()) > REFRESH_INTERVAL;
+  if (stale || Object.keys(cache.marketPrices).length === 0) {
+    await refreshPrices(state);
+  }
+  return getOrCreateStateCache(state);
+};
+
+const resolveMarketStateForUser = async (user) => {
+  if (!user || !user.id) return DATAGOV_STATE;
+
+  if (user.role === 'owner') {
+    const layout = await DynamicWarehouseLayout.findOne({ owner: user.id, isActive: true })
+      .sort({ createdAt: -1 })
+      .select('location')
+      .lean();
+    return normalizeState(layout?.location || DATAGOV_STATE);
+  }
+
+  if (user.role === 'customer') {
+    const activeAllocation = await StorageAllocation.findOne({ customer: user.id, status: 'active' })
+      .select('owner')
+      .lean();
+
+    if (activeAllocation?.owner) {
+      const ownerLayout = await DynamicWarehouseLayout.findOne({ owner: activeAllocation.owner, isActive: true })
+        .sort({ createdAt: -1 })
+        .select('location')
+        .lean();
+      if (ownerLayout?.location) return normalizeState(ownerLayout.location);
+    }
+
+    const layoutWithCustomer = await DynamicWarehouseLayout.findOne({
+      isActive: true,
+      'layout.blocks.slots.allocations.customer': user.id
+    }).select('location').lean();
+
+    return normalizeState(layoutWithCustomer?.location || DATAGOV_STATE);
+  }
+
+  return DATAGOV_STATE;
+};
 
 // @route   GET /api/market/live-prices
 // @desc    Get live market prices (real Agmarknet data or simulated fallback)
 // @access  Private
-router.get('/live-prices', auth, (req, res) => {
+router.get('/live-prices', auth, async (req, res) => {
   try {
-    const marketPrices = getMarketPrices();
-    const previousPrices = getPreviousPrices();
+    const state = await resolveMarketStateForUser(req.user);
+    const cache = await ensureFreshStatePrices(state);
+    const marketPrices = cache.marketPrices;
+    const previousPrices = cache.previousPrices;
     const prices = Object.keys(marketPrices).map(grainType => ({
       grainType,
       currentPrice:  marketPrices[grainType].price,
@@ -185,9 +265,10 @@ router.get('/live-prices', auth, (req, res) => {
     res.json({ 
       success: true,
       prices,
-      dataSource,          // 'agmarknet' | 'simulated' | 'simulated_fallback'
-      isRealData: dataSource === 'agmarknet',
-      lastUpdated:     lastFetchTime || new Date(),
+      state,
+      dataSource: cache.dataSource,          // 'agmarknet' | 'simulated' | 'simulated_fallback'
+      isRealData: cache.dataSource === 'agmarknet',
+      lastUpdated:     cache.lastFetchTime || new Date(),
       refreshInterval: REFRESH_INTERVAL / 1000,
       apiConfigured:   !!DATAGOV_API_KEY,
     });
@@ -206,7 +287,8 @@ router.get('/live-prices', auth, (req, res) => {
 // @access  Public
 router.get('/prices', (req, res) => {
   try {
-    res.json({ prices: getMarketPrices(), lastUpdated: lastFetchTime || new Date() });
+    const cache = getOrCreateStateCache(DATAGOV_STATE);
+    res.json({ prices: cache.marketPrices, lastUpdated: cache.lastFetchTime || new Date() });
   } catch (error) {
     console.error('Error fetching market prices:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -219,7 +301,8 @@ router.get('/prices', (req, res) => {
 router.get('/prices/:grainType', (req, res) => {
   try {
     const { grainType } = req.params;
-    const marketPrices = getMarketPrices();
+    const cache = getOrCreateStateCache(DATAGOV_STATE);
+    const marketPrices = cache.marketPrices;
     const price = marketPrices[grainType];
 
     if (!price) {
@@ -238,8 +321,9 @@ router.get('/prices/:grainType', (req, res) => {
 // @access  Private (Customer)
 router.get('/my-grain-value', auth, async (req, res) => {
   try {
-    const StorageAllocation = require('../models/StorageAllocation');
-    const marketPrices = getMarketPrices();
+    const state = await resolveMarketStateForUser(req.user);
+    const cache = await ensureFreshStatePrices(state);
+    const marketPrices = cache.marketPrices;
     
     const allocations = await StorageAllocation.find({
       customer: req.user.id,
@@ -285,6 +369,7 @@ router.get('/my-grain-value', auth, async (req, res) => {
     const profitPercentage = totalPurchaseValue > 0 ? ((totalProfit / totalPurchaseValue) * 100).toFixed(2) : 0;
 
     res.json({
+      state,
       grainValueBreakdown,
       totalCurrentValue,
       totalPurchaseValue,

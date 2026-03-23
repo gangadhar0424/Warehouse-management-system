@@ -13,9 +13,7 @@ import {
   Tabs,
   Tab,
   Badge,
-  Button,
-  Menu,
-  MenuItem,
+  Button,  MenuItem,
   Divider,
   List,
   ListItem,
@@ -39,9 +37,7 @@ import {
   Error as ErrorIcon,
   Warning,
   Info,
-  CheckCircle,
-  FilterList,
-  MarkEmailRead,
+  CheckCircle,  MarkEmailRead,
   Delete,
   Email as EmailIcon,
   Send,
@@ -58,9 +54,7 @@ const AlertsCenter = () => {
   const [error, setError] = useState(null);
   const [alerts, setAlerts] = useState(null);
   const [activeTab, setActiveTab] = useState('all');
-  const [refreshing, setRefreshing] = useState(false);
-  const [filterAnchor, setFilterAnchor] = useState(null);
-  const [emailDialogOpen, setEmailDialogOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);  const [emailDialogOpen, setEmailDialogOpen] = useState(false);
   const [customersList, setCustomersList] = useState([]);
   const [selectedCustomers, setSelectedCustomers] = useState([]);
   const [emailData, setEmailData] = useState({
@@ -236,7 +230,7 @@ const AlertsCenter = () => {
       if (selectedCustomers.length === 1) {
         // Single email
         const recipient = recipients[0];
-        const response = await axios.post('/api/email/send', {
+        await axios.post('/api/email/send', {
           customerEmail: recipient.email,
           subject: emailData.subject,
           body: emailData.message
@@ -257,7 +251,6 @@ const AlertsCenter = () => {
       }
 
       // Auto-close after 3 seconds if all successful
-      const result = emailResult;
       setTimeout(() => {
         handleCloseEmailDialog();
       }, 3000);

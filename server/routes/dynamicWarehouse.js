@@ -14,6 +14,7 @@ const router = express.Router();
 // @access  Private (Owner only)
 router.post('/layout', [auth, authorize('owner')], [
   body('name').trim().notEmpty().withMessage('Warehouse name is required'),
+  body('location').trim().notEmpty().withMessage('Warehouse location is required'),
   body('configuration.numberOfBuildings').isInt({ min: 1, max: 10 }).withMessage('Number of buildings must be between 1 and 10'),
   body('configuration.blocksPerBuilding').isInt({ min: 1, max: 26 }).withMessage('Blocks per building must be between 1 and 26'),
   body('configuration.rowsPerBlock').isInt({ min: 1, max: 20 }).withMessage('Rows per block must be between 1 and 20'),
@@ -25,7 +26,7 @@ router.post('/layout', [auth, authorize('owner')], [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { name, description, configuration, pricing } = req.body;
+    const { name, description, location, configuration, pricing } = req.body;
 
     // Check if layout with same name exists for this owner
     const existingLayout = await DynamicWarehouseLayout.findOne({
@@ -43,6 +44,7 @@ router.post('/layout', [auth, authorize('owner')], [
       owner: req.user.id,
       name,
       description,
+      location,
       configuration,
       pricing: pricing || {
         baseRate: 100,
@@ -60,6 +62,7 @@ router.post('/layout', [auth, authorize('owner')], [
       warehouseId: warehouse._id,
       name: warehouse.name,
       description: warehouse.description,
+      location: warehouse.location,
       configuration: warehouse.configuration,
       totalSlots: warehouse.totalSlots,
       layout: warehouse.layout,
@@ -339,10 +342,11 @@ router.put('/layout/:id', [auth, authorize('owner')], async (req, res) => {
       return res.status(403).json({ message: 'Access denied' });
     }
 
-    const { name, description, pricing } = req.body;
+    const { name, description, location, pricing } = req.body;
 
     if (name) warehouse.name = name;
     if (description) warehouse.description = description;
+    if (location) warehouse.location = location;
     if (pricing) warehouse.pricing = { ...warehouse.pricing, ...pricing };
 
     await warehouse.save();

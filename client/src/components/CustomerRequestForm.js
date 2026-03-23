@@ -30,7 +30,8 @@ import {
   FormControlLabel,
   Divider,
   CircularProgress,
-  LinearProgress
+  LinearProgress,
+  InputAdornment
 } from '@mui/material';
 import {
   Send,
@@ -63,6 +64,8 @@ const CustomerRequestForm = () => {
   const [loanPurpose, setLoanPurpose] = useState('');
   const [loanDuration, setLoanDuration] = useState('');
   const [collateral, setCollateral] = useState('');
+  const [loanEligibility, setLoanEligibility] = useState(null);
+  const [eligibilityLoading, setEligibilityLoading] = useState(false);
   // General state
   const [myRequests, setMyRequests] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -76,6 +79,29 @@ const CustomerRequestForm = () => {
 
   useEffect(() => {
     fetchMyRequests();
+  }, []);
+
+  const fetchLoanEligibility = useCallback(async () => {
+    try {
+      setEligibilityLoading(true);
+      const response = await axios.get('/api/loans/eligibility');
+      const data = response.data;
+      const parsed = {
+        totalGrainValue: parseFloat(data.totalGrainValue) || 0,
+        maxLoanAmount: parseFloat(data.maxLoanAmount) || 0,
+        availableLoanAmount: parseFloat(data.availableLoanAmount) || 0,
+        grainDetails: data.grainDetails || [],
+      };
+      setLoanEligibility(parsed);
+      // Auto-fill with available loan amount
+      if (parsed.availableLoanAmount > 0) {
+        setLoanAmount(String(Math.floor(parsed.availableLoanAmount)));
+      }
+    } catch (err) {
+      console.error('Error fetching loan eligibility:', err);
+    } finally {
+      setEligibilityLoading(false);
+    }
   }, []);
 
   // Fetch allocations when vacate_warehouse is selected
@@ -101,10 +127,13 @@ const CustomerRequestForm = () => {
   }, []);
 
   useEffect(() => {
-    if (requestType === 'vacate_warehouse') {
+    if (requestType === 'vacate_warehouse' || requestType === 'loan_approval') {
       fetchVacateAllocations();
     }
-  }, [requestType, fetchVacateAllocations]);
+    if (requestType === 'loan_approval') {
+      fetchLoanEligibility();
+    }
+  }, [requestType, fetchVacateAllocations, fetchLoanEligibility]);
 
   const fetchMyRequests = async () => {
     try {
@@ -340,6 +369,7 @@ const CustomerRequestForm = () => {
     setLoanPurpose('');
     setLoanDuration('');
     setCollateral('');
+    setLoanEligibility(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -395,6 +425,8 @@ const CustomerRequestForm = () => {
                   setRequestType(e.target.value);
                   setSelectedAllocations([]);
                   setVacateReason('');
+                  setLoanAmount('');
+                  setLoanEligibility(null);
                   handleRemoveFile();
                 }}
               >
@@ -630,6 +662,39 @@ const CustomerRequestForm = () => {
           {/* ===== LOAN APPROVAL SECTION ===== */}
           {requestType === 'loan_approval' && (
             <>
+              {/* Eligibility Summary Banner */}
+              <Grid item xs={12}>
+                {eligibilityLoading ? (
+                  <Box sx={{ py: 1 }}><LinearProgress /><Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Calculating your loan eligibility...</Typography></Box>
+                ) : loanEligibility ? (
+                  <Card sx={{ bgcolor: 'success.50', border: '1px solid', borderColor: 'success.200' }}>
+                    <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+                      <Typography variant="subtitle2" color="success.dark" gutterBottom>
+                        Your Loan Eligibility
+                      </Typography>
+                      <Grid container spacing={2}>
+                        <Grid item xs={6} sm={3}>
+                          <Typography variant="caption" color="text.secondary">Grain Value</Typography>
+                          <Typography variant="body1" fontWeight="bold">₹{loanEligibility.totalGrainValue.toLocaleString('en-IN')}</Typography>
+                        </Grid>
+                        <Grid item xs={6} sm={3}>
+                          <Typography variant="caption" color="text.secondary">Max Loan (70%)</Typography>
+                          <Typography variant="body1" fontWeight="bold" color="success.main">₹{loanEligibility.maxLoanAmount.toLocaleString('en-IN')}</Typography>
+                        </Grid>
+                        <Grid item xs={6} sm={3}>
+                          <Typography variant="caption" color="text.secondary">Active Loans</Typography>
+                          <Typography variant="body1" fontWeight="bold">₹{(loanEligibility.maxLoanAmount - loanEligibility.availableLoanAmount).toLocaleString('en-IN')}</Typography>
+                        </Grid>
+                        <Grid item xs={6} sm={3}>
+                          <Typography variant="caption" color="text.secondary">Available Now</Typography>
+                          <Typography variant="body1" fontWeight="bold" color="primary.main">₹{loanEligibility.availableLoanAmount.toLocaleString('en-IN')}</Typography>
+                        </Grid>
+                      </Grid>
+                    </CardContent>
+                  </Card>
+                ) : null}
+              </Grid>
+
               <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth
@@ -638,6 +703,8 @@ const CustomerRequestForm = () => {
                   value={loanAmount}
                   onChange={(e) => setLoanAmount(e.target.value)}
                   required
+                  helperText={loanEligibility ? `Max eligible: ₹${loanEligibility.availableLoanAmount.toLocaleString('en-IN')} (auto-filled — modify if needed)` : ''}
+                  InputProps={{ startAdornment: <InputAdornment position="start">₹</InputAdornment> }}
                 />
               </Grid>
               <Grid item xs={12} md={6}>
@@ -664,23 +731,29 @@ const CustomerRequestForm = () => {
               </Grid>
               <Grid item xs={12}>
                 <FormControl fullWidth>
-                  <InputLabel>Grain as Collateral</InputLabel>
+                  <InputLabel>Grain as Collateral (Your Warehouse Grains)</InputLabel>
                   <Select
                     value={collateral}
-                    label="Grain as Collateral"
+                    label="Grain as Collateral (Your Warehouse Grains)"
                     onChange={(e) => setCollateral(e.target.value)}
                   >
                     <MenuItem value="">
                       <em>None (No collateral)</em>
                     </MenuItem>
-                    {myAllocations.map((alloc, idx) => {
-                      const info = getAllocationDisplayInfo(alloc);
-                      return (
-                        <MenuItem key={alloc._id || idx} value={alloc._id || info.slotLabel}>
-                          {info.grainType} — {info.totalWeight} kg (Building {info.building}, Block {info.block})
-                        </MenuItem>
-                      );
-                    })}
+                    {eligibilityLoading && (
+                      <MenuItem disabled><em>Loading your grains...</em></MenuItem>
+                    )}
+                    {!eligibilityLoading && (!loanEligibility?.grainDetails || loanEligibility.grainDetails.length === 0) && (
+                      <MenuItem disabled><em>No grains currently stored in warehouse</em></MenuItem>
+                    )}
+                    {(loanEligibility?.grainDetails || []).map((grain, idx) => (
+                      <MenuItem
+                        key={idx}
+                        value={`${grain.grainType} - ${grain.weightKg}kg at ${grain.location || grain.warehouseName}`}
+                      >
+                        {grain.grainType} — {grain.weightKg} kg &nbsp;|&nbsp; {grain.location || grain.warehouseName} &nbsp;|&nbsp; Value: ₹{parseFloat(grain.value).toLocaleString('en-IN')}
+                      </MenuItem>
+                    ))}
                   </Select>
                 </FormControl>
               </Grid>

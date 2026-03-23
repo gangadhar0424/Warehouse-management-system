@@ -7,6 +7,15 @@ const path = require('path');
 
 const N8N_URL = process.env.N8N_URL || 'http://localhost:5678';
 const AI_ENGINE_URL = process.env.AI_ENGINE_URL || 'http://localhost:8001';
+const N8N_PROXY_TIMEOUT_MS = parseInt(process.env.N8N_PROXY_TIMEOUT_MS || '8000', 10);
+const AI_ENGINE_TIMEOUT_MS = parseInt(process.env.AI_ENGINE_TIMEOUT_MS || '60000', 10);
+
+function resolveAiTimeoutMs(endpoint) {
+  if (endpoint === '/full-analysis') {
+    return Math.max(AI_ENGINE_TIMEOUT_MS, 90000);
+  }
+  return AI_ENGINE_TIMEOUT_MS;
+}
 
 // Load n8n webhook config
 let n8nWebhooks = {};
@@ -82,7 +91,7 @@ async function callAIEngine(n8nKey, endpoint, method, payload) {
         method: 'POST',
         url: webhookUrl,
         data: { body: payload || {}, originalEndpoint: endpoint },
-        timeout: 60000,
+        timeout: N8N_PROXY_TIMEOUT_MS,
         headers: { 'Content-Type': 'application/json' }
       });
       console.log(`🔄 n8n workflow step: ${n8nKey} → OK`);
@@ -96,7 +105,7 @@ async function callAIEngine(n8nKey, endpoint, method, payload) {
   const config = {
     method,
     url: `${AI_ENGINE_URL}${endpoint}`,
-    timeout: 60000,
+    timeout: resolveAiTimeoutMs(endpoint),
     headers: { 'Content-Type': 'application/json' }
   };
   if (payload && method !== 'GET') config.data = payload;

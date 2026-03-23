@@ -5,9 +5,7 @@ import {
   Grid,
   Card,
   CardContent,
-  Box,
-  Paper,
-  Chip,
+  Box,  Chip,
   Button,
   Dialog,
   DialogTitle,
@@ -21,9 +19,7 @@ import {
   TableCell,
   TableContainer,
   TableHead,
-  TableRow,
-  LinearProgress,
-  Divider,
+  TableRow,  Divider,
   Tab,
   Tabs,
   FormControl,
@@ -34,19 +30,13 @@ import {
   RadioGroup,
   FormControlLabel,
   FormLabel,
-  InputAdornment,
-  IconButton
-} from '@mui/material';
+  InputAdornment,} from '@mui/material';
 import {
-  Warehouse,
-  Schedule,
-  Payment,
+  Warehouse,  Payment,
   LocalShipping,
   AccountBalance,
   Receipt,
-  Refresh,
-  ExtensionOutlined,
-  ContactSupport,
+  Refresh,  ContactSupport,
   Lock,
   LocationOn,
   ShowChart,
@@ -54,13 +44,8 @@ import {
   Calculate,
   Send,
   PhoneAndroid,
-  AccountBalanceWallet,
-  CheckCircle,
-  Visibility,
-  VisibilityOff
-} from '@mui/icons-material';
+  AccountBalanceWallet,} from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
-import { useSocket } from '../contexts/SocketContext';
 import { useTranslation } from '../i18n/LanguageContext';
 import CustomerContactForm from '../components/CustomerContactForm';
 import axios from 'axios';
@@ -100,9 +85,7 @@ const CustomerDashboard = () => {
     description: '',
     allocationId: '',
     loanId: '',
-  });
-  const [pendingTxns, setPendingTxns] = useState([]);
-  const [paymentHistory, setPaymentHistory] = useState([]);
+  });  const [paymentHistory, setPaymentHistory] = useState([]);
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [paymentSuccess, setPaymentSuccess] = useState('');
   const [paymentError, setPaymentError] = useState('');
@@ -111,8 +94,6 @@ const CustomerDashboard = () => {
   const [lastPaymentTxnId, setLastPaymentTxnId] = useState(null);
 
   const { user } = useAuth();
-  const { addNotification } = useSocket();
-
   useEffect(() => {
     fetchCustomerData();
     

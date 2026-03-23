@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
+const Transaction = require('../models/Transaction');
+const StorageAllocation = require('../models/StorageAllocation');
+const DynamicWarehouseLayout = require('../models/DynamicWarehouseLayout');
 const auth = require('../middleware/auth');
 
 // Authorize middleware function
@@ -28,6 +31,71 @@ router.get('/all', auth, authorize('owner'), async (req, res) => {
       customers: users.filter(u => u.role === 'customer'),
       all: users
     };
+
+    // Build customer stats used by UserManagementPanel (active storage + total spent)
+    const customerIds = usersByRole.customers.map(c => c._id);
+    const totalSpentMap = new Map();
+    const activeStorageMap = new Map();
+
+    if (customerIds.length > 0) {
+      // Total spent from transactions
+      const spentAgg = await Transaction.aggregate([
+        { $match: { customer: { $in: customerIds } } },
+        {
+          $group: {
+            _id: '$customer',
+            totalSpent: { $sum: { $ifNull: ['$amount.totalAmount', 0] } }
+          }
+        }
+      ]);
+
+      spentAgg.forEach(row => {
+        totalSpentMap.set(String(row._id), row.totalSpent || 0);
+      });
+
+      // Active allocations from classic StorageAllocation model
+      const activeAllocAgg = await StorageAllocation.aggregate([
+        { $match: { customer: { $in: customerIds }, status: 'active' } },
+        { $group: { _id: '$customer', count: { $sum: 1 } } }
+      ]);
+
+      activeAllocAgg.forEach(row => {
+        activeStorageMap.set(String(row._id), (activeStorageMap.get(String(row._id)) || 0) + (row.count || 0));
+      });
+
+      // Active allocations from dynamic warehouse slots
+      const layouts = await DynamicWarehouseLayout.find({ isActive: true }).select('layout').lean();
+      layouts.forEach(layout => {
+        (layout.layout || []).forEach(building => {
+          (building.blocks || []).forEach(block => {
+            (block.slots || []).forEach(slot => {
+              (slot.allocations || []).forEach(allocation => {
+                const customerId = allocation?.customer ? String(allocation.customer) : null;
+                if (customerId) {
+                  activeStorageMap.set(customerId, (activeStorageMap.get(customerId) || 0) + 1);
+                }
+              });
+            });
+          });
+        });
+      });
+    }
+
+    const attachStats = (user) => {
+      if (user.role !== 'customer') return user;
+      const id = String(user._id);
+      return {
+        ...user.toObject(),
+        stats: {
+          activeAllocations: activeStorageMap.get(id) || 0,
+          totalSpent: totalSpentMap.get(id) || 0
+        }
+      };
+    };
+
+    usersByRole.owners = usersByRole.owners.map(attachStats);
+    usersByRole.customers = usersByRole.customers.map(attachStats);
+    usersByRole.all = usersByRole.all.map(attachStats);
 
     // Get statistics
     const stats = {

@@ -1,35 +1,48 @@
-import React, { useState, useEffect } from 'react';
-import { Paper, Typography, Box, Alert, Chip, CircularProgress, Button, Grid } from '@mui/material';
-import { Psychology, TrendingUp, TrendingDown, Warning } from '@mui/icons-material';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Paper, Typography, Box, Alert, CircularProgress, Grid } from '@mui/material';
+import { Psychology } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
 
 const AILoanRecommendations = ({ customerId }) => {
   const [recommendations, setRecommendations] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
   const { user } = useAuth();
 
-  useEffect(() => {
-    if (customerId || user?._id) {
-      fetchRecommendations();
-    }
-  }, [customerId, user]);
-
-  const fetchRecommendations = async () => {
+  const fetchRecommendations = useCallback(async () => {
+    if (!(customerId || user?._id)) return;
     try {
       setLoading(true);
       const response = await axios.post('/api/ai/loan-risk/assess', {
-        customer_id: customerId || user?._id
+        customerId: customerId || user?._id,
+        action: 'assess'
       });
-      setRecommendations(response.data);
+
+      // Support both direct and wrapped response shapes:
+      // 1) { success, data: {...}, message }
+      // 2) { risk_score, ... }
+      // 3) n8n webhook wrappers that may contain nested payloads
+      const raw = response?.data || {};
+      const payload = raw?.data || raw?.prediction || raw;
+
+      setRecommendations({
+        risk_score: payload?.risk_score,
+        max_loan_recommended: payload?.max_loan_recommended ?? payload?.max_recommended_amount,
+        recommendation: payload?.recommendation,
+        risk_level: payload?.risk_level,
+        reasoning: payload?.reasoning,
+      });
     } catch (err) {
       // Silent fail - AI features are optional
       console.log('AI Loan recommendations unavailable');
     } finally {
       setLoading(false);
     }
-  };
+  }, [customerId, user?._id]);
+
+  useEffect(() => {
+    fetchRecommendations();
+  }, [fetchRecommendations]);
 
   if (loading) {
     return (
@@ -70,10 +83,17 @@ const AILoanRecommendations = ({ customerId }) => {
             </Box>
           </Grid>
         )}
-        {recommendations.recommendation && (
+        {(recommendations.recommendation || recommendations.reasoning) && (
           <Grid item xs={12}>
             <Alert severity={recommendations.risk_score > 70 ? 'warning' : 'info'} icon={<Psychology />}>
-              {recommendations.recommendation}
+              {recommendations.recommendation || recommendations.reasoning}
+            </Alert>
+          </Grid>
+        )}
+        {!recommendations.recommendation && recommendations.risk_level && (
+          <Grid item xs={12}>
+            <Alert severity={recommendations.risk_score > 70 ? 'warning' : 'info'} icon={<Psychology />}>
+              AI assessed this profile as {recommendations.risk_level} risk.
             </Alert>
           </Grid>
         )}

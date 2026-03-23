@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Container,
   Typography,
@@ -22,9 +22,7 @@ import {
   Chip,
   CircularProgress,
   Tabs,
-  Tab,
-  Tooltip,
-  InputAdornment,
+  Tab,  InputAdornment,
   IconButton,
   Radio,
   RadioGroup,
@@ -43,21 +41,16 @@ import {
   Scale,
   Payment,
   Receipt,
-  QrCode,
-  Print,
-  Info,
+  QrCode,  Info,
   MonetizationOn,
   CheckCircle,
   Person,
-  Phone,
-  Email,
-  Inventory,
+  Phone,  Inventory,
   Badge,
   DirectionsCar,
   Close,
   SmartToy
 } from '@mui/icons-material';
-import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
 import { useTranslation } from '../i18n/LanguageContext';
 import AnomalyDetectionAlert from '../components/AnomalyDetectionAlert';
@@ -66,11 +59,11 @@ import axios from 'axios';
 const WeighBridge = () => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState(0);
-  const [vehicles, setVehicles] = useState([]);
-  const [selectedVehicle, setSelectedVehicle] = useState(null);
+  const [vehicles, setVehicles] = useState([]);  
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+    const pendingBillTabRef = useRef(null);
   
   // AI Anomaly Detection
   const [anomalyVehicle, setAnomalyVehicle] = useState(null);
@@ -122,10 +115,7 @@ const WeighBridge = () => {
   const [upiQrDialog, setUpiQrDialog] = useState(false);
   const [upiQrCode, setUpiQrCode] = useState('');
   const [registeredVehicle, setRegisteredVehicle] = useState(null);
-  const [lastTransactionId, setLastTransactionId] = useState(null); // for bill download
-
-  const { user } = useAuth();
-  const { addNotification } = useSocket();
+  const [lastTransactionId, setLastTransactionId] = useState(null); // for bill download  const { addNotification } = useSocket();
 
   useEffect(() => {
     fetchVehicles();
@@ -364,6 +354,17 @@ const WeighBridge = () => {
 
     setLoading(true);
     setError('');
+
+    // Open tab synchronously on user click to avoid popup blocking after async work.
+    if (paymentForm.paymentMethod === 'cash') {
+      const newTab = window.open('about:blank', '_blank');
+      if (!newTab) {
+        setLoading(false);
+        setError('Popup blocked. Please allow popups for this site and try again.');
+        return;
+      }
+      pendingBillTabRef.current = newTab;
+    }
     
     try {
       const weighingFee = parseFloat(paymentForm.weighingFee) || 100;
@@ -380,6 +381,10 @@ const WeighBridge = () => {
       }
       
     } catch (error) {
+      if (pendingBillTabRef.current) {
+        try { pendingBillTabRef.current.close(); } catch (_) {}
+        pendingBillTabRef.current = null;
+      }
       console.error('Payment error:', error);
       setError(error.response?.data?.message || 'Failed to process payment');
     } finally {
@@ -467,16 +472,27 @@ const WeighBridge = () => {
   };
 
   // kept for static UPI fallback dialog
-  const generateUPIQRCode = generateStaticUPIQR;
-
 
   const confirmUPIPayment = async () => {
     const weighingFee = parseFloat(paymentForm.weighingFee) || 100;
     setLoading(true);
     try {
+      // UPI-confirm button click is a direct user gesture, so pre-open tab here too.
+      const newTab = window.open('about:blank', '_blank');
+      if (!newTab) {
+        setLoading(false);
+        setError('Popup blocked. Please allow popups for this site and try again.');
+        return;
+      }
+      pendingBillTabRef.current = newTab;
+
       await processPayment(weighingFee, 'upi');
       setUpiQrDialog(false);
     } catch (error) {
+      if (pendingBillTabRef.current) {
+        try { pendingBillTabRef.current.close(); } catch (_) {}
+        pendingBillTabRef.current = null;
+      }
       setError('Failed to confirm payment');
     } finally {
       setLoading(false);
@@ -513,7 +529,26 @@ const WeighBridge = () => {
       const newTxnId = response.data.transaction?._id;
       setLastTransactionId(newTxnId);
       // Note: cannot auto-open popup here (deep inside async chain = blocked by browser)
-      // User can click "View Bill" in the success alert below.
+      // If a tab was opened during the user click, reuse it so popup is never blocked.
+      if (pendingBillTabRef.current) {
+        try {
+          const token = localStorage.getItem('token');
+          const billRes = await axios.get(`/api/payments/bill/weighbridge/${newTxnId}`, {
+            headers: { Authorization: `Bearer ${token}` },
+            responseType: 'blob'
+          });
+          const billBlob = new Blob([billRes.data], { type: 'application/pdf' });
+          const billUrl = window.URL.createObjectURL(billBlob);
+          pendingBillTabRef.current.location.href = billUrl;
+          setTimeout(() => window.URL.revokeObjectURL(billUrl), 10000);
+        } catch (billErr) {
+          try { pendingBillTabRef.current.close(); } catch (_) {}
+          console.error('Auto-open bill error:', billErr);
+          setError('Payment succeeded, but receipt auto-open failed. Use "View Bill Again".');
+        } finally {
+          pendingBillTabRef.current = null;
+        }
+      }
 
       // Update vehicle payment status
       await axios.put(`/api/vehicles/${registeredVehicle._id}`, {
@@ -523,7 +558,7 @@ const WeighBridge = () => {
         paymentDate: new Date()
       });
 
-      setSuccess(`Payment of ₹${amount} received via ${paymentMethod.toUpperCase()}! Click "View Bill" to open the receipt.`);
+      setSuccess(`Payment of ₹${amount} received via ${paymentMethod.toUpperCase()}! Receipt opened in a new tab.`);
       setPaymentDialog(false);
 
       // If this was a weigh-mode payment, now record the weight
