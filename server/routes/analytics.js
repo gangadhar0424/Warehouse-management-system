@@ -215,7 +215,7 @@ router.get('/owner/dashboard', auth, authorize('owner'), async (req, res) => {
 
   } catch (error) {
     console.error('Error fetching owner analytics:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({ message: 'Server error', error: error.message || 'Server error', timestamp: new Date().toISOString() });
   }
 });
 
@@ -253,7 +253,7 @@ router.get('/owner/capacity', auth, authorize('owner'), async (req, res) => {
 
   } catch (error) {
     console.error('Error fetching capacity analytics:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({ message: 'Server error', error: error.message || 'Server error', timestamp: new Date().toISOString() });
   }
 });
 
@@ -365,7 +365,7 @@ router.get('/owner/financial-summary', auth, authorize('owner'), async (req, res
 
   } catch (error) {
     console.error('Error fetching financial summary:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({ message: 'Server error', error: error.message || 'Server error', timestamp: new Date().toISOString() });
   }
 });
 
@@ -498,7 +498,7 @@ router.get('/owner/alerts', auth, authorize('owner'), async (req, res) => {
 
   } catch (error) {
     console.error('Error fetching alerts:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({ message: 'Server error', error: error.message || 'Server error', timestamp: new Date().toISOString() });
   }
 });
 
@@ -565,7 +565,7 @@ router.get('/owner/loan-portfolio', auth, authorize('owner'), async (req, res) =
 
   } catch (error) {
     console.error('Error fetching loan portfolio:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({ message: 'Server error', error: error.message || 'Server error', timestamp: new Date().toISOString() });
   }
 });
 
@@ -730,7 +730,7 @@ router.post('/owner/send-alert-sms', auth, authorize('owner'), async (req, res) 
 
   } catch (error) {
     console.error('Error sending alert SMS:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({ message: 'Server error', error: error.message || 'Server error', timestamp: new Date().toISOString() });
   }
 });
 
@@ -760,7 +760,7 @@ router.get('/owner/customers-list', auth, authorize('owner'), async (req, res) =
 
   } catch (error) {
     console.error('Error fetching customers list:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({ message: 'Server error', error: error.message || 'Server error', timestamp: new Date().toISOString() });
   }
 });
 
@@ -827,7 +827,7 @@ router.get('/owner/grain-analytics', auth, authorize('owner'), async (req, res) 
     
   } catch (error) {
     console.error('Error fetching grain analytics:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({ message: 'Server error', error: error.message || 'Server error', timestamp: new Date().toISOString() });
   }
 });
 
@@ -905,7 +905,7 @@ router.get('/owner/storage-duration-analytics', auth, authorize('owner'), async 
     
   } catch (error) {
     console.error('Error fetching storage duration analytics:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({ message: 'Server error', error: error.message || 'Server error', timestamp: new Date().toISOString() });
   }
 });
 
@@ -1001,7 +1001,7 @@ router.get('/owner/customer-analytics', auth, authorize('owner'), async (req, re
     
   } catch (error) {
     console.error('Error fetching customer analytics:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({ message: 'Server error', error: error.message || 'Server error', timestamp: new Date().toISOString() });
   }
 });
 
@@ -1081,7 +1081,7 @@ router.get('/owner/warehouse-capacity-viz', auth, authorize('owner'), async (req
     
   } catch (error) {
     console.error('Error fetching warehouse capacity visualization:', error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    res.status(500).json({ message: 'Server error', error: error.message || 'Server error', timestamp: new Date().toISOString() });
   }
 });
 
@@ -1253,3 +1253,4 @@ router.get('/export-pdf', auth, authorize('owner'), async (req, res) => {
 });
 
 module.exports = router;
+

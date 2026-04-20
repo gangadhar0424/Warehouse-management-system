@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Container,
   Typography,
@@ -85,7 +85,16 @@ const CustomerDashboard = () => {
     description: '',
     allocationId: '',
     loanId: '',
-  });  const [paymentHistory, setPaymentHistory] = useState([]);
+    upiId: '',          // UPI ID entered in dialog
+  });  
+  
+  // UPI ID Dialog state
+  const [upiIdDialog, setUpiIdDialog] = useState(false);
+  const [tempUpiId, setTempUpiId] = useState('');
+  
+
+  
+  const [paymentHistory, setPaymentHistory] = useState([]);
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [paymentSuccess, setPaymentSuccess] = useState('');
   const [paymentError, setPaymentError] = useState('');
@@ -194,13 +203,49 @@ const CustomerDashboard = () => {
 
   const handleCustomerPayment = async () => {
     if (!paymentForm.amount || parseFloat(paymentForm.amount) <= 0) {
-      setPaymentError('Enter a valid amount'); return;
+      setPaymentError('Enter a valid amount');
+      return;
     }
-    setPaymentLoading(true);
+
     setPaymentError('');
     setPaymentSuccess('');
 
+    // If UPI is selected - open dialog to collect UPI ID
+    if (paymentForm.method === 'upi') {
+      setTempUpiId('');
+      setUpiIdDialog(true);
+      return;
+    }
+
+    // For other payment methods - open Razorpay popup directly
+    await initiateRazorpayPayment();
+  };
+
+  const handleUpiIdConfirm = async () => {
+    if (!tempUpiId.trim()) {
+      setPaymentError('Please enter a valid UPI ID');
+      return;
+    }
+    
+    // Validate UPI ID format
+    const upiRegex = /^[a-zA-Z0-9._-]+@[a-zA-Z]{2,}$/;
+    if (!upiRegex.test(tempUpiId.trim())) {
+      setPaymentError('Invalid UPI ID format. Use format like: user@bankname');
+      return;
+    }
+
+    setPaymentError('');
+    setUpiIdDialog(false);
+    // Store UPI ID in payment form for later use
+    setPaymentForm(prev => ({ ...prev, upiId: tempUpiId.trim() }));
+    // Open Razorpay
+    await initiateRazorpayPayment();
+  };
+
+  const initiateRazorpayPayment = async () => {
     try {
+      setPaymentLoading(true);
+      
       // Create Razorpay order
       const orderRes = await axios.post('/api/payments/create-order', {
         amount: parseFloat(paymentForm.amount),
@@ -231,11 +276,16 @@ const CustomerDashboard = () => {
             });
 
             // Record in customer-payment endpoint
+            const paymentDescription = paymentForm.description || `${paymentForm.type} payment`;
+            const fullDescription = paymentForm.method === 'upi' && paymentForm.upiId
+              ? `${paymentDescription} - UPI ID: ${paymentForm.upiId}`
+              : paymentDescription;
+            
             const recordRes = await axios.post('/api/payments/customer-payment', {
               type:           paymentForm.type,
               amount:         parseFloat(paymentForm.amount),
               method:         paymentForm.method,
-              description:    paymentForm.description || `${paymentForm.type} payment`,
+              description:    fullDescription,
               allocationId:   paymentForm.allocationId || undefined,
               loanId:         paymentForm.loanId       || undefined,
               razorpayPaymentId: response.razorpay_payment_id,
@@ -245,10 +295,9 @@ const CustomerDashboard = () => {
 
             const newTxnId = recordRes.data.transaction?._id;
             setLastPaymentTxnId(newTxnId);
-            // Note: cannot auto-open popup here (deep inside Razorpay async callback = blocked by browser)
-            // User can click "View Receipt" in the success alert below.
             setPaymentSuccess(`Payment of Rs. ${paymentForm.amount} received! Click "View Receipt" to open the bill.`);
-            setPaymentForm(prev => ({ ...prev, amount: '', description: '' }));
+            setPaymentForm(prev => ({ ...prev, amount: '', description: '', upiId: '' }));
+            setTempUpiId('');
             fetchCustomerData();
           } catch (err) {
             setPaymentError('Payment recorded with gateway but verification failed. Contact support.');
@@ -258,19 +307,23 @@ const CustomerDashboard = () => {
         },
         prefill: { name: user?.name || '', contact: user?.phone || '' },
         theme:  { color: '#1976d2' },
-        // Only UPI and Net Banking
+        // Enable UPI and Net Banking in Razorpay popup
         method: {
-          upi:         paymentForm.method === 'upi',
-          netbanking:  paymentForm.method === 'netbanking',
+          upi:         true,
+          netbanking:  true,
           card:        false,
           wallet:      false,
           emi:         false,
+          paylater:    false,
         },
         modal: { ondismiss: () => setPaymentLoading(false) }
       };
 
       const rzp = new window.Razorpay(options);
-      rzp.on('payment.failed', () => { setPaymentError('Payment failed. Please try again.'); setPaymentLoading(false); });
+      rzp.on('payment.failed', () => { 
+        setPaymentError('Payment failed. Please try again.'); 
+        setPaymentLoading(false); 
+      });
       rzp.open();
 
     } catch (err) {
@@ -279,6 +332,8 @@ const CustomerDashboard = () => {
       setPaymentLoading(false);
     }
   };
+
+
 
   const StatsCards = () => (
     <Grid container spacing={3} sx={{ mb: 4 }}>
@@ -548,13 +603,14 @@ const CustomerDashboard = () => {
                     />
                   </Grid>
 
-                  {/* Payment Method — UPI or Net Banking ONLY */}
+{/* Payment Method — UPI or Net Banking */}
                   <Grid item xs={12}>
-                    <FormLabel component="legend" sx={{ fontSize: 13, mb: 1 }}>Payment Method</FormLabel>
+                    <FormLabel component="legend" sx={{ fontSize: 13, mb: 2 }}>Payment Method</FormLabel>
                     <RadioGroup
                       row
                       value={paymentForm.method}
                       onChange={(e) => setPaymentForm(prev => ({ ...prev, method: e.target.value }))}
+                      sx={{ mb: 2 }}
                     >
                       <FormControlLabel
                         value="upi"
@@ -590,11 +646,20 @@ const CustomerDashboard = () => {
                       disabled={paymentLoading || !paymentForm.amount}
                       sx={{ py: 1.5 }}
                     >
-                      {paymentLoading ? 'Opening Payment...' : `Pay Rs. ${paymentForm.amount || '0'}`}
+                      {paymentLoading ? 'Processing...' : 
+                       `Pay ₹${paymentForm.amount || '0'}`}
                     </Button>
-                    <Typography variant="caption" color="text.secondary" sx={{ display:'block', mt:1, textAlign:'center' }}>
-                      Secured by Razorpay. You will be redirected to complete payment.
-                    </Typography>
+                    
+                    {paymentForm.method === 'upi_id' && (
+                      <Typography variant="caption" color="info.main" sx={{ display:'block', mt:1, textAlign:'center' }}>
+                        Razorpay payment gateway will open with your UPI ID
+                      </Typography>
+                    )}
+                    {paymentForm.method !== 'upi_id' && (
+                      <Typography variant="caption" color="text.secondary" sx={{ display:'block', mt:1, textAlign:'center' }}>
+                        Razorpay payment gateway will open
+                      </Typography>
+                    )}
                   </Grid>
                 </Grid>
               </CardContent>
@@ -739,6 +804,44 @@ const CustomerDashboard = () => {
             disabled={loading || !passwordForm.newPassword || passwordForm.newPassword !== passwordForm.confirmPassword}
           >
             {loading ? <CircularProgress size={24} /> : t('dashboard.changePassword')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* UPI ID Dialog */}
+      <Dialog 
+        open={upiIdDialog} 
+        onClose={() => setUpiIdDialog(false)}
+        maxWidth="sm" 
+        fullWidth
+      >
+        <DialogTitle>Enter UPI ID</DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 2 }}>
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Enter your UPI ID to complete the payment through Razorpay
+            </Alert>
+            <TextField
+              fullWidth
+              placeholder="example@paytm"
+              label="UPI ID"
+              value={tempUpiId}
+              onChange={(e) => setTempUpiId(e.target.value)}
+              helperText="Format: username@bankname (e.g., 6303607313@ybl, user@googlepay)"
+              error={tempUpiId !== '' && !/^[a-zA-Z0-9._-]+@[a-zA-Z]{2,}$/.test(tempUpiId)}
+              onKeyPress={(e) => e.key === 'Enter' && handleUpiIdConfirm()}
+              autoFocus
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setUpiIdDialog(false); setTempUpiId(''); }}>Cancel</Button>
+          <Button 
+            onClick={handleUpiIdConfirm} 
+            variant="contained"
+            disabled={!tempUpiId.trim()}
+          >
+            Proceed to Payment
           </Button>
         </DialogActions>
       </Dialog>

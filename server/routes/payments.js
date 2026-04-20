@@ -52,18 +52,33 @@ async function getOwnerRazorpay() {
 const router = express.Router();
 
 // @route   POST /api/payments/generate-upi-qr
-// @desc    Generate UPI QR code for payment
+// @desc    Generate UPI QR code for payment (supports both preset UPI and custom UPI ID entry)
 // @access  Private
 router.post('/generate-upi-qr', auth, async (req, res) => {
   try {
-    const { upiString, amount, vehicleNumber } = req.body;
+    const { upiString, upiId, amount, vehicleNumber, paymentType } = req.body;
 
-    if (!upiString) {
-      return res.status(400).json({ message: 'UPI string is required' });
+    let finalUpiString = upiString;
+
+    // If custom UPI ID is provided, build the UPI string from it
+    if (upiId && !upiString) {
+      // Validate UPI ID format (basic validation)
+      const upiRegex = /^[a-zA-Z0-9._-]+@[a-zA-Z]{2,}$/;
+      if (!upiRegex.test(upiId)) {
+        return res.status(400).json({ message: 'Invalid UPI ID format. Use format: username@bankname (e.g., user@paytm)' });
+      }
+
+      // Build UPI payment string
+      const transactionId = `WH${Date.now()}`;
+      finalUpiString = `upi://pay?pa=${upiId}&pn=${encodeURIComponent('Warehouse Payment')}&am=${amount || ''}&cu=INR&tn=${encodeURIComponent('Warehouse Payment')}&tr=${transactionId}`;
+    }
+
+    if (!finalUpiString) {
+      return res.status(400).json({ message: 'Either upiString or upiId is required' });
     }
 
     // Generate QR code as data URL
-    const qrCode = await QRCode.toDataURL(upiString, {
+    const qrCode = await QRCode.toDataURL(finalUpiString, {
       width: 300,
       margin: 2,
       color: {
@@ -75,8 +90,11 @@ router.post('/generate-upi-qr', auth, async (req, res) => {
     res.json({
       success: true,
       qrCode,
+      upiString: finalUpiString,
+      upiId: upiId || null,
       amount,
-      vehicleNumber
+      vehicleNumber,
+      paymentType
     });
 
   } catch (error) {

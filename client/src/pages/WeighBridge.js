@@ -115,7 +115,9 @@ const WeighBridge = () => {
   const [upiQrDialog, setUpiQrDialog] = useState(false);
   const [upiQrCode, setUpiQrCode] = useState('');
   const [registeredVehicle, setRegisteredVehicle] = useState(null);
-  const [lastTransactionId, setLastTransactionId] = useState(null); // for bill download  const { addNotification } = useSocket();
+  const [lastTransactionId, setLastTransactionId] = useState(null); // for bill download
+  
+  const { addNotification } = useSocket();
 
   useEffect(() => {
     fetchVehicles();
@@ -322,14 +324,36 @@ const WeighBridge = () => {
       fetchVehicles();
       
     } catch (error) {
-      console.error('Vehicle entry error:', error.response?.data);
-      if (error.response?.data?.errors) {
-        // Validation errors from express-validator
-        const errorMessages = error.response.data.errors.map(err => `${err.param}: ${err.msg}`).join(', ');
-        setError(`Validation Error: ${errorMessages}`);
-      } else {
-        setError(error.response?.data?.message || 'Failed to register vehicle entry');
+      console.error('Vehicle entry error - Full details:', {
+        status: error.response?.status,
+        data: error.response?.data,
+        message: error.message,
+        code: error.code
+      });
+
+      let errorMessage = 'Failed to register vehicle entry';
+      
+      // Handle different error scenarios
+      if (error.response?.status === 400) {
+        // Validation errors
+        if (error.response?.data?.errors && Array.isArray(error.response.data.errors)) {
+          const validationErrors = error.response.data.errors.map(err => `${err.param}: ${err.msg}`).join(', ');
+          errorMessage = `Validation Error: ${validationErrors}`;
+        } else if (error.response?.data?.message) {
+          errorMessage = error.response.data.message;
+        }
+      } else if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.response?.data?.error) {
+        errorMessage = JSON.stringify(error.response.data.error);
+      } else if (error.message) {
+        errorMessage = error.message;
       }
+
+      // Ensure we don't display "undefined"
+      errorMessage = errorMessage && errorMessage.trim() ? errorMessage : 'Failed to register vehicle entry';
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -385,8 +409,9 @@ const WeighBridge = () => {
         try { pendingBillTabRef.current.close(); } catch (_) {}
         pendingBillTabRef.current = null;
       }
-      console.error('Payment error:', error);
-      setError(error.response?.data?.message || 'Failed to process payment');
+      console.error('Payment error:', error.response?.data || error.message);
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to process payment';
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -493,7 +518,9 @@ const WeighBridge = () => {
         try { pendingBillTabRef.current.close(); } catch (_) {}
         pendingBillTabRef.current = null;
       }
-      setError('Failed to confirm payment');
+      console.error('Confirm UPI payment error:', error.response?.data || error.message);
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to confirm payment';
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

@@ -170,8 +170,40 @@ router.post('/entry', [auth, authorize('owner')], [
     });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Vehicle entry error - Full details:', {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      code: error.code
+    });
+    
+    // Determine appropriate error message
+    let statusCode = 500;
+    let errorMessage = 'Server error';
+    let errorDetails = {};
+
+    if (error.code === 11000) {
+      // Duplicate key error
+      statusCode = 400;
+      errorMessage = 'Vehicle number already exists';
+      errorDetails = { field: Object.keys(error.keyPattern)[0] };
+    } else if (error.name === 'ValidationError') {
+      // Mongoose validation error
+      statusCode = 400;
+      errorMessage = 'Validation failed';
+      errorDetails = Object.keys(error.errors).reduce((acc, key) => {
+        acc[key] = error.errors[key].message;
+        return acc;
+      }, {});
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+
+    res.status(statusCode).json({
+      message: errorMessage,
+      error: errorDetails,
+      timestamp: new Date().toISOString()
+    });
   }
 });
 
@@ -215,8 +247,12 @@ router.get('/', auth, async (req, res) => {
     });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Error fetching vehicles:', error.message);
+    res.status(500).json({ 
+      message: 'Failed to fetch vehicles',
+      error: error.message || 'Server error',
+      timestamp: new Date().toISOString()
+    });
   }
 });
 
@@ -236,8 +272,12 @@ router.get('/:id', auth, async (req, res) => {
     res.json(vehicle);
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Error fetching vehicle by ID:', error.message);
+    res.status(500).json({ 
+      message: 'Failed to fetch vehicle',
+      error: error.message || 'Server error',
+      timestamp: new Date().toISOString()
+    });
   }
 });
 
@@ -268,8 +308,12 @@ router.put('/:id', [auth, authorize('owner')], async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Vehicle update error:', error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Vehicle update error:', error.message);
+    res.status(500).json({ 
+      message: 'Failed to update vehicle',
+      error: error.message || 'Server error',
+      timestamp: new Date().toISOString()
+    });
   }
 });
 
@@ -337,8 +381,12 @@ router.put('/:id/weigh', [auth, authorize('owner')], [
     });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Weigh bridge error:', error.message);
+    res.status(500).json({ 
+      message: 'Failed to record weighing',
+      error: error.message || 'Server error',
+      timestamp: new Date().toISOString()
+    });
   }
 });
 
@@ -375,8 +423,12 @@ router.put('/:id/exit', [auth, authorize('owner')], async (req, res) => {
     });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Vehicle exit error:', error.message);
+    res.status(500).json({ 
+      message: 'Failed to process vehicle exit',
+      error: error.message || 'Server error',
+      timestamp: new Date().toISOString()
+    });
   }
 });
 
@@ -414,8 +466,12 @@ router.put('/:id/charges', [auth, authorize('owner')], [
     });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Vehicle charges error:', error.message);
+    res.status(500).json({ 
+      message: 'Failed to update vehicle charges',
+      error: error.message || 'Server error',
+      timestamp: new Date().toISOString()
+    });
   }
 });
 
@@ -474,8 +530,12 @@ router.get('/stats/dashboard', [auth, authorize('owner')], async (req, res) => {
     res.json(result);
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Dashboard stats error:', error.message);
+    res.status(500).json({ 
+      message: 'Failed to fetch vehicle statistics',
+      error: error.message || 'Server error',
+      timestamp: new Date().toISOString()
+    });
   }
 });
 
@@ -620,8 +680,12 @@ router.post('/grain-entry', [auth, authorize('owner')], [
     });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Grain entry error:', error.message);
+    res.status(500).json({ 
+      message: 'Failed to register grain entry',
+      error: error.message || 'Server error',
+      timestamp: new Date().toISOString()
+    });
   }
 });
 
@@ -678,8 +742,12 @@ router.post('/grain-exit', [auth, authorize('owner')], [
     });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Grain exit error:', error.message);
+    res.status(500).json({ 
+      message: 'Failed to register grain exit',
+      error: error.message || 'Server error',
+      timestamp: new Date().toISOString()
+    });
   }
 });
 

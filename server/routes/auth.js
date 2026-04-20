@@ -85,7 +85,7 @@ router.post('/register', checkDbConnection, [
 
   } catch (error) {
     console.error('Registration error:', error);
-    res.status(500).json({ message: 'Server error during registration', error: error.message });
+    res.status(500).json({ message: 'Server error during registration', error: error.message || 'Server error', timestamp: new Date().toISOString() });
   }
 });
 
@@ -155,8 +155,8 @@ router.post('/login', checkDbConnection, [
     });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Login error:', error.message);
+    res.status(500).json({ message: 'Server error during login', error: error.message || 'Server error', timestamp: new Date().toISOString() });
   }
 });
 
@@ -168,8 +168,8 @@ router.get('/profile', auth, async (req, res) => {
     const user = await User.findById(req.user.id).select('-password');
     res.json(user);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Profile fetch error:', error.message);
+    res.status(500).json({ message: 'Failed to fetch profile', error: error.message || 'Server error', timestamp: new Date().toISOString() });
   }
 });
 
@@ -201,8 +201,8 @@ router.put('/profile', auth, [
     });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Profile update error:', error.message);
+    res.status(500).json({ message: 'Failed to update profile', error: error.message || 'Server error', timestamp: new Date().toISOString() });
   }
 });
 
@@ -234,8 +234,8 @@ router.post('/change-password', auth, [
     res.json({ message: 'Password changed successfully' });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Password change error:', error.message);
+    res.status(500).json({ message: 'Failed to change password', error: error.message || 'Server error', timestamp: new Date().toISOString() });
   }
 });
 
@@ -309,7 +309,7 @@ router.put('/profile', auth, [
 
   } catch (error) {
     console.error('Profile update error:', error);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: 'Failed to update profile', error: error.message || 'Server error', timestamp: new Date().toISOString() });
   }
 });
 
@@ -353,7 +353,7 @@ router.post('/change-password', auth, [
 
   } catch (error) {
     console.error('Password change error:', error);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: 'Failed to change password', error: error.message || 'Server error', timestamp: new Date().toISOString() });
   }
 });
 
@@ -374,8 +374,8 @@ router.get('/owner-settings', auth, async (req, res) => {
       minPaymentAmount:   s.minPaymentAmount   ?? 1,
     });
   } catch (error) {
-    console.error('owner-settings GET error:', error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Owner settings GET error:', error);
+    res.status(500).json({ message: 'Failed to fetch settings', error: error.message || 'Server error', timestamp: new Date().toISOString() });
   }
 });
 
@@ -401,8 +401,8 @@ router.put('/owner-settings', auth, async (req, res) => {
     await user.save();
     res.json({ message: 'Settings saved successfully' });
   } catch (error) {
-    console.error('owner-settings PUT error:', error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Owner settings PUT error:', error);
+    res.status(500).json({ message: 'Failed to save settings', error: error.message || 'Server error', timestamp: new Date().toISOString() });
   }
 });
 

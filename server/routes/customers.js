@@ -67,15 +67,15 @@ router.get('/', [auth, authorize('owner')], async (req, res) => {
     });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Customers fetch error:', error.message);
+    res.status(500).json({ message: 'Failed to fetch customers', error: error.message || 'Server error', timestamp: new Date().toISOString() });
   }
 });
 
 // @route   GET /api/customers/:id
-// @desc    Get customer details
-// @access  Private
-router.get('/:id', auth, async (req, res) => {
+// @desc    Get customer details by ID
+// @access  Private (Owner only)
+router.get('/:id', [auth, authorize('owner')], async (req, res) => {
   try {
     const customer = await User.findById(req.params.id).select('-password');
     
@@ -111,8 +111,8 @@ router.get('/:id', auth, async (req, res) => {
     });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Customer details fetch error:', error.message);
+    res.status(500).json({ message: 'Failed to fetch customer details', error: error.message || 'Server error', timestamp: new Date().toISOString() });
   }
 });
 
@@ -176,8 +176,8 @@ router.get('/stats/dashboard', [auth, authorize('customer')], async (req, res) =
     res.json(stats);
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Dashboard stats error:', error.message);
+    res.status(500).json({ message: 'Failed to fetch dashboard statistics', error: error.message || 'Server error', timestamp: new Date().toISOString() });
   }
 });
 
@@ -213,8 +213,8 @@ router.post('/:id/loans', [auth, authorize('owner')], async (req, res) => {
     });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    console.error('Loan creation error:', error.message);
+    res.status(500).json({ message: 'Failed to create loan', error: error.message || 'Server error', timestamp: new Date().toISOString() });
   }
 });
 
